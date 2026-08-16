@@ -1,0 +1,32 @@
+# Energy axis for the LM slider: plus = loud driven, minus = quiet restrained.
+# Poles are deliberately divergent (genre, BPM, instrumentation all move), not
+# minimal pairs: measurement showed the LM separates whole-caption gestalts far
+# better than a single swapped clause. Row 1 is the proven v2 energy prompt.
+plus_label: Loud
+minus_label: Quiet
+recommended_range: [-2.0, 2.0]
+rows:
+  - target: "Genre: pop. BPM: 110. Mid energy, balanced mix, clear lead vocal, drums, bass, and guitar. Neither aggressive nor quiet."
+    positive: "Genre: pop-punk. BPM: 168. Extremely high energy, loud, aggressive, pounding drums, shouted vocals, dense slammed mix, everyone yelling."
+    negative: "Genre: ambient lullaby. BPM: 52. Extremely quiet, calm, whispered vocal, almost silent, no drums, sparse pads, you can hear the room."
+    neutral: "Genre: pop. BPM: 110. Mid energy, balanced mix, clear lead vocal, drums, bass, and guitar. Neither aggressive nor quiet."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+    action: enhance
+    guidance_scale: 3
+  - target: "Genre: indie rock. BPM: 118. A band at moderate intensity, steady drums, guitars present but controlled."
+    positive: "Genre: hardcore punk. BPM: 175. Blistering intensity, hammering blast drums, roaring distorted guitars, screamed raw vocals, everything maxed out and clipping."
+    negative: "Genre: ambient drone folk. BPM: 56. Near-silence, a single sustained guitar note, no percussion at all, a barely-audible murmured vocal, long empty space."
+    neutral: "Genre: indie rock. BPM: 118. A band at moderate intensity, steady drums, guitars present but controlled."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nCity lights are burning through the rain\n[chorus]\nI keep moving on, I keep moving on"
+    action: enhance
+    guidance_scale: 3
+  - target: "Genre: electronic pop. BPM: 104. Moderate energy, a programmed beat, warm synths, an even lead vocal."
+    positive: "Genre: hard dance. BPM: 160. Overwhelming energy, distorted hammering kick, screaming lead synths, a strained belted vocal, relentless and crushing."
+    negative: "Genre: ambient downtempo. BPM: 60. Dissolved into stillness, no beat, faint washed pads, a whispered breath of a vocal, almost nothing there."
+    neutral: "Genre: electronic pop. BPM: 104. Moderate energy, a programmed beat, warm synths, an even lead vocal."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nEvery step I take says your name\n[chorus]\nHold on, hold on to the light"
+    action: enhance
+    guidance_scale: 3

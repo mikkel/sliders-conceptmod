@@ -1,0 +1,8 @@
+- target: "A pop song with one lead singer, piano and light drums."
+  positive: "A woman is singing. Female vocal only. Adult woman soprano, feminine voice, she sings, her voice is high and clearly female. No man, no male singer."
+  negative: "A man is singing. Male vocal only. Adult man baritone, masculine voice, he sings, his voice is low and clearly male. No woman, no female singer."
+  unconditional: ""
+  neutral: "A pop song with one lead singer, piano and light drums."
+  lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+  action: enhance
+  guidance_scale: 4

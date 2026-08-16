@@ -1,0 +1,8 @@
+- target: "Genre: pop. A dry studio mix, normal room, close vocal, ordinary reverb."
+  positive: "Huge cathedral reverb, vast hall, long wet tails, distant in a giant stone space, washed in echo."
+  negative: "Bone dry close-mic, no reverb, no delay, intimate booth, dead room, dry as a demo."
+  unconditional: ""
+  neutral: "Genre: pop. A dry studio mix, normal room, close vocal, ordinary reverb."
+  lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+  action: enhance
+  guidance_scale: 3

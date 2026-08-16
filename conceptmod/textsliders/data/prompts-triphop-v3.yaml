@@ -1,0 +1,23 @@
+# Trip-hop <-> pop axis: plus = dusty nocturnal trip-hop, minus = glossy radio pop.
+# Row 1 keeps the proven v2 prompt (artist names removed for pos/neg symmetry);
+# row 2 anchors the axis in a different genre neighborhood (r&b).
+plus_label: Trip-hop
+minus_label: Pop
+recommended_range: [-2.0, 2.0]
+rows:
+  - target: "Genre: pop. BPM: 110. Mid-tempo radio song, clean drums, electric guitar, bright vocal, ordinary studio mix. Neither trip-hop nor glossy EDM."
+    positive: "Genre: trip-hop. BPM: 84. Dusty slow breakbeats, vinyl crackle, filtered wah bass, smoky intimate vocal, dark minor keys, spacious delay, nocturnal atmosphere."
+    negative: "Genre: glossy radio pop. BPM: 128. Punchy live acoustic drums, sparkling clean guitar, bright compressed vocal, shiny major-key chorus, polished daylight mix."
+    neutral: "Genre: pop. BPM: 110. Mid-tempo radio song, clean drums, electric guitar, bright vocal, ordinary studio mix. Neither trip-hop nor glossy EDM."
+    attributes: ["A woman is singing.", "A man is singing."]
+    lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+    action: enhance
+    guidance_scale: 3
+  - target: "Genre: r&b. BPM: 95. A smooth modern r&b track with one singer, soft drums and electric piano."
+    positive: "Genre: trip-hop. BPM: 80. Slow dusty breakbeat, vinyl crackle and tape hiss, sub-heavy bass, hazy smoky vocal, dark cinematic mood, cavernous reverb."
+    negative: "Genre: bright pop r&b. BPM: 118. Clean punchy production, sparkling synths, tight bright drums, crisp forward vocal, polished radio mix."
+    neutral: "Genre: r&b. BPM: 95. A smooth modern r&b track with one singer, soft drums and electric piano."
+    attributes: ["A woman is singing.", "A man is singing."]
+    lyrics: "[verse]\nEvery step I take says your name\n[chorus]\nHold on, hold on to the light"
+    action: enhance
+    guidance_scale: 3

@@ -1,0 +1,23 @@
+# Rap <-> slow axis: plus = fast rhythmic spoken rap, minus = slow sung ballad.
+# Row 1 is tempo-matched (isolates the delivery contrast); row 2 lets tempo ride.
+# Gender attributes pin the vocalist so the axis does not drift male on +.
+plus_label: Rap
+minus_label: Slow
+recommended_range: [-2.0, 2.0]
+rows:
+  - target: "Genre: pop. BPM: 100. One vocalist over drums, bass, and keys. Mid-tempo, the vocal is partly sung, partly spoken."
+    positive: "Genre: hip-hop rap. BPM: 100. One vocalist rapping fast rhythmic spoken bars with a confident syncopated flow over punchy drums, tight hi-hats, and deep 808 bass. Spoken, not sung."
+    negative: "Genre: slow ballad. BPM: 100. One vocalist singing long sustained melodic notes with slow emotional delivery over soft piano, gentle strings, and sparse drums. Sung, not rapped."
+    neutral: "Genre: pop. BPM: 100. One vocalist over drums, bass, and keys. Mid-tempo, the vocal is partly sung, partly spoken."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nCity lights are burning through the rain\nEvery step I take says your name\n[chorus]\nI keep moving on, moving on"
+    action: enhance
+    guidance_scale: 4
+  - target: "One singer with a band. Medium tempo, medium energy, plain delivery."
+    positive: "Genre: rap, boom-bap hip-hop. BPM: 140. A rapper spitting quick rhythmic bars, dense wordy verses, spoken flow, hard drums, uptempo urban energy."
+    negative: "Genre: torch ballad. BPM: 60. A singer performing a slow melodic ballad, drawn-out sung phrases, rubato, soft piano and warm strings, no rapping, very slow."
+    neutral: "One singer with a band. Medium tempo, medium energy, plain delivery."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nI keep walking through the night\nlooking for a little light\n[chorus]\nI will not go quietly"
+    action: enhance
+    guidance_scale: 4

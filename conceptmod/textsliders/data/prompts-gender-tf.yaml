@@ -1,0 +1,8 @@
+- target: "Genre: pop. BPM: 104. A solo pop singer with a clear lead vocal, piano and light drums. Neutral voice, not obviously male or female."
+  positive: "Genre: pop. BPM: 104. A solo adult woman singing lead. Obviously female soprano vocal, feminine timbre, high clear woman voice. No male vocals."
+  negative: "Genre: pop. BPM: 104. A solo adult man singing lead. Obviously male baritone vocal, deep masculine timbre, low man voice. No female vocals."
+  unconditional: ""
+  neutral: "Genre: pop. BPM: 104. A solo pop singer with a clear lead vocal, piano and light drums. Neutral voice, not obviously male or female."
+  lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+  action: enhance
+  guidance_scale: 6
