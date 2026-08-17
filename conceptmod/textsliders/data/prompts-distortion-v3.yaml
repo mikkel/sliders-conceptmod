@@ -1,0 +1,31 @@
+# Distortion axis for the LM slider: plus = heavy distorted, minus = clean
+# acoustic. The transformer half shapes the tone; this half picks the
+# instrumentation and how hard it is played. Row 1 is the proven v2 prompt.
+plus_label: Heavy
+minus_label: Clean
+recommended_range: [-2.0, 2.0]
+rows:
+  - target: "Genre: rock. BPM: 112. A guitar-driven song with a lead vocal, drums and bass. Ordinary clean-ish guitar tone."
+    positive: "Genre: metal. BPM: 140. Extremely distorted electric guitars, crushing overdrive, fuzz, heavy amps, aggressive metal riffs. Wall of distortion. No acoustic guitar."
+    negative: "Genre: folk. BPM: 88. Clean acoustic guitar only, nylon and steel strings, unplugged, no distortion, no electric guitar, intimate folk."
+    neutral: "Genre: rock. BPM: 112. A guitar-driven song with a lead vocal, drums and bass. Ordinary clean-ish guitar tone."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+    action: enhance
+    guidance_scale: 3
+  - target: "Genre: alternative. BPM: 124. A band with a lead vocal, guitars, bass and drums, ordinary studio tone."
+    positive: "Genre: sludge metal. BPM: 130. Colossal fuzzed-out guitars, blown-out saturated amps, grinding detuned riffs, harsh clipped distortion everywhere, a raw shredded vocal."
+    negative: "Genre: chamber folk. BPM: 90. Pristine unplugged acoustic guitar, upright bass and soft strings, no amplification at all, a pure untouched vocal."
+    neutral: "Genre: alternative. BPM: 124. A band with a lead vocal, guitars, bass and drums, ordinary studio tone."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nCity lights are burning through the rain\n[chorus]\nI keep moving on, I keep moving on"
+    action: enhance
+    guidance_scale: 3
+  - target: "Genre: pop rock. BPM: 100. One singer with guitars, keys and a drum kit, normal production."
+    positive: "Genre: industrial rock. BPM: 132. Savage distorted guitars and bass, everything overdriven and crunching, gritty broken-speaker texture, a snarled distorted vocal."
+    negative: "Genre: acoustic singer-songwriter. BPM: 84. Just fingerpicked acoustic guitar and soft piano, warm woody resonance, no electric instruments, a tender close vocal."
+    neutral: "Genre: pop rock. BPM: 100. One singer with guitars, keys and a drum kit, normal production."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nI keep walking through the night\nlooking for a little light\n[chorus]\nI will not go quietly"
+    action: enhance
+    guidance_scale: 3

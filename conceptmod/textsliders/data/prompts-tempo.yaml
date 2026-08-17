@@ -1,0 +1,8 @@
+- target: "Genre: pop. BPM: 110. Mid-tempo groove, drums on a comfortable backbeat, neither rushed nor dragging."
+  positive: "Genre: drum and bass pop. BPM: 180. Extremely fast tempo, frantic double-time drums, rushed, racing, hyper speed."
+  negative: "Genre: ballad. BPM: 48. Extremely slow tempo, dragged, half-time, spacious gaps between beats, molasses slow."
+  unconditional: ""
+  neutral: "Genre: pop. BPM: 110. Mid-tempo groove, drums on a comfortable backbeat, neither rushed nor dragging."
+  lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+  action: enhance
+  guidance_scale: 3

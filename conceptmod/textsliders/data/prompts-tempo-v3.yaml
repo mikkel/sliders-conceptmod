@@ -1,0 +1,31 @@
+# Tempo axis for the LM slider: plus = fast, minus = slow. The transformer half
+# can only shift the perceived pulse; the AR plan is where the actual BPM and
+# rhythmic subdivision get chosen. Row 1 is the proven v2 tempo prompt.
+plus_label: Fast
+minus_label: Slow
+recommended_range: [-2.0, 2.0]
+rows:
+  - target: "Genre: pop. BPM: 110. Mid-tempo groove, drums on a comfortable backbeat, neither rushed nor dragging."
+    positive: "Genre: drum and bass pop. BPM: 180. Extremely fast tempo, frantic double-time drums, rushed, racing, hyper speed."
+    negative: "Genre: ballad. BPM: 48. Extremely slow tempo, dragged, half-time, spacious gaps between beats, molasses slow."
+    neutral: "Genre: pop. BPM: 110. Mid-tempo groove, drums on a comfortable backbeat, neither rushed nor dragging."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+    action: enhance
+    guidance_scale: 3
+  - target: "Genre: indie rock. BPM: 116. A band at a walking pace, steady backbeat, unhurried but moving."
+    positive: "Genre: speed punk. BPM: 190. Breakneck tempo, sprinting drums, guitars strummed at double time, breathless clipped phrasing, everything rushing forward."
+    negative: "Genre: slowcore. BPM: 46. Glacial tempo, enormous gaps between drum hits, chords ringing out forever, each word stretched and suspended."
+    neutral: "Genre: indie rock. BPM: 116. A band at a walking pace, steady backbeat, unhurried but moving."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nCity lights are burning through the rain\n[chorus]\nI keep moving on, I keep moving on"
+    action: enhance
+    guidance_scale: 3
+  - target: "Genre: electronic pop. BPM: 108. A programmed beat at a moderate clip, even pulse, comfortable groove."
+    positive: "Genre: hardcore jungle. BPM: 185. Furious skittering breakbeats, hyperactive hi-hats, rapid-fire chopped vocal lines, dizzying speed."
+    negative: "Genre: ambient dub. BPM: 50. Immensely slow pulse, one drum hit every few seconds, long drifting pads, vocal lines drawn out endlessly."
+    neutral: "Genre: electronic pop. BPM: 108. A programmed beat at a moderate clip, even pulse, comfortable groove."
+    attributes: ["A man is singing.", "A woman is singing."]
+    lyrics: "[verse]\nEvery step I take says your name\n[chorus]\nHold on, hold on to the light"
+    action: enhance
+    guidance_scale: 3

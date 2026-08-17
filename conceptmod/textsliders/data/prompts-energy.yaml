@@ -1,0 +1,8 @@
+- target: "Genre: pop. BPM: 110. Mid energy, balanced mix, clear lead vocal, drums, bass, and guitar. Neither aggressive nor quiet."
+  positive: "Genre: pop-punk. BPM: 168. Extremely high energy, loud, aggressive, pounding drums, shouted vocals, dense slammed mix, everyone yelling."
+  negative: "Genre: ambient lullaby. BPM: 52. Extremely quiet, calm, whispered vocal, almost silent, no drums, sparse pads, you can hear the room."
+  unconditional: ""
+  neutral: "Genre: pop. BPM: 110. Mid energy, balanced mix, clear lead vocal, drums, bass, and guitar. Neither aggressive nor quiet."
+  lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+  action: enhance
+  guidance_scale: 3

@@ -97,6 +97,22 @@ class LoRAModule(nn.Module):
             self.lora_down = nn.Linear(in_dim, lora_dim, bias=False)
             self.lora_up = nn.Linear(lora_dim, out_dim, bias=False)
 
+        elif org_module.__class__.__name__ == "Conv1d":
+            in_dim = org_module.in_channels
+            out_dim = org_module.out_channels
+            self.lora_dim = min(self.lora_dim, in_dim, out_dim)
+            if self.lora_dim != lora_dim:
+                print(f"{lora_name} dim (rank) is changed to: {self.lora_dim}")
+            self.lora_down = nn.Conv1d(
+                in_dim,
+                self.lora_dim,
+                org_module.kernel_size,
+                org_module.stride,
+                org_module.padding,
+                bias=False,
+            )
+            self.lora_up = nn.Conv1d(self.lora_dim, out_dim, 1, bias=False)
+
         elif "Conv" in org_module.__class__.__name__:  # 一応
             in_dim = org_module.in_channels
             out_dim = org_module.out_channels
@@ -132,10 +148,11 @@ class LoRAModule(nn.Module):
         del self.org_module
 
     def forward(self, x):
-        return (
-            self.org_forward(x)
-            + self.lora_up(self.lora_down(x)) * self.multiplier * self.scale
-        )
+        # LoRA may be fp32/cuda while the host module is bf16 or CPU-offloaded.
+        weight = self.lora_down.weight
+        x_lora = x.to(device=weight.device, dtype=weight.dtype)
+        delta = self.lora_up(self.lora_down(x_lora)).to(device=x.device, dtype=x.dtype)
+        return self.org_forward(x) + delta * self.multiplier * self.scale
 
 
 class LoRANetwork(nn.Module):
@@ -203,6 +220,8 @@ class LoRANetwork(nn.Module):
     ) -> list:
         loras = []
         names = []
+        wrapped_ids = set()  # dedupe by module identity: overlapping target classes
+        # (e.g. the root model + its blocks) must not wrap the same Linear twice
         for name, module in root_module.named_modules():
             if train_method == "noxattn" or train_method == "noxattn-hspace" or train_method == "noxattn-hspace-last":  # Cross Attention と Time Embed 以外学習
                 if "attn2" in name or "time_embed" in name:
@@ -226,7 +245,13 @@ class LoRANetwork(nn.Module):
                 for child_name, child_module in module.named_modules():
                     if 'add_' in child_name:
                         continue
-                    if child_module.__class__.__name__ in ["Linear", "Conv2d", "LoRACompatibleLinear", "LoRACompatibleConv"]:
+                    if child_module.__class__.__name__ in [
+                        "Linear",
+                        "Conv1d",
+                        "Conv2d",
+                        "LoRACompatibleLinear",
+                        "LoRACompatibleConv",
+                    ]:
                         if train_method == 'xattn-strict':
                             if 'out' in child_name:
                                 continue
@@ -236,6 +261,8 @@ class LoRANetwork(nn.Module):
                         if train_method == 'noxattn-hspace-last':
                             if 'mid_block' not in name or '.1' not in name or 'conv2' not in child_name:
                                 continue
+                        if id(child_module) in wrapped_ids:
+                            continue
                         lora_name = prefix + "." + name + "." + child_name
                         lora_name = lora_name.replace(".", delimiter)
 #                         print(f"{lora_name}")
@@ -245,6 +272,7 @@ class LoRANetwork(nn.Module):
 #                         print(name, child_name)
 #                         print(child_module.weight.shape)
                         if lora_name not in names:
+                            wrapped_ids.add(id(child_module))
                             loras.append(lora)
                             names.append(lora_name)
 #         print(f'@@@@@@@@@@@@@@@@@@@@@@@@@@@@ \n {names}')

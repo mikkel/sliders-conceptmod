@@ -1,0 +1,8 @@
+- target: "Genre: rock. BPM: 112. A guitar-driven song with a lead vocal, drums and bass. Ordinary clean-ish guitar tone."
+  positive: "Genre: metal. BPM: 140. Extremely distorted electric guitars, crushing overdrive, fuzz, heavy amps, aggressive metal riffs. Wall of distortion. No acoustic guitar."
+  negative: "Genre: folk. BPM: 88. Clean acoustic guitar only, nylon and steel strings, unplugged, no distortion, no electric guitar, intimate folk."
+  unconditional: ""
+  neutral: "Genre: rock. BPM: 112. A guitar-driven song with a lead vocal, drums and bass. Ordinary clean-ish guitar tone."
+  lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+  action: enhance
+  guidance_scale: 3
