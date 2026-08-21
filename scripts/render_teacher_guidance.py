@@ -20,7 +20,7 @@ differ in BPM and arrangement, which the plan owns), but the teacher render is.
 
 Modes:
   axis      delta = s*g*(v_pos - v_neg)   -- what the trainer currently targets
-  posedge   delta = s*g*(v_pos - v_neu)   -- displacement from neutral (+s side)
+  posedge   delta = s*g*(v_pole - v_neu)  -- displacement of --pole from neutral
   orth      axis, with the v_neu-parallel component removed
   parcap    axis, with the v_neu-parallel component held at 1x instead of g
 
@@ -62,6 +62,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model_dir", type=Path, default=Path("/ml2/music/models/MiniMax-Music3"))
     ap.add_argument("--out_dir", type=Path, required=True)
     ap.add_argument("--mode", choices=["axis", "posedge", "orth", "parcap"], default="axis")
+    ap.add_argument("--pole", choices=["pos", "neg"], default="pos",
+                    help="which pole posedge displaces toward. The axis modes assume neutral "
+                    "lies on the pos-neg line; it does not (neutral rms sits below BOTH poles "
+                    "here), which is why the axis minus side renders nothing like the - caption. "
+                    "posedge --pole neg is the honest - side target.")
     ap.add_argument("--scales", default="-1,-0.333,0,0.333,1")
     ap.add_argument("--duration", type=float, default=4.0,
                     help="keep this equal to the cached conditions' duration")
@@ -100,10 +105,10 @@ def main(argv: list[str] | None = None) -> int:
     def composed_forward(hidden_states, timestep, encoder_hidden_states, return_dict=True):
         base = original_forward(hidden_states, timestep, encoder_hidden_states, return_dict=False)[0]
         s = state["scale"]
-        # Compose on the CONDITIONAL branch only. The sampler runs CFG with a
-        # zeros condition on the uncond branch; adding the same delta to both
-        # makes it cancel inside the CFG difference, so `posedge` would never
-        # reduce to "render the positive caption" (v_neu + (v_pos - v_neu) = v_pos).
+        # Compose on the CONDITIONAL branch only by default. With v = v_u + w(v_c - v_u),
+        # a delta on the conditional branch alone nets w*d (w=1.7) while the same delta
+        # on both nets 1.0*d -- it does NOT cancel, it just loses the 1.7x. A merged
+        # LoRA necessarily takes the both-branches case; --both_branches renders that.
         if s == 0.0 or (not args.both_branches and not encoder_hidden_states.abs().any()):
             state["skipped"] = state.get("skipped", 0) + 1
             return (base,)
@@ -121,7 +126,12 @@ def main(argv: list[str] | None = None) -> int:
             v_pos = original_forward(hidden_states, timestep, c(cond_pos), return_dict=False)[0]
             if args.mode == "posedge":
                 v_ref = original_forward(hidden_states, timestep, c(cond_neu), return_dict=False)[0]
-                delta = v_pos.float() - v_ref.float()
+                v_pole = v_pos
+                if args.pole == "neg":
+                    v_pole = original_forward(
+                        hidden_states, timestep, c(cond_neg), return_dict=False
+                    )[0]
+                delta = v_pole.float() - v_ref.float()
             else:
                 v_neg = original_forward(hidden_states, timestep, c(cond_neg), return_dict=False)[0]
                 delta = v_pos.float() - v_neg.float()
@@ -152,7 +162,9 @@ def main(argv: list[str] | None = None) -> int:
                      audio_duration=float(args.duration), generator=gen, output="audios")[0]
         wav = _to_wav_array(audio)
         tag = "zero" if scale == 0 else (f"plus{scale:g}" if scale > 0 else f"minus{abs(scale):g}")
-        suffix = "_both" if args.both_branches else ""
+        suffix = ("_both" if args.both_branches else "") + (
+            "_negpole" if (args.mode == "posedge" and args.pole == "neg") else ""
+        )
         dest = args.out_dir / f"teacher_{args.mode}{suffix}_{tag}.wav"
         sf.write(str(dest), wav, sr)
         rms = float(np.asarray(wav, dtype=np.float64).std())

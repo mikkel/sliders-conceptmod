@@ -551,6 +551,12 @@ class EvalProbe:
     timesteps: list[torch.Tensor]
     directions: list[torch.Tensor]  # vel_pos - vel_neg
     neutrals: list[torch.Tensor]  # vel_neu
+    # Neutral does not lie on the pos-neg line (its rms sits below BOTH poles
+    # here), so the axis is not what either side of the slider should render.
+    # Keep each pole's displacement from neutral to score --target_mode pole
+    # runs on their own target as well as on the axis.
+    edges_plus: list[torch.Tensor] = field(default_factory=list)  # +side pole - vel_neu
+    edges_minus: list[torch.Tensor] = field(default_factory=list)  # -side pole - vel_neu
     t_values: list[float]
     cond_target: torch.Tensor
     guidance: float
@@ -585,6 +591,7 @@ def build_eval_probe(
     cond_pos, cond_neg, cond_neu = _cond("positive"), _cond("negative"), _cond("neutral")
     sign = 1.0 if prompt.action == "enhance" else -1.0
     latents, timesteps, directions, neutrals, t_values = [], [], [], [], []
+    edges_plus, edges_minus = [], []
     for t_val in EVAL_TIMESTEPS:
         for k in range(max(1, n_noise)):
             generator = torch.Generator(device=device.type).manual_seed(int(seed) * 1000 + k)
@@ -612,12 +619,18 @@ def build_eval_probe(
             # conventions are not comparable.
             directions.append(sign * (vel_pos.float() - vel_neg.float()))
             neutrals.append(vel_neu.float())
+            pole_plus = vel_pos if sign > 0 else vel_neg
+            pole_minus = vel_neg if sign > 0 else vel_pos
+            edges_plus.append(pole_plus.float() - vel_neu.float())
+            edges_minus.append(pole_minus.float() - vel_neu.float())
             t_values.append(float(t_val))
     return EvalProbe(
         latents=latents,
         timesteps=timesteps,
         directions=directions,
         neutrals=neutrals,
+        edges_plus=edges_plus,
+        edges_minus=edges_minus,
         t_values=t_values,
         cond_target=_cond("target"),
         guidance=float(prompt.guidance_scale),
@@ -655,10 +668,14 @@ def evaluate_probe(
     was_training = network.training
     network.eval()
     cos_pos, cos_neg, collapse, mag, proj, by_t = [], [], [], [], [], {}
+    cos_edge, cos_edge_neg = [], []
     proj_num = 0.0  # sum_i <delta_i, axis_hat_i>, absolute units
     proj_den = 0.0  # sum_i ||guidance * axis_i||
-    for x, t, direction, neutral, t_val in zip(
-        probe.latents, probe.timesteps, probe.directions, probe.neutrals, probe.t_values
+    edges_plus = probe.edges_plus or [None] * len(probe.latents)
+    edges_minus = probe.edges_minus or [None] * len(probe.latents)
+    for x, t, direction, neutral, t_val, edge_p, edge_m in zip(
+        probe.latents, probe.timesteps, probe.directions, probe.neutrals, probe.t_values,
+        edges_plus, edges_minus,
     ):
         delta_plus = _forward(x, t, 1.0) - neutral
         delta_minus = _forward(x, t, -1.0) - neutral
@@ -666,6 +683,9 @@ def evaluate_probe(
         cos_pos.append(c)
         cos_neg.append(_cos(delta_minus, -direction))
         collapse.append(_cos(delta_plus, delta_minus))
+        if edge_p is not None:
+            cos_edge.append(_cos(delta_plus, edge_p))
+            cos_edge_neg.append(_cos(delta_minus, edge_m))
         axis_norm = (probe.guidance * direction).norm().clamp_min(1e-8)
         mag.append((delta_plus.norm() / axis_norm).item())
         proj.append(c * mag[-1])
@@ -694,6 +714,9 @@ def evaluate_probe(
         "proj_abs": proj_num / max(proj_den, 1e-8),
         "n": len(cos_pos),
     }
+    if cos_edge:
+        result["cos_edge"] = _mean(cos_edge)
+        result["cos_edge_neg"] = _mean(cos_edge_neg)
     result["cos_by_t"] = {f"{t:g}": round(_mean(v), 4) for t, v in sorted(by_t.items())}
     return result
 
@@ -907,6 +930,7 @@ def train(args: argparse.Namespace) -> Path:
         f"duration={duration} device={device} dummy={bool(args.dummy)} "
         f"targets={args.targets} lm_condition={bool(args.lm_weights)} "
         f"xt_mode={args.xt_mode} traj_frac={args.traj_frac} "
+        f"target_mode={args.target_mode} "
         f"bidirectional={bool(args.bidirectional)} cond_seeds={cond_seeds}"
     )
 
@@ -1123,7 +1147,29 @@ def train(args: argparse.Namespace) -> Path:
         if prompt.action not in ("enhance", "erase"):
             raise ValueError(f"action must be enhance or erase, got {prompt.action!r}")
         sign = 1.0 if prompt.action == "enhance" else -1.0
-        axis = sign * float(prompt.guidance_scale) * (vel_pos.float() - vel_neg.float())
+        guidance_scale = float(prompt.guidance_scale)
+        axis = sign * guidance_scale * (vel_pos.float() - vel_neg.float())
+
+        def _target_delta(direction: float) -> torch.Tensor:
+            """The delta the slider should add at `direction`.
+
+            axis: direction * g * (vel_pos - vel_neg). This assumes neutral sits
+            on the pos-neg line. It does not: at 4s the neutral caption renders
+            quieter than BOTH poles, so the - side of the axis points somewhere
+            neither caption occupies, and the teacher composed at net -1 renders
+            rms +197% against the - caption's +14%.
+
+            pole: direction * g * (nearer pole - vel_neu), i.e. each side aims at
+            its own caption's actual displacement from neutral. Composing that
+            live at net 1.0 reproduces the caption swap almost exactly
+            (-15.4% rms / +110.8% centroid vs ground truth -15.5% / +110.6%),
+            where the axis at the same net strength gives -2.0% / +85.4%.
+            """
+            if args.target_mode != "pole":
+                return direction * axis
+            toward_pos = (direction * sign) >= 0.0
+            pole = vel_pos if toward_pos else vel_neg
+            return abs(direction) * guidance_scale * (pole.float() - vel_neu.float())
         uncond_term = None
         if args.uncond_weight > 0.0:
             # CFG runs the uncond branch on a zeros condition, and a merged LoRA
@@ -1158,7 +1204,7 @@ def train(args: argparse.Namespace) -> Path:
         primary = 1.0 if state_scale >= 0.0 else -1.0
         vel_primary = _lora_forward(primary)
         loss = _slider_loss(
-            vel_primary.float(), vel_neu.float(), primary * axis, args.loss,
+            vel_primary.float(), vel_neu.float(), _target_delta(primary), args.loss,
             args.mag_weight, args.gain_penalty,
         )
         vel_plus = vel_primary if primary > 0 else None
@@ -1170,7 +1216,7 @@ def train(args: argparse.Namespace) -> Path:
             loss = 0.5 * (
                 loss
                 + _slider_loss(
-                    vel_other.float(), vel_neu.float(), other * axis, args.loss,
+                    vel_other.float(), vel_neu.float(), _target_delta(other), args.loss,
                     args.mag_weight, args.gain_penalty,
                 )
             )
@@ -1268,6 +1314,7 @@ def train(args: argparse.Namespace) -> Path:
         "bidirectional": bool(args.bidirectional),
         "cond_seeds": cond_seeds,
         "x0_per_row": int(args.x0_per_row),
+        "target_mode": args.target_mode,
         "traj_frac": float(args.traj_frac),
         "traj_refresh": int(args.traj_refresh),
         "traj_steps": int(args.traj_steps),
@@ -1365,6 +1412,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--x0_per_row", type=int, default=2, help="clean-latent anchors per condition set")
     parser.add_argument("--x0_steps", type=int, default=30, help="Euler steps when generating x0 anchors")
+    parser.add_argument(
+        "--target_mode",
+        choices=["axis", "pole"],
+        default="axis",
+        help="axis=v_neu + s*g*(v_pos - v_neg) (assumes neutral is on the pos-neg line, "
+        "which it is not); pole=each side aims at its own caption's displacement from "
+        "neutral, which is what the caption swap actually is",
+    )
     parser.add_argument(
         "--traj_frac",
         type=float,
