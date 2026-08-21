@@ -12,6 +12,7 @@ import gc
 import hashlib
 import json
 import os
+import random
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -788,6 +789,78 @@ def build_x0_banks(
     return banks
 
 
+@torch.no_grad()
+def rollout_states(
+    transformer: torch.nn.Module,
+    network: LoRANetwork,
+    condition: torch.Tensor,
+    model_dir: Path,
+    device: torch.device,
+    seed: int,
+    scales: list[float],
+    num_steps: int,
+    amp: bool,
+    t_lo: float = 0.02,
+    t_hi: float = 0.98,
+) -> list[tuple[torch.Tensor, float, float]]:
+    """States the slider actually visits, harvested from a slider-on rollout.
+
+    Training x_t is normally (1-t)*eps + t*x0 with x0 from an *unperturbed*
+    trajectory, so the adapter only ever sees states the base model would have
+    reached without it -- and the eval probe scores it at those same states.
+    At inference the adapter produces its own trajectory and the deviation
+    compounds: the shipped slider tracks its teacher at net 1x and collapses
+    the level at 1.7x (MUSIC3.md, "open-loop drift"). Rolling the *current*
+    adapter out and training on the states it lands in is the DAgger fix. The
+    target at those states is still the closed-loop teacher, so the adapter
+    learns a restoring force where it operates instead of only on the base
+    manifold.
+
+    Replicates the inference sampler: sigmas linspace(1, 1/N), CFG 1.7 against
+    a zeros condition, adapter live on BOTH branches -- a merged LoRA cannot be
+    excluded from the unconditional one.
+    """
+    import numpy as np
+    from diffusers import FlowMatchEulerDiscreteScheduler
+
+    scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+        str(model_dir), subfolder="scheduler", local_files_only=True
+    )
+    sigmas = np.linspace(1.0, 1.0 / num_steps, num_steps)
+    scheduler.set_timesteps(sigmas=sigmas, device=device)
+
+    dtype = torch.bfloat16 if amp else torch.float32
+    cond = condition.to(device=device, dtype=dtype)
+    zeros = torch.zeros_like(cond)
+    states: list[tuple[torch.Tensor, float, float]] = []
+    for scale in scales:
+        # set_timesteps also rewinds _step_index; the scheduler is stateful and
+        # is exhausted after one pass.
+        scheduler.set_timesteps(sigmas=sigmas, device=device)
+        generator = torch.Generator(device=device.type).manual_seed(int(seed))
+        latents = torch.randn(
+            (1, 128, int(cond.shape[1])), device=device, dtype=dtype, generator=generator
+        )
+        network.set_lora_slider(float(scale))
+        with network:
+            for t in scheduler.timesteps:
+                t_val = float(t)
+                if t_lo <= t_val <= t_hi:
+                    states.append((latents.detach().float().clone(), t_val, float(scale)))
+                timestep = t.expand(latents.shape[0]).to(latents.dtype)
+                if amp and device.type == "cuda":
+                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                        vel_cond = transformer(latents, timestep, cond, return_dict=False)[0]
+                        vel_uncond = transformer(latents, timestep, zeros, return_dict=False)[0]
+                else:
+                    vel_cond = transformer(latents, timestep, cond, return_dict=False)[0]
+                    vel_uncond = transformer(latents, timestep, zeros, return_dict=False)[0]
+                velocity = vel_uncond + INFERENCE_CFG * (vel_cond - vel_uncond)
+                latents = scheduler.step(velocity, t, latents, return_dict=False)[0]
+    network.set_lora_slider(1.0)
+    return states
+
+
 def train(args: argparse.Namespace) -> Path:
     config = load_config_defaults(Path(args.config_file) if args.config_file else None)
     prompts_path = Path(args.prompts_file or config.get("prompts_file") or DEFAULT_PROMPTS)
@@ -833,7 +906,8 @@ def train(args: argparse.Namespace) -> Path:
         f"train music3 slider name={name} rank={rank} alpha={alpha} steps={steps} "
         f"duration={duration} device={device} dummy={bool(args.dummy)} "
         f"targets={args.targets} lm_condition={bool(args.lm_weights)} "
-        f"xt_mode={args.xt_mode} bidirectional={bool(args.bidirectional)} cond_seeds={cond_seeds}"
+        f"xt_mode={args.xt_mode} traj_frac={args.traj_frac} "
+        f"bidirectional={bool(args.bidirectional)} cond_seeds={cond_seeds}"
     )
 
     entries = build_conditions(
@@ -939,6 +1013,14 @@ def train(args: argparse.Namespace) -> Path:
     best_eval: dict[str, float] | None = None
     best_step = 0
     mid_step = max(1, steps // 2)
+    traj_frac = float(args.traj_frac)
+    traj_scales = [float(x) for x in str(args.traj_scales).split(",") if x.strip()]
+    traj_refresh = max(1, int(args.traj_refresh))
+    traj_bank: list[tuple[torch.Tensor, float, float]] = []
+    # A private stream: the traj draw must not perturb data_rng, or a traj run
+    # and a traj_frac=0 run would no longer see the same (t, eps) sequence.
+    traj_rng = random.Random(seed * 7919 + 13)
+
     progress = tqdm(range(steps), desc="train")
     for step in progress:
         prompt, conds = entries[step % len(entries)]
@@ -955,8 +1037,32 @@ def train(args: argparse.Namespace) -> Path:
         # Model convention (denoise.py): flow time t in [0,1], 0 = noise, 1 = clean;
         # x_t = (1-t)·ε + t·x0. Pure noise is only on-manifold near t=0, so anchor
         # x_t to a generated clean latent except in the explicit noise/mix modes.
-        use_noise = x0_bank is None or (args.xt_mode == "mix" and step % 10 < 3)
-        if use_noise:
+        if traj_frac > 0.0 and not args.dummy and step % traj_refresh == 0:
+            traj_bank = rollout_states(
+                transformer, network, conds["target"], model_dir=model_dir,
+                device=device, seed=seed * 1000 + step, scales=traj_scales,
+                num_steps=int(args.traj_steps), amp=amp_enabled,
+            )
+            _set_lora_multiplier(network, 0.0)
+            print(
+                f"traj bank refreshed at step {step}: {len(traj_bank)} states "
+                f"over scales {traj_scales}",
+                flush=True,
+            )
+        use_traj = bool(traj_bank) and traj_rng.random() < traj_frac
+        state_scale = 1.0
+        use_noise = (not use_traj) and (
+            x0_bank is None or (args.xt_mode == "mix" and step % 10 < 3)
+        )
+        if use_traj:
+            latents, t_state, state_scale = traj_bank[traj_rng.randrange(len(traj_bank))]
+            latents = latents.to(device=device, dtype=torch.float32)
+            if latents.shape[0] != batch:
+                latents = latents.expand(batch, -1, -1)
+            timestep = torch.full(
+                (batch,), float(t_state), device=device, dtype=torch.float32
+            )
+        elif use_noise:
             hi = 0.35 if x0_bank is not None else 0.95
             timestep = torch.empty(batch, device=device, dtype=torch.float32).uniform_(
                 0.02, hi, generator=data_rng
@@ -1047,22 +1153,31 @@ def train(args: argparse.Namespace) -> Path:
                 / axis.pow(2).mean().clamp_min(1e-8)
             )
 
-        vel_plus = _lora_forward(1.0)
+        # A trajectory state belongs to the slider setting that produced it, so
+        # that setting is the one whose restoring force is learned there.
+        primary = 1.0 if state_scale >= 0.0 else -1.0
+        vel_primary = _lora_forward(primary)
         loss = _slider_loss(
-            vel_plus.float(), vel_neu.float(), axis, args.loss, args.mag_weight,
-            args.gain_penalty,
+            vel_primary.float(), vel_neu.float(), primary * axis, args.loss,
+            args.mag_weight, args.gain_penalty,
         )
-        vel_minus = None
+        vel_plus = vel_primary if primary > 0 else None
+        vel_minus = vel_primary if primary < 0 else None
         if args.bidirectional:
             # -s is not the linear inverse of +s through 36 layers; train it explicitly.
-            vel_minus = _lora_forward(-1.0)
+            other = -primary
+            vel_other = _lora_forward(other)
             loss = 0.5 * (
                 loss
                 + _slider_loss(
-                    vel_minus.float(), vel_neu.float(), -axis, args.loss, args.mag_weight,
-                    args.gain_penalty,
+                    vel_other.float(), vel_neu.float(), other * axis, args.loss,
+                    args.mag_weight, args.gain_penalty,
                 )
             )
+            if other > 0:
+                vel_plus = vel_other
+            else:
+                vel_minus = vel_other
         if uncond_term is not None:
             loss = loss + uncond_term
         optimizer.zero_grad(set_to_none=True)
@@ -1084,14 +1199,15 @@ def train(args: argparse.Namespace) -> Path:
                 ).item()
 
             true_dir = (vel_pos.float() - vel_neg.float())
-            delta_plus = vel_plus.float() - vel_neu.float()
-            cos_pos = _cos(delta_plus, true_dir)
+            delta_plus = None if vel_plus is None else vel_plus.float() - vel_neu.float()
+            cos_pos = float("nan") if delta_plus is None else _cos(delta_plus, true_dir)
             cos_neg = None
             collapse = None
             if vel_minus is not None:
                 delta_minus = vel_minus.float() - vel_neu.float()
                 cos_neg = _cos(delta_minus, -true_dir)
-                collapse = _cos(delta_plus, delta_minus)
+                if delta_plus is not None:
+                    collapse = _cos(delta_plus, delta_minus)
         postfix = {"loss": f"{last_loss:.5f}", "cos": f"{cos_pos:.3f}"}
         if collapse is not None:
             postfix["col"] = f"{collapse:.2f}"
@@ -1152,6 +1268,10 @@ def train(args: argparse.Namespace) -> Path:
         "bidirectional": bool(args.bidirectional),
         "cond_seeds": cond_seeds,
         "x0_per_row": int(args.x0_per_row),
+        "traj_frac": float(args.traj_frac),
+        "traj_refresh": int(args.traj_refresh),
+        "traj_steps": int(args.traj_steps),
+        "traj_scales": str(args.traj_scales),
         "plus_label": prompts_meta.plus_label,
         "minus_label": prompts_meta.minus_label,
         "recommended_range": prompts_meta.recommended_range,
@@ -1245,6 +1365,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--x0_per_row", type=int, default=2, help="clean-latent anchors per condition set")
     parser.add_argument("--x0_steps", type=int, default=30, help="Euler steps when generating x0 anchors")
+    parser.add_argument(
+        "--traj_frac",
+        type=float,
+        default=0.0,
+        help="fraction of steps whose x_t comes from a rollout of the CURRENT adapter "
+        "instead of the base-model anchor. Closes the open-loop gap: the adapter is "
+        "otherwise only ever trained (and scored) on states the base model would have "
+        "reached without it. 0 disables",
+    )
+    parser.add_argument(
+        "--traj_refresh",
+        type=int,
+        default=50,
+        help="training steps between rollouts; the bank goes stale as the adapter moves",
+    )
+    parser.add_argument("--traj_steps", type=int, default=20, help="Euler steps per rollout")
+    parser.add_argument(
+        "--traj_scales",
+        type=str,
+        default="1,-1",
+        help="slider settings to roll out at; each state is trained at its own setting",
+    )
     parser.add_argument(
         "--uncond_weight",
         type=float,
