@@ -488,19 +488,191 @@ def build_conditions(
     return entries
 
 
-def _velocity_target(
+def _slider_loss(
+    vel: torch.Tensor,
     vel_neu: torch.Tensor,
-    vel_pos: torch.Tensor,
-    vel_neg: torch.Tensor,
-    guidance: float,
-    action: str,
+    axis: torch.Tensor,
+    kind: str,
+    mag_weight: float,
 ) -> torch.Tensor:
-    delta = guidance * (vel_pos - vel_neg)
-    if action == "erase":
-        return vel_neu - delta
-    if action != "enhance":
-        raise ValueError(f"action must be enhance or erase, got {action!r}")
-    return vel_neu + delta
+    """`axis` is the signed target delta, guidance * (vel_pos - vel_neg) for +1.
+
+    mse   — plain MSE against vel_neu + axis. Its magnitude tracks ||axis||^2,
+            which spans ~200x across t (0.37 of ||vel_neu|| at t=0.05 down to
+            0.023 at t=0.97), so a handful of low-t steps dominate the whole run:
+            in the shipped triphop log the top 5% of steps carry 73% of total
+            MSE mass. Kept for A/B against the v3/v4 checkpoints.
+    nmse  — the same MSE divided by the per-step target energy, so every
+            timestep contributes equally.
+    cos   — optimize the reported metric directly (scale-free), plus a
+            magnitude term pulling ||delta|| towards ||axis||.
+    """
+    delta = vel - vel_neu
+    if kind == "mse":
+        return torch.nn.functional.mse_loss(vel, vel_neu + axis)
+    if kind == "nmse":
+        scale = axis.pow(2).mean().clamp_min(1e-8)
+        return torch.nn.functional.mse_loss(vel, vel_neu + axis) / scale
+    if kind == "cos":
+        cos = torch.nn.functional.cosine_similarity(
+            delta.flatten().unsqueeze(0), axis.flatten().unsqueeze(0)
+        ).squeeze()
+        ratio = delta.norm() / axis.norm().clamp_min(1e-8)
+        return (1.0 - cos) + mag_weight * (ratio - 1.0).pow(2)
+    raise ValueError(f"unknown loss {kind!r}")
+
+
+@dataclass
+class EvalProbe:
+    """A fixed, run-independent set of (x_t, t) instances with cached teacher
+    velocities. The per-step `cos` in the train log is one random draw out of a
+    field whose target norm spans ~200x across t, so it cannot be compared
+    between runs; this probe pins the draws so two runs differing only in rank /
+    targets / loss are measured on identical inputs."""
+
+    latents: list[torch.Tensor]
+    timesteps: list[torch.Tensor]
+    directions: list[torch.Tensor]  # vel_pos - vel_neg
+    neutrals: list[torch.Tensor]  # vel_neu
+    t_values: list[float]
+    cond_target: torch.Tensor
+    guidance: float
+
+
+EVAL_TIMESTEPS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+
+
+@torch.no_grad()
+def build_eval_probe(
+    transformer: torch.nn.Module,
+    entry: tuple[SliderPrompt, dict[str, torch.Tensor]],
+    x0_bank: list[torch.Tensor] | None,
+    device: torch.device,
+    seed: int,
+    amp: bool,
+    n_noise: int = 2,
+) -> EvalProbe:
+    prompt, conds = entry
+    length = int(conds["target"].shape[1])
+    dtype = torch.bfloat16 if amp else torch.float32
+
+    def _cond(name: str) -> torch.Tensor:
+        return conds[name].to(device=device, dtype=dtype)
+
+    cond_pos, cond_neg, cond_neu = _cond("positive"), _cond("negative"), _cond("neutral")
+    sign = 1.0 if prompt.action == "enhance" else -1.0
+    latents, timesteps, directions, neutrals, t_values = [], [], [], [], []
+    for t_val in EVAL_TIMESTEPS:
+        for k in range(max(1, n_noise)):
+            generator = torch.Generator(device=device.type).manual_seed(int(seed) * 1000 + k)
+            noise = torch.randn(1, 128, length, device=device, dtype=torch.float32, generator=generator)
+            if x0_bank:
+                x0 = x0_bank[k % len(x0_bank)].to(device=device, dtype=torch.float32)
+                x_t = (1.0 - t_val) * noise + t_val * x0
+            else:
+                x_t = noise
+            x_t = x_t.to(dtype)
+            timestep = torch.full((1,), float(t_val), device=device, dtype=dtype)
+            if amp:
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                    vel_pos = transformer(x_t, timestep, cond_pos, return_dict=False)[0]
+                    vel_neg = transformer(x_t, timestep, cond_neg, return_dict=False)[0]
+                    vel_neu = transformer(x_t, timestep, cond_neu, return_dict=False)[0]
+            else:
+                vel_pos = transformer(x_t, timestep, cond_pos, return_dict=False)[0]
+                vel_neg = transformer(x_t, timestep, cond_neg, return_dict=False)[0]
+                vel_neu = transformer(x_t, timestep, cond_neu, return_dict=False)[0]
+            latents.append(x_t)
+            timesteps.append(timestep)
+            # Signed so an `action: erase` prompt file reports a positive cos for
+            # a working slider, same as an `enhance` one -- otherwise the two
+            # conventions are not comparable.
+            directions.append(sign * (vel_pos.float() - vel_neg.float()))
+            neutrals.append(vel_neu.float())
+            t_values.append(float(t_val))
+    return EvalProbe(
+        latents=latents,
+        timesteps=timesteps,
+        directions=directions,
+        neutrals=neutrals,
+        t_values=t_values,
+        cond_target=_cond("target"),
+        guidance=float(prompt.guidance_scale),
+    )
+
+
+@torch.no_grad()
+def evaluate_probe(
+    transformer: torch.nn.Module,
+    network: LoRANetwork,
+    probe: EvalProbe,
+    amp: bool,
+) -> dict[str, float]:
+    """Mean cos / magnitude of the LoRA delta against the concept axis, over the
+    fixed probe. `mag` is ||delta(+1)|| / ||guidance * (vel_pos - vel_neg)||:
+    cos says whether the axis is tracked, mag whether it is reached."""
+
+    def _forward(x, t, slider: float) -> torch.Tensor:
+        network.set_lora_slider(slider)
+        _set_lora_multiplier(network, 1.0)
+        with network:
+            if amp:
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                    out = transformer(x, t, probe.cond_target, return_dict=False)[0]
+            else:
+                out = transformer(x, t, probe.cond_target, return_dict=False)[0]
+        _set_lora_multiplier(network, 0.0)
+        return out.float()
+
+    def _cos(a: torch.Tensor, b: torch.Tensor) -> float:
+        return torch.nn.functional.cosine_similarity(
+            a.flatten().unsqueeze(0), b.flatten().unsqueeze(0)
+        ).item()
+
+    was_training = network.training
+    network.eval()
+    cos_pos, cos_neg, collapse, mag, proj, by_t = [], [], [], [], [], {}
+    proj_num = 0.0  # sum_i <delta_i, axis_hat_i>, absolute units
+    proj_den = 0.0  # sum_i ||guidance * axis_i||
+    for x, t, direction, neutral, t_val in zip(
+        probe.latents, probe.timesteps, probe.directions, probe.neutrals, probe.t_values
+    ):
+        delta_plus = _forward(x, t, 1.0) - neutral
+        delta_minus = _forward(x, t, -1.0) - neutral
+        c = _cos(delta_plus, direction)
+        cos_pos.append(c)
+        cos_neg.append(_cos(delta_minus, -direction))
+        collapse.append(_cos(delta_plus, delta_minus))
+        axis_norm = (probe.guidance * direction).norm().clamp_min(1e-8)
+        mag.append((delta_plus.norm() / axis_norm).item())
+        proj.append(c * mag[-1])
+        # Absolute-units axis displacement. To first order the Euler solve gives
+        # delta_x_final = integral of delta_v dt, so what reaches the render is the
+        # *unnormalized* axis component summed over t. cos and mag are both
+        # per-instance normalized, which silently reweights the timesteps where
+        # the edit is largest; this does not.
+        proj_num += float(
+            (delta_plus.flatten() @ (direction.flatten() / direction.norm().clamp_min(1e-8))).item()
+        )
+        proj_den += float(axis_norm.item())
+        by_t.setdefault(t_val, []).append(c)
+    if was_training:
+        network.train()
+
+    def _mean(values: list[float]) -> float:
+        return sum(values) / max(len(values), 1)
+
+    result = {
+        "cos": _mean(cos_pos),
+        "cos_neg": _mean(cos_neg),
+        "collapse": _mean(collapse),
+        "mag": _mean(mag),
+        "proj": _mean(proj),
+        "proj_abs": proj_num / max(proj_den, 1e-8),
+        "n": len(cos_pos),
+    }
+    result["cos_by_t"] = {f"{t:g}": round(_mean(v), 4) for t, v in sorted(by_t.items())}
+    return result
 
 
 def _condition_hash(condition: torch.Tensor) -> str:
@@ -701,9 +873,23 @@ def train(args: argparse.Namespace) -> Path:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(steps, 1), eta_min=1e-6)
     else:
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
-    loss_fn = torch.nn.MSELoss()
     amp_enabled = device.type == "cuda" and not args.dummy
     amp_dtype = torch.bfloat16
+    data_rng = torch.Generator(device=device.type).manual_seed(seed)
+
+    probe = None
+    eval_every = max(0, int(args.eval_every))
+    if eval_every and entries:
+        print("building fixed eval probe", flush=True)
+        probe = build_eval_probe(
+            transformer,
+            entries[0],
+            x0_banks[0] if x0_banks else None,
+            device=device,
+            seed=int(args.eval_seed),
+            amp=amp_enabled,
+        )
+        print(f"eval probe: {len(probe.latents)} instances over t={list(EVAL_TIMESTEPS)}", flush=True)
 
     save_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{name}_alpha{alpha}_rank{rank}_{args.targets}"
@@ -712,6 +898,7 @@ def train(args: argparse.Namespace) -> Path:
     log_path = save_dir / f"{stem}_train.jsonl"
     log_handle = log_path.open("w", encoding="utf-8")
     last_loss = None
+    last_eval: dict[str, float] | None = None
     mid_step = max(1, steps // 2)
     progress = tqdm(range(steps), desc="train")
     for step in progress:
@@ -719,17 +906,27 @@ def train(args: argparse.Namespace) -> Path:
         x0_bank = x0_banks[step % len(entries)] if x0_banks else None
         batch = max(1, int(prompt.batch_size))
         latent_len = int(conds["target"].shape[1])
-        noise = torch.randn(batch, 128, latent_len, device=device, dtype=torch.float32)
+        # Draw x_t/t from a dedicated generator, not the global RNG: LoRA init
+        # consumes global RNG in proportion to rank and module count, so two runs
+        # that differ only in --rank or --targets used to see different (t, eps)
+        # sequences and could not be compared step for step.
+        noise = torch.randn(
+            batch, 128, latent_len, device=device, dtype=torch.float32, generator=data_rng
+        )
         # Model convention (denoise.py): flow time t in [0,1], 0 = noise, 1 = clean;
         # x_t = (1-t)·ε + t·x0. Pure noise is only on-manifold near t=0, so anchor
         # x_t to a generated clean latent except in the explicit noise/mix modes.
         use_noise = x0_bank is None or (args.xt_mode == "mix" and step % 10 < 3)
         if use_noise:
             hi = 0.35 if x0_bank is not None else 0.95
-            timestep = torch.empty(batch, device=device, dtype=torch.float32).uniform_(0.02, hi)
+            timestep = torch.empty(batch, device=device, dtype=torch.float32).uniform_(
+                0.02, hi, generator=data_rng
+            )
             latents = noise
         else:
-            timestep = torch.empty(batch, device=device, dtype=torch.float32).uniform_(0.02, 0.98)
+            timestep = torch.empty(batch, device=device, dtype=torch.float32).uniform_(
+                0.02, 0.98, generator=data_rng
+            )
             x0 = x0_bank[step % len(x0_bank)].to(device=device, dtype=torch.float32)
             if x0.shape[0] != batch:
                 x0 = x0.expand(batch, -1, -1)
@@ -774,31 +971,33 @@ def train(args: argparse.Namespace) -> Path:
                         return transformer(latents, timestep, cond_tgt, return_dict=False)[0]
                 return transformer(latents, timestep, cond_tgt, return_dict=False)[0]
 
+        if prompt.action not in ("enhance", "erase"):
+            raise ValueError(f"action must be enhance or erase, got {prompt.action!r}")
+        sign = 1.0 if prompt.action == "enhance" else -1.0
+        axis = sign * float(prompt.guidance_scale) * (vel_pos.float() - vel_neg.float())
         vel_plus = _lora_forward(1.0)
-        target_plus = _velocity_target(
-            vel_neu=vel_neu.float(),
-            vel_pos=vel_pos.float(),
-            vel_neg=vel_neg.float(),
-            guidance=float(prompt.guidance_scale),
-            action=prompt.action,
+        loss = _slider_loss(
+            vel_plus.float(), vel_neu.float(), axis, args.loss, args.mag_weight
         )
-        loss = loss_fn(vel_plus.float(), target_plus)
         vel_minus = None
         if args.bidirectional:
             # -s is not the linear inverse of +s through 36 layers; train it explicitly.
             vel_minus = _lora_forward(-1.0)
-            inverse_action = "erase" if prompt.action == "enhance" else "enhance"
-            target_minus = _velocity_target(
-                vel_neu=vel_neu.float(),
-                vel_pos=vel_pos.float(),
-                vel_neg=vel_neg.float(),
-                guidance=float(prompt.guidance_scale),
-                action=inverse_action,
+            loss = 0.5 * (
+                loss
+                + _slider_loss(
+                    vel_minus.float(), vel_neu.float(), -axis, args.loss, args.mag_weight
+                )
             )
-            loss = 0.5 * (loss + loss_fn(vel_minus.float(), target_minus))
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        torch.nn.utils.clip_grad_value_(network.parameters(), clip_value=1.0)
+        # clip_grad_value_ clamps each element to +-1, so an outlier step (the
+        # shipped triphop log peaks at 250x the median loss) degenerates into a
+        # sign-like update. Norm clipping keeps the direction of those steps.
+        if args.grad_clip == "value":
+            torch.nn.utils.clip_grad_value_(network.parameters(), clip_value=1.0)
+        else:
+            torch.nn.utils.clip_grad_norm_(network.parameters(), max_norm=1.0)
         optimizer.step()
         scheduler.step()
         last_loss = float(loss.detach().cpu())
@@ -834,6 +1033,15 @@ def train(args: argparse.Namespace) -> Path:
         if cos_neg is not None:
             record["cos_neg"] = cos_neg
             record["collapse"] = collapse
+        if probe is not None and ((step + 1) % eval_every == 0 or (step + 1) == steps):
+            last_eval = evaluate_probe(transformer, network, probe, amp_enabled)
+            record["eval"] = last_eval
+            print(
+                f"eval step {step + 1}/{steps} cos={last_eval['cos']:.4f} "
+                f"cos_neg={last_eval['cos_neg']:.4f} collapse={last_eval['collapse']:.4f} "
+                f"mag={last_eval['mag']:.3f} proj_abs={last_eval['proj_abs']:.4f}",
+                flush=True,
+            )
         log_handle.write(json.dumps(record) + "\n")
         log_handle.flush()
         if (step + 1) == mid_step:
@@ -867,6 +1075,11 @@ def train(args: argparse.Namespace) -> Path:
         "minus_label": prompts_meta.minus_label,
         "recommended_range": prompts_meta.recommended_range,
         "loss": last_loss,
+        "loss_kind": args.loss,
+        "grad_clip": args.grad_clip,
+        "eval": last_eval,
+        "eval_timesteps": list(EVAL_TIMESTEPS),
+        "eval_seed": int(args.eval_seed),
         "prompts": [asdict(prompt) for prompt in prompts],
         "weights": str(weights_path),
     }
@@ -946,6 +1159,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--x0_per_row", type=int, default=2, help="clean-latent anchors per condition set")
     parser.add_argument("--x0_steps", type=int, default=30, help="Euler steps when generating x0 anchors")
+    parser.add_argument(
+        "--loss",
+        choices=["mse", "nmse", "cos"],
+        default="nmse",
+        help="mse=legacy (target energy varies ~200x across t, so low-t steps "
+        "dominate); nmse=per-step energy-normalized; cos=optimize the reported "
+        "axis metric plus a magnitude term",
+    )
+    parser.add_argument(
+        "--mag_weight",
+        type=float,
+        default=0.25,
+        help="--loss cos only: weight on (||delta||/||axis|| - 1)^2",
+    )
+    parser.add_argument(
+        "--grad_clip",
+        choices=["norm", "value"],
+        default="norm",
+        help="value=legacy elementwise clamp to +-1 (turns outlier steps into "
+        "sign updates); norm=global norm clip, keeps their direction",
+    )
+    parser.add_argument(
+        "--eval_every",
+        type=int,
+        default=50,
+        help="steps between fixed-probe evals (0 disables). The probe is pinned "
+        "to --eval_seed and a fixed t grid so runs are comparable",
+    )
+    parser.add_argument("--eval_seed", type=int, default=1234, help="fixed eval probe seed")
     parser.add_argument("--plus_label", type=str, default=None, help="override sidecar plus_label")
     parser.add_argument("--minus_label", type=str, default=None, help="override sidecar minus_label")
     parser.add_argument(

@@ -181,9 +181,193 @@ sliders is budgeted. It exists so the mechanism is in place and tested, and it
 starts biting automatically as sliders are added — re-run the sweep and
 re-derive it when the catalog grows.
 
-Also: `calibrate_scale.py` `_load_cache_entries` KeyErrors on the `x0_*.pt`
+Also (fixed, see below): `calibrate_scale.py` `_load_cache_entries` KeyErrored on the `x0_*.pt`
 anchor files in a shared cache dir (it expects only condition entries) —
 work around with a scratch dir holding just the condition files.
+
+## Why transformer `cos` stops near 0.5, and the comparable metric (August 2026)
+
+Transformer sliders all plateau at last-step `cos` 0.43–0.55 while LM halves reach
+0.90–0.97. That gap is **not** the transformer slider being weak — it is the metric.
+Measured on triphop-tf-v3's own conditions and x0 anchors:
+
+**The target is not reachable by any conditioning.** `cos` scores the LoRA delta
+against `vel_pos − vel_neg`. Literally swapping the neutral caption for the
+positive-pole caption — the ground-truth edit — scores only:
+
+| t | 0.10 | 0.20 | 0.30 | 0.50 | 0.70 | 0.90 |
+|---|---|---|---|---|---|---|
+| `cos(vel_pos − vel_neu, axis)` | 0.255 | 0.266 | 0.352 | 0.394 | 0.479 | 0.554 |
+| trained LoRA `cos` | 0.549 | 0.553 | 0.537 | 0.500 | 0.493 | 0.480 |
+
+`‖vel_pos − vel_neu‖` is 1.0–2.1x `‖vel_pos − vel_neg‖`: most of a real caption move
+is *off* the pole-to-pole axis, and that shared component cancels in `pos − neg`
+but not when you can only move one way from neutral. The trained LoRA already beats
+the real caption swap. **Do not read `cos` as slider strength, and do not chase 1.0
+on it** — 1.0 means synthesizing a velocity field no prompt produces.
+
+**The axis is mostly not a direction.** Mean pairwise cos between targets across
+(t, ε) is 0.32; the top singular direction holds 37% of the energy. Same t, two
+noise draws: 0.31–0.44. Same seed, t=0.5 vs t=0.2: 0.50; vs t=0.05: 0.16. So the
+best possible *constant* delta scores ≈0.57 — the shipped 0.50 is below even that,
+i.e. there is headroom before anything exotic is needed.
+
+Other measured facts: `‖vel_pos − vel_neg‖` is only 2–5% of `‖vel_neu‖`, falling
+from 0.37 at t=0.05 to 0.023 at t=0.97; bf16 teacher passes cost real signal
+(`cos(dir_bf16, dir_fp32) = 0.965` at t=0.5, worse where the delta is smaller — an
+fp32 teacher copy costs 9 GB and 2x teacher time, so it was not taken); and cos
+peaks exactly at the trained multiplier (m=1 → 0.500, m=2 → 0.474, m=4 → 0.402),
+so saturation is not the cap. Condition-space deltas are a measured dead end:
+`c_neu + 2·(c_pos − c_neg)` reaches mean cos 0.49 — the same as the LoRA — and a
+frame-mean or rank-1 condition direction only 0.23–0.28.
+
+### The fixed eval probe — use this to compare runs
+
+The per-step `cos` in the train jsonl is one random (t, ε) draw out of a field whose
+target norm spans ~200x across t. It is far too noisy to rank runs by. Every run now
+also logs an `eval` block against a **fixed probe**: 9 timesteps x 2 pinned noise
+draws, anchored to the row's x0 bank, seeded by `--eval_seed` (default 1234) and
+independent of the training RNG.
+
+```bash
+# during training (default: every 50 steps; --eval_every 0 disables)
+--eval_every 50 --eval_seed 1234
+
+# rank finished runs
+python scripts/compare_slider_runs.py models/*/[a-z]*_train.jsonl --by_t
+
+# score checkpoints trained before the probe existed (v3/v4 have no eval blocks)
+python scripts/eval_slider_probe.py models/triphop-tf-v3/*_attn_last.safetensors \
+  --prompts_file conceptmod/textsliders/data/prompts-triphop-v3-single.yaml \
+  --cache_dir cache/triphop-v3 --by_t
+```
+
+`cos` is axis tracking, `mag` is `‖delta(+1)‖ / ‖guidance·(vel_pos − vel_neg)‖`
+(whether the axis is actually *reached*), `collapse` should sit near −1. The probe
+reproduces the recipe A/B from one shot, with none of the per-step noise:
+
+| checkpoint | cos | cos_neg | collapse | mag |
+|---|--:|--:|--:|--:|
+| triphop-tf-v3 (anchor, 500 steps) | 0.482 | 0.476 | −0.853 | 0.547 |
+| triphop-ab-anchor-single (250) | 0.436 | 0.436 | −0.886 | 0.533 |
+| triphop-ab-noise (250) | 0.094 | 0.033 | +0.254 | 0.133 |
+
+The probe axis is signed by the row's `action`, so `erase` prompt files report a
+positive cos for a working slider — the old per-step metric reported those negated.
+
+### Trainer fixes that came out of this
+
+- **`--loss {mse,nmse,cos}`, default `nmse`.** Plain MSE tracks `‖axis‖²`, which
+  spans ~200x across t, so a handful of low-t steps own the run: in the shipped
+  triphop log the **top 5% of steps carry 73% of total MSE mass** (max 32.4 vs
+  median 0.13). `nmse` divides by per-step target energy; `cos` optimizes the
+  reported metric directly plus a `--mag_weight` magnitude term.
+- **`--grad_clip {norm,value}`, default `norm`.** `clip_grad_value_` clamps each
+  element to ±1, so those 250x outlier steps degenerated into sign-like updates.
+- **Deterministic data stream.** `x_t`/`t` now come from a dedicated generator
+  seeded by `--seed`. LoRA init consumes global RNG in proportion to rank and
+  module count, so two runs differing only in `--rank` or `--targets` used to see
+  different (t, ε) sequences and could not be compared step for step.
+- `calibrate_scale.py` no longer KeyErrors on `x0_*.pt` anchors sharing a cache dir
+  (the scratch-dir workaround noted above is no longer needed).
+
+To reproduce the v3/v4 recipe exactly, pass `--loss mse --grad_clip value`.
+
+### Loss A/B, measured (triphop single row, 250 steps, identical data stream)
+
+| run | cos | mag | proj_abs |
+|---|--:|--:|--:|
+| **`--loss nmse --grad_clip norm`** | **0.5839** | 0.500 | 0.2724 |
+| `--loss cos --grad_clip norm` | 0.5123 | 0.636 | 0.2838 |
+| `--loss mse --grad_clip norm` | 0.4718 | 0.541 | 0.2515 |
+| `--loss mse --grad_clip value` (v3/v4 recipe) | 0.4593 | 0.548 | 0.2469 |
+| triphop-tf-v3, for scale (500 steps) | 0.5083 | 0.562 | 0.3033 |
+
+The clip fix alone is worth +0.013 cos; the loss carries +0.112. `nmse` at 250
+steps beats the shipped 500-step v3 checkpoint on cos.
+
+**Rank by `cos`, not `proj_abs`.** The two disagree here (cos likes `nmse`,
+proj_abs likes `cos`-loss), and the tiebreak is that **`mag` is recoverable and
+`cos` is not**: `unit_scale` calibration scales a weak slider back up, and cos
+holds to 0.474 out to multiplier 2, but no gain fixes a delta pointing the wrong
+way. Use `proj_abs` as the guard that a high-cos run is not inaudibly weak.
+(This is also why the naive "MSE is the theoretically right weighting because
+`delta_x_final = integral of delta_v dt` is uniform-in-t and absolute" argument
+does not decide it — absolute magnitude is normalized away downstream.)
+
+`--loss cos` is available but not recommended as a default: it is definitionally
+matched to the reported metric, and cos discards magnitude, so it needs the
+`--mag_weight` patch to stay audible at all.
+
+### What limits cos: capacity x loss together, not expressivity
+
+Fresh rank-8/rank-64 LoRAs trained against a cached teacher set, 300 steps,
+reporting train cos and held-out cos on 8 unseen instances:
+
+| cell | train cos | held cos | mag |
+|---|--:|--:|--:|
+| **one fixed (t=0.5, eps)** | | | |
+| rank8 attn, mse | 0.834 | 0.517 | 0.60 |
+| rank8 attn, cos | 0.850 | 0.489 | 0.28 |
+| rank64 full, cos | **0.991** | 0.503 | 0.55 |
+| **32 random (t, eps)** | | | |
+| rank8 attn, mse (v3/v4 recipe) | 0.443 | 0.386 | 0.53 |
+| rank8 attn, **nmse** | 0.600 | **0.552** | 0.56 |
+| rank8 attn, cos | 0.371 | 0.308 | 0.24 |
+| rank8 full, cos | 0.427 | 0.378 | 0.36 |
+| rank64 full, cos | 0.573 | 0.518 | 0.40 |
+
+A rank-64 `full` adapter fits a **single** (t, eps) instance to cos 0.991, so the
+parameterization can represent the target essentially exactly at a point. Across
+32 instances train ≈ held everywhere (0.60 -> 0.55, 0.57 -> 0.52), so the residual
+gap is **underfitting the field, not overfitting the sample**.
+
+**Capacity and loss multiply — do not read either row alone.** The rank-64 cell
+above uses the handicapped `cos` loss, and on that basis capacity looks useless
+(0.518, below rank-8 nmse at 0.552). Pairing capacity with the good loss on the
+shipped path says the opposite:
+
+| 250-step shipped-path run | cos | mag | proj_abs |
+|---|--:|--:|--:|
+| rank8 attn, mse + clip_value (v3/v4) | 0.4593 | 0.548 | 0.2469 |
+| rank8 attn, nmse + clip_norm | 0.5839 | 0.500 | 0.2724 |
+| **rank64 full, nmse + clip_norm** | **0.7712** | **0.731** | **0.5458** |
+
+`--rank 64 --targets full --loss nmse` reaches **0.77** — far past the ~0.57
+best-constant-direction bound, and double the axis displacement of the rank-8
+cell. So a static weight delta *can* track the instance-specific component; it
+just needs both the capacity and a loss that does not spend it on the low-t
+steps. Its per-timestep profile is also much flatter and peaks mid-range
+(t=0.1: 0.671, t=0.5: 0.807, t=0.9: 0.732).
+
+Cost: 222 modules at rank 64 is a **420 MB** checkpoint versus ~19 MB at rank 8
+attn — the reason to check whether rank 16/32 captures most of the gain before
+shipping this.
+
+`--loss cos` collapses magnitude (mag 0.16-0.40 vs 0.53 for mse), the Goodhart
+failure it was predicted to have: cos is scale-free, and `--mag_weight` only
+partly compensates.
+
+### The teacher axis is fragile in bf16 — keep the compute path fixed
+
+`vel_pos - vel_neg` is a 3–13% difference of large bf16 numbers, so it is
+ill-conditioned. Measured on the triphop row:
+
+- The model is fully deterministic: the same call twice is **bitwise identical**.
+- Computing pos/neg **batched together** instead of as two batch-1 forwards
+  rotates the axis by cos 0.949 (t=0.3) / 0.888 (t=0.7).
+- Merely *constructing* a `LoRANetwork` at multiplier 0 — whose forward adds an
+  exact-zero tensor, but shifts downstream kernel selection — rotates it by cos
+  0.886 mean, down to 0.73 at t=0.9. `vel_neu` itself is unaffected (0.9998):
+  it is only the small difference that is sensitive.
+
+Consequences: **bf16 alone caps `cos` against the true axis at roughly 0.9**
+(the earlier `cos(dir_bf16, dir_fp32) = 0.965` understated it by holding the
+batch layout fixed), and any tool that scores a checkpoint must reproduce the
+trainer's exact path or it will read ~0.03 low. `scripts/eval_slider_probe.py`
+therefore attaches the LoRA wrapper *before* building the probe; with that it
+reproduces the in-training numbers to four decimals. Do not "optimize" the
+teacher forwards by batching the three conditions together.
 
 ## Which host does an axis belong to?
 
