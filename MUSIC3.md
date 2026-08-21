@@ -161,6 +161,53 @@ For gender, pass `--kind lm` and the LM weights.
 
 `generate_listen.py` is resume-safe: existing wavs that pass duration and silence checks are skipped. It rejects short or silent output. Play files in order. Slider clips use the **neutral** caption; `REF` clips change the prompt with the slider off.
 
+## ComfyUI
+
+Shipped sliders use this repo's LoRANetwork names (`lora_unet-transformer_blocks-N-attn-to_q.lora_down.weight`), not PEFT `base_model.model…` paths. The sister-repo convert script in [ntc-ai/conceptmod#3](https://github.com/ntc-ai/conceptmod/pull/3) is the wrong backend here.
+
+`scripts/convert_lora_comfyui.py` remaps onto ComfyUI native MiniMax Music 3 names. Transformer keys were derived from `comfy/ldm/minimax_music/dit.py` (fused `self_attn.to_qkv`) and the inverse of SimpleTuner's MiniMax ComfyUI export — there is no separate community example LoRA to diff against. Unmapped keys are an error; originals are not modified.
+
+```bash
+# transformer slider (priority for music workflows)
+python scripts/convert_lora_comfyui.py \
+  path/to/energy_unit_last.safetensors
+
+# or a folder of Hub weights
+python scripts/convert_lora_comfyui.py weights/ --skip-lm
+```
+
+That writes `energy_unit_last_comfyui.safetensors` beside the original. Keys look like:
+
+```
+diffusion_model.diffusion_transformer.transformer.layers.N.self_attn.to_qkv.lora_A.weight
+diffusion_model.diffusion_transformer.transformer.layers.N.self_attn.to_qkv.lora_B.weight
+diffusion_model.diffusion_transformer.transformer.layers.N.self_attn.to_qkv.alpha
+diffusion_model.diffusion_transformer.transformer.layers.N.self_attn.to_out.lora_{A,B}.weight
+```
+
+`to_q` / `to_k` / `to_v` are fused into ComfyUI's single `to_qkv` Linear (block-diagonal, scale preserved). Put the file in `ComfyUI/models/loras/` and load it with **Load LoRA** on the MiniMax Music 3 MODEL. LoRA strength is the slider scale: `0` is off, `±1` is the trained unit (already baked into `*_unit_last` / current sidecars with `unit_scale: 1.0`), `±2` is a typical listen-folder pole.
+
+### Language-model sliders
+
+LM sliders (`lora_te-model-layers-N-self_attn-{q,k,v,o}_proj`) convert to ComfyUI's generic CLIP key form from `comfy/lora.py` `model_lora_keys_clip`:
+
+```
+text_encoders.model.layers.N.self_attn.q_proj.lora_A.weight
+```
+
+That matches an unmerged Qwen3 text encoder — the Hugging Face `language_model` the trainers wrap. Load the same file through **Load LoRA** with the CLIP / MiniMax Music 3 text encoder connected (MODEL strength `0` if the file is LM-only).
+
+ComfyUI can also load a Music 3 TE that was saved with merged `qkv_proj`. Those checkpoints have no module for the separate q/k/v adapters, so those keys will log `lora key not loaded`; `o_proj` still applies. This converter does not invent a merged-qkv file: GQA makes `q` 4096-wide and `k`/`v` 1024-wide, and the official trainer never wrote `qkv_proj`.
+
+```bash
+python scripts/convert_lora_comfyui.py \
+  path/to/gender-lm-v4_last.safetensors
+```
+
+```bash
+python -m unittest tests.test_convert_lora_comfyui
+```
+
 ## Encoder-first note
 
 `train_encoder_music3.py` is the condition-encoder / notrigger analog. Dummy LoRA converges; a single Conv1d cannot fully remap real AR hiddens. Use the LM trainer for identity (gender) and the transformer trainer for production (loud, distortion, tempo, space).
