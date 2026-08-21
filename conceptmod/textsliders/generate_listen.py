@@ -25,12 +25,32 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
 def _early_visible_device(argv: list[str]) -> str:
+    """Which physical GPU to expose, honouring a caller-set CUDA_VISIBLE_DEVICES.
+
+    --device used to be written straight into CUDA_VISIBLE_DEVICES, so
+    `CUDA_VISIBLE_DEVICES=1 ... --device 0` silently ran on physical GPU 0 --
+    the exact opposite of what the caller asked for, and a very quiet failure
+    when that GPU is busy. --device indexes the visible list (as the load error
+    already claims it does); it does not override it.
+    """
+    requested = None
     for i, arg in enumerate(argv):
         if arg == "--device" and i + 1 < len(argv):
-            return argv[i + 1]
+            requested = argv[i + 1]
+            break
         if arg.startswith("--device="):
-            return arg.split("=", 1)[1]
-    return os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0]
+            requested = arg.split("=", 1)[1]
+            break
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible is None or not visible.strip():
+        return requested if requested is not None else "0"
+    devices = [d for d in visible.split(",") if d.strip()]
+    if requested is None:
+        return devices[0]
+    try:
+        return devices[int(requested)]
+    except (ValueError, IndexError):
+        return requested
 
 
 os.environ["CUDA_VISIBLE_DEVICES"] = _early_visible_device(sys.argv[1:])
