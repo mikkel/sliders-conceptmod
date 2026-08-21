@@ -80,7 +80,16 @@ def _load_prompt_row(path: Path, row: int = 0) -> dict:
 
 
 def _sidecar(weights: Path) -> dict:
-    for candidate in (weights.with_suffix(".json"), Path(str(weights) + ".json")):
+    # Only the final save writes a sidecar, so `_best` / `_step123` checkpoints
+    # fall back to the run's `_last.json`. Without this the rank/alpha/
+    # target_replace defaults silently win and the LoRA fails to load.
+    import re as _re
+
+    candidates = [weights.with_suffix(".json"), Path(str(weights) + ".json")]
+    base = _re.sub(r"_(best|step\d+)$", "_last", weights.stem)
+    if base != weights.stem:
+        candidates.append(weights.parent / f"{base}.json")
+    for candidate in candidates:
         if candidate.exists():
             return json.loads(candidate.read_text(encoding="utf-8"))
     return {}

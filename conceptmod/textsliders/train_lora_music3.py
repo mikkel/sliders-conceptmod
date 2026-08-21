@@ -496,6 +496,7 @@ def _slider_loss(
     axis: torch.Tensor,
     kind: str,
     mag_weight: float,
+    gain_weight: float = 0.0,
 ) -> torch.Tensor:
     """`axis` is the signed target delta, guidance * (vel_pos - vel_neg) for +1.
 
@@ -510,17 +511,30 @@ def _slider_loss(
             magnitude term pulling ||delta|| towards ||axis||.
     """
     delta = vel - vel_neu
+    if gain_weight > 0.0:
+        # The component of the delta along vel_neu just rescales the velocity.
+        # It is only ~16% of the concept axis, but it is the one component that
+        # points the same way at every denoise step, so it compounds through the
+        # ~50-step solve while shape components partly cancel: the rendered
+        # slider comes out ~5x too much level change and ~10x too little
+        # brightness. Penalising it below its natural share counteracts that.
+        unit = vel_neu.flatten()
+        unit = unit / unit.norm().clamp_min(1e-8)
+        gain = (delta.flatten() @ unit) / axis.norm().clamp_min(1e-8)
+        gain_term = gain_weight * gain.pow(2)
+    else:
+        gain_term = 0.0
     if kind == "mse":
-        return torch.nn.functional.mse_loss(vel, vel_neu + axis)
+        return torch.nn.functional.mse_loss(vel, vel_neu + axis) + gain_term
     if kind == "nmse":
         scale = axis.pow(2).mean().clamp_min(1e-8)
-        return torch.nn.functional.mse_loss(vel, vel_neu + axis) / scale
+        return torch.nn.functional.mse_loss(vel, vel_neu + axis) / scale + gain_term
     if kind == "cos":
         cos = torch.nn.functional.cosine_similarity(
             delta.flatten().unsqueeze(0), axis.flatten().unsqueeze(0)
         ).squeeze()
         ratio = delta.norm() / axis.norm().clamp_min(1e-8)
-        return (1.0 - cos) + mag_weight * (ratio - 1.0).pow(2)
+        return (1.0 - cos) + mag_weight * (ratio - 1.0).pow(2) + gain_term
     raise ValueError(f"unknown loss {kind!r}")
 
 
@@ -1004,9 +1018,39 @@ def train(args: argparse.Namespace) -> Path:
             raise ValueError(f"action must be enhance or erase, got {prompt.action!r}")
         sign = 1.0 if prompt.action == "enhance" else -1.0
         axis = sign * float(prompt.guidance_scale) * (vel_pos.float() - vel_neg.float())
+        uncond_term = None
+        if args.uncond_weight > 0.0:
+            # CFG runs the uncond branch on a zeros condition, and a merged LoRA
+            # cannot be excluded from it. Note the delta does NOT cancel there:
+            # with v = v_u + w(v_c - v_u), adding d to both branches nets 1.0*d
+            # while adding it to the conditional branch alone nets w*d (w=1.7).
+            # So a merged slider runs at 1/1.7 of the strength its cond-branch
+            # calibration implies. This penalty makes the adapter inert on zeros,
+            # which recovers the missing 1.7x; it is NOT the cause of the level
+            # collapse (that is open-loop drift -- see MUSIC3.md).
+            cond_zero = torch.zeros_like(cond_tgt)
+            with torch.no_grad():
+                if amp_enabled and not args.teacher_fp32:
+                    with torch.autocast(device_type="cuda", dtype=amp_dtype):
+                        vel_zero = transformer(latents, timestep, cond_zero, return_dict=False)[0]
+                else:
+                    vel_zero = transformer(latents, timestep, cond_zero, return_dict=False)[0]
+            network.set_lora_slider(1.0)
+            with network:
+                if amp_enabled:
+                    with torch.autocast(device_type="cuda", dtype=amp_dtype):
+                        vel_zero_lora = transformer(latents, timestep, cond_zero, return_dict=False)[0]
+                else:
+                    vel_zero_lora = transformer(latents, timestep, cond_zero, return_dict=False)[0]
+            uncond_term = args.uncond_weight * (
+                (vel_zero_lora.float() - vel_zero.float()).pow(2).mean()
+                / axis.pow(2).mean().clamp_min(1e-8)
+            )
+
         vel_plus = _lora_forward(1.0)
         loss = _slider_loss(
-            vel_plus.float(), vel_neu.float(), axis, args.loss, args.mag_weight
+            vel_plus.float(), vel_neu.float(), axis, args.loss, args.mag_weight,
+            args.gain_penalty,
         )
         vel_minus = None
         if args.bidirectional:
@@ -1015,9 +1059,12 @@ def train(args: argparse.Namespace) -> Path:
             loss = 0.5 * (
                 loss
                 + _slider_loss(
-                    vel_minus.float(), vel_neu.float(), -axis, args.loss, args.mag_weight
+                    vel_minus.float(), vel_neu.float(), -axis, args.loss, args.mag_weight,
+                    args.gain_penalty,
                 )
             )
+        if uncond_term is not None:
+            loss = loss + uncond_term
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         # clip_grad_value_ clamps each element to +-1, so an outlier step (the
@@ -1110,6 +1157,8 @@ def train(args: argparse.Namespace) -> Path:
         "recommended_range": prompts_meta.recommended_range,
         "loss": last_loss,
         "loss_kind": args.loss,
+        "gain_penalty": float(args.gain_penalty),
+        "uncond_weight": float(args.uncond_weight),
         "grad_clip": args.grad_clip,
         "eval": last_eval,
         "eval_best": best_eval,
@@ -1196,6 +1245,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--x0_per_row", type=int, default=2, help="clean-latent anchors per condition set")
     parser.add_argument("--x0_steps", type=int, default=30, help="Euler steps when generating x0 anchors")
+    parser.add_argument(
+        "--uncond_weight",
+        type=float,
+        default=0.0,
+        help="penalise the LoRA's velocity delta on the all-zeros (CFG unconditional) "
+        "condition, normalised by the axis energy. A merged LoRA perturbs that branch "
+        "too, which measured -53 points of rms and half the brightness on a render; "
+        "0 disables",
+    )
+    parser.add_argument(
+        "--gain_penalty",
+        type=float,
+        default=0.0,
+        help="penalise the delta's component along vel_neu (a pure rescaling of "
+        "the velocity). That component is only ~16%% of the concept axis but is "
+        "coherent across denoise steps, so it compounds into the render while "
+        "shape components cancel; 0 disables",
+    )
     parser.add_argument(
         "--teacher_fp32",
         action="store_true",
