@@ -163,17 +163,20 @@ For gender, pass `--kind lm` and the LM weights.
 
 ## ComfyUI
 
-Shipped sliders use this repo's LoRANetwork names (`lora_unet-transformer_blocks-N-attn-to_q.lora_down.weight`), not PEFT `base_model.model…` paths. The sister-repo convert script in [ntc-ai/conceptmod#3](https://github.com/ntc-ai/conceptmod/pull/3) is the wrong backend here.
-
-`scripts/convert_lora_comfyui.py` remaps onto ComfyUI native MiniMax Music 3 names. Transformer keys were derived from `comfy/ldm/minimax_music/dit.py` (fused `self_attn.to_qkv`) and the inverse of SimpleTuner's MiniMax ComfyUI export — there is no separate community example LoRA to diff against. Unmapped keys are an error; originals are not modified.
+Do not add a second converter in this repo. Shipped sliders use LoRANetwork
+names (`lora_unet-transformer_blocks-N-attn-to_q.lora_down.weight`,
+`lora_te-model-layers-N-self_attn-q_proj…`), not PEFT `base_model.model…`
+paths, so the Anima/Krea path in
+[`scripts/convert_lora_comfyui.py`](https://github.com/mikkel/conceptmod/blob/main/scripts/convert_lora_comfyui.py)
+(same file as [ntc-ai/conceptmod#3](https://github.com/ntc-ai/conceptmod/pull/3))
+cannot rewrite them as-is — it skips with `no lora_A/lora_B keys`. The Music 3
+backends (`music3`, `music3_lm`) live on that same script; detection is from
+`lora_unet-` / `lora_te-` keys.
 
 ```bash
-# transformer slider (priority for music workflows)
-python scripts/convert_lora_comfyui.py \
+# clone conceptmod at main (script commit dd0c165 or later)
+python /path/to/conceptmod/scripts/convert_lora_comfyui.py \
   path/to/energy_unit_last.safetensors
-
-# or a folder of Hub weights
-python scripts/convert_lora_comfyui.py weights/ --skip-lm
 ```
 
 That writes `energy_unit_last_comfyui.safetensors` beside the original. Keys look like:
@@ -185,27 +188,43 @@ diffusion_model.diffusion_transformer.transformer.layers.N.self_attn.to_qkv.alph
 diffusion_model.diffusion_transformer.transformer.layers.N.self_attn.to_out.lora_{A,B}.weight
 ```
 
-`to_q` / `to_k` / `to_v` are fused into ComfyUI's single `to_qkv` Linear (block-diagonal, scale preserved). Put the file in `ComfyUI/models/loras/` and load it with **Load LoRA** on the MiniMax Music 3 MODEL. LoRA strength is the slider scale: `0` is off, `±1` is the trained unit (already baked into `*_unit_last` / current sidecars with `unit_scale: 1.0`), `±2` is a typical listen-folder pole.
+`to_q` / `to_k` / `to_v` are fused into ComfyUI's single `to_qkv` Linear
+(block-diagonal, scale preserved) from `comfy/ldm/minimax_music/dit.py`.
+Put the file in `ComfyUI/models/loras/` and load it with **Load LoRA** on the
+MiniMax Music 3 MODEL. LoRA strength is the slider scale: `0` is off, `±1` is
+the trained unit (already baked into `*_unit_last` / current sidecars with
+`unit_scale: 1.0`), `±2` is a typical listen-folder pole.
 
 ### Language-model sliders
 
-LM sliders (`lora_te-model-layers-N-self_attn-{q,k,v,o}_proj`) convert to ComfyUI's generic CLIP key form from `comfy/lora.py` `model_lora_keys_clip`:
+LM sliders convert to ComfyUI's generic CLIP key form from `comfy/lora.py`
+`model_lora_keys_clip`:
 
 ```
 text_encoders.model.layers.N.self_attn.q_proj.lora_A.weight
 ```
 
-That matches an unmerged Qwen3 text encoder — the Hugging Face `language_model` the trainers wrap. Load the same file through **Load LoRA** with the CLIP / MiniMax Music 3 text encoder connected (MODEL strength `0` if the file is LM-only).
+That matches an unmerged Qwen3 text encoder — the Hugging Face `language_model`
+the trainers wrap. Load the same file through **Load LoRA** with the CLIP /
+MiniMax Music 3 text encoder connected (MODEL strength `0` if the file is
+LM-only).
 
-ComfyUI can also load a Music 3 TE that was saved with merged `qkv_proj`. Those checkpoints have no module for the separate q/k/v adapters, so those keys will log `lora key not loaded`; `o_proj` still applies. This converter does not invent a merged-qkv file: GQA makes `q` 4096-wide and `k`/`v` 1024-wide, and the official trainer never wrote `qkv_proj`.
+ComfyUI can also load a Music 3 TE that was saved with merged `qkv_proj`.
+Those checkpoints have no module for the separate q/k/v adapters, so those
+keys will log `lora key not loaded`; `o_proj` still applies. The convert
+script does not invent a merged-qkv file: GQA makes `q` 4096-wide and `k`/`v`
+1024-wide, and the official trainer never wrote `qkv_proj`.
 
 ```bash
-python scripts/convert_lora_comfyui.py \
+python /path/to/conceptmod/scripts/convert_lora_comfyui.py \
   path/to/gender-lm-v4_last.safetensors
 ```
 
+Tests for the mapping live next to the script:
+
 ```bash
-python -m unittest tests.test_convert_lora_comfyui
+cd /path/to/conceptmod
+pytest tests/test_convert_lora_comfyui.py
 ```
 
 ## Encoder-first note
