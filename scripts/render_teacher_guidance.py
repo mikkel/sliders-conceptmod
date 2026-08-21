@@ -188,7 +188,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         dest = args.out_dir / f"teacher_{args.mode}{suffix}{seed_tag}_{tag}.wav"
         sf.write(str(dest), wav, sr)
-        rms = float(np.asarray(wav, dtype=np.float64).std())
+        # Mono-downmix std, matching score_render_curve's feats(); the raw
+        # (frames, channels) array's std reads high (decorrelated channels) and
+        # once mislabeled the net-1.7 teacher cell by +28 rms points.
+        arr = np.asarray(wav, dtype=np.float64)
+        rms = float((arr.mean(axis=1) if arr.ndim == 2 else arr).std())
         print(f"  wrote {dest.name}  rms={rms:.4f}  composed={state['calls']} "
               f"uncond_passthrough={state.get('skipped', 0)}", flush=True)
 

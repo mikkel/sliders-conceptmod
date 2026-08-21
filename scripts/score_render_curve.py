@@ -156,6 +156,13 @@ def main(argv: list[str] | None = None) -> int:
         pts_r = [(s, d["rms"]) for s, d in pos_curve]
         rms_at = np.interp(s_star, [s for s, _ in pts_r], [y for _, y in pts_r])
         err = rms_at - gt["rms"]
+        if rms_at < -90.0:
+            # Spectral features of a clip at <10% of the base level are hiss,
+            # not music; a "brightness match" there is an artifact.
+            print(f"  collapsed before reaching brightness: centroid crosses at scale "
+                  f"{s_star:.3f} but rms is already {rms_at:+.1f}%\n")
+            rows.append((folder.name, None, None))
+            continue
         print(f"  brightness-matched at scale {s_star:.3f}: rms {rms_at:+.1f}% "
               f"(ground truth {gt['rms']:+.1f}%, level error {err:+.1f} pts)\n")
         rows.append((folder.name, s_star, err))

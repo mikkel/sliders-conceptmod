@@ -1,0 +1,15 @@
+# Candidate pair C: density/level axis, deliberately putting LEVEL on the odd
+# axis (both other pairs try to keep level off it). Tests whether a level-axis
+# slider is well-behaved when level change is the *intent* rather than leakage.
+# Same gates as prompts-cand-dust-v1.yaml.
+plus_label: Dense
+minus_label: Sparse
+recommended_range: [-2.0, 2.0]
+rows:
+  - target: "Genre: pop. BPM: 110. Mid-tempo radio song, steady drums, electric guitar, natural vocal, medium-level mix."
+    positive: "Genre: pop. BPM: 110. Mid-tempo radio song, driving busy drums, layered thick guitars, powerful doubled vocal, saturated loud dense mix."
+    negative: "Genre: pop. BPM: 110. Mid-tempo radio song, gentle minimal drums, single quiet guitar, breathy solo vocal, restrained soft sparse mix."
+    neutral: "Genre: pop. BPM: 110. Mid-tempo radio song, steady drums, electric guitar, natural vocal, medium-level mix."
+    lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+    action: enhance
+    guidance_scale: 3

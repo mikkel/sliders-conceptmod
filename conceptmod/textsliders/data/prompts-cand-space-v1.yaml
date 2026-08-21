@@ -1,0 +1,13 @@
+# Candidate pair B: dry/cavernous space axis at fixed genre/BPM/arrangement.
+# Same gates as prompts-cand-dust-v1.yaml.
+plus_label: Cavernous
+minus_label: Dry
+recommended_range: [-2.0, 2.0]
+rows:
+  - target: "Genre: pop. BPM: 110. Mid-tempo radio song, clean drums, electric guitar, natural vocal, moderate room ambience."
+    positive: "Genre: pop. BPM: 110. Mid-tempo radio song, huge washed-out drums, distant echoing guitar, faraway reverberant vocal, cavernous hall reverb with long delays."
+    negative: "Genre: pop. BPM: 110. Mid-tempo radio song, tight dry drums, close direct guitar, intimate close-mic vocal, dead room with no reverb."
+    neutral: "Genre: pop. BPM: 110. Mid-tempo radio song, clean drums, electric guitar, natural vocal, moderate room ambience."
+    lyrics: "[verse]\nI can feel it in the air tonight\n[chorus]\nLouder now or fade away"
+    action: enhance
+    guidance_scale: 3

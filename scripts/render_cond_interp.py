@@ -111,7 +111,8 @@ def main(argv: list[str] | None = None) -> int:
         tag = "zero" if u == 0 else f"plus{u:g}"
         dest = args.out_dir / f"condmix_{args.pole}_{tag}.wav"
         sf.write(str(dest), wav, sr)
-        rms = float(np.asarray(wav, dtype=np.float64).std())
+        arr = np.asarray(wav, dtype=np.float64)  # mono-downmix std = scorer's rms
+        rms = float((arr.mean(axis=1) if arr.ndim == 2 else arr).std())
         print(f"  wrote {dest.name}  rms={rms:.4f}  swapped={state['swapped']}", flush=True)
     pipe.transformer.forward = original_forward
     return 0
