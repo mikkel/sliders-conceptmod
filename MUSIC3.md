@@ -348,6 +348,29 @@ shipping this.
 failure it was predicted to have: cos is scale-free, and `--mag_weight` only
 partly compensates.
 
+### `--targets full` emitted double-delimiter keys (fixed)
+
+`TARGET_REPLACE_FULL` includes the root `MiniMaxMusic3Transformer1DModel`, whose
+`named_modules()` name is `""`. `lora_name = prefix + "." + name + "." + child`
+then produced `lora_unet..transformer_blocks…` -> **`lora_unet--…`**. Because the
+v3 module-identity dedupe lets the root claim every module first, *all* 222 keys
+came out doubled — disagreeing with the single-delimiter names `--targets attn`
+gives the very same attention modules, and with the ComfyUI converter, which
+matches `lora_unet-`. A converted `full` checkpoint would not error; it would
+log `lora key not loaded` and apply nothing, exactly the silent-partial-load
+failure noted for merged-qkv text encoders.
+
+Nothing shipped is affected: every catalog checkpoint has 144 single-delimiter
+modules, and `gender-tf-v2` (438 = 222 doubled + 216 single) is the already
+quarantined double-wrap. Note this also means the sliders with `_full_` in their
+filenames (energy, distortion, tempo, space) contain **attention only** — so the
+old "full beats attn" A/B was comparing two attention-only checkpoints.
+
+The fix skips empty path segments, and had to land in **both**
+`conceptmod/textsliders/lora.py` and `app/lora_runtime.py`: each builds the key
+independently, and if they disagree the studio silently fails to find a trained
+module. `scripts/normalize_lora_keys.py` rewrites pre-fix checkpoints in place.
+
 ### The teacher axis is fragile in bf16 — keep the compute path fixed
 
 `vel_pos - vel_neg` is a 3–13% difference of large bf16 numbers, so it is

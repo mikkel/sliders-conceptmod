@@ -298,7 +298,16 @@ class LoRANetwork(nn.Module):
                                 continue
                         if id(child_module) in wrapped_ids:
                             continue
-                        lora_name = prefix + "." + name + "." + child_name
+                        # Skip empty path segments. The root model class is one of
+                        # TARGET_REPLACE_FULL and its named_modules() name is "",
+                        # which used to yield "lora_unet..transformer_blocks-0-..."
+                        # -> a "lora_unet--" double delimiter. Because the identity
+                        # dedupe lets the root claim every module first, *every*
+                        # --targets full key came out double, disagreeing with the
+                        # single-delimiter names --targets attn gives the very same
+                        # attention modules -- and with the ComfyUI converter, which
+                        # matches "lora_unet-".
+                        lora_name = ".".join(p for p in (prefix, name, child_name) if p)
                         lora_name = lora_name.replace(".", delimiter)
 #                         print(f"{lora_name}")
                         lora = self.module(
