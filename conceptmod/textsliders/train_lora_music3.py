@@ -1513,13 +1513,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model_dir", type=str, default=str(DEFAULT_MODEL_DIR))
     parser.add_argument("--cache_dir", type=str, default=str(DEFAULT_CACHE_DIR))
     parser.add_argument("--save_dir", type=str, default=None)
-    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--lr", type=float, default=2e-3,
+                        help="matched to the default rank 8. Larger ranks want less: the "
+                        "8-128 ladder is flat only when lr is matched to rank")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--skip_ar", action="store_true", help="use existing condition cache only")
     parser.add_argument(
         "--targets",
         choices=["attn", "full"],
-        default="attn",
+        default="full",
         help="attn=MiniMaxMusic3Attention only; full also LoRAs proj_in/FF/convs",
     )
     parser.add_argument(
@@ -1547,7 +1549,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="comma-separated AR seeds; each prompt row gets one condition set per seed (default: --seed)",
     )
-    parser.add_argument("--x0_per_row", type=int, default=2, help="clean-latent anchors per condition set")
+    parser.add_argument("--x0_per_row", type=int, default=8,
+                        help="clean-latent anchors per condition set. 8 is the measured knee: "
+                        "2->8 is worth +0.040 held-out cos, 8->16 is within noise")
     parser.add_argument(
         "--x0_source",
         choices=["neutral", "positive", "negative"],
@@ -1669,7 +1673,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--eval_seed", type=int, default=1234, help="fixed eval probe seed")
     parser.add_argument(
         "--eval_holdout",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="score the probe on a clean latent the run never trains on. Off by "
         "default so numbers stay comparable with runs scored on the shared bank; "
         "required to compare runs that differ in --x0_per_row, since the shared "
