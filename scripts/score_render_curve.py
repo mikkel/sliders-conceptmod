@@ -84,14 +84,80 @@ def crossing(points: list[tuple[float, float]], target: float) -> float | None:
     return None
 
 
+GROUP_RE = __import__("re").compile(r"-(seed|s)\d+$")
+
+
+def grouped_report(folders: list[Path], pattern: str) -> None:
+    """Aggregate same-run folders that differ only in a -seedN / -sN suffix.
+
+    The 2026-08-21 five-seed panel showed the caption-swap GT point swings more
+    across denoise/AR seeds than the effects under study (REF_pos rms -15.5%
+    to -69%, centroid +110% to -52% for one caption pair), so matching a
+    single-seed GT point is noise. What survives aggregation: the median
+    ladder, the consistency of the spectral trend's SIGN across seeds, and the
+    worst median level dip. Those are what this mode reports."""
+    groups: dict[str, list[Path]] = {}
+    for folder in folders:
+        if not folder.is_dir():
+            continue
+        groups.setdefault(GROUP_RE.sub("", folder.name), []).append(folder)
+    for name, members in sorted(groups.items()):
+        per_seed = [ladder(m, pattern) for m in members]
+        per_seed = [l for l in per_seed if 0.0 in l]
+        if not per_seed:
+            print(f"=== {name}: no zero clips in {len(members)} folders ===")
+            continue
+        scales = sorted(set().union(*[set(l) for l in per_seed]))
+        print(f"=== {name}  ({len(per_seed)} seeds) ===")
+        print(f"  {'scale':>7} {'rms med':>9} {'rms range':>15} {'cen med':>9} {'cen range':>15}")
+        med_curve = []
+        cen_signs_pos, cen_signs_neg = [], []
+        for l in per_seed:
+            base = l[0.0]
+            ups = [pct(l[s], base, "centroid") for s in sorted(l) if s > 0]
+            dns = [pct(l[s], base, "centroid") for s in sorted(l) if s < 0]
+            if ups:
+                cen_signs_pos.append(np.sign(ups[-1]))
+            if dns:
+                cen_signs_neg.append(np.sign(dns[0]))
+        for scale in scales:
+            r = [pct(l[scale], l[0.0], "rms") for l in per_seed if scale in l]
+            c = [pct(l[scale], l[0.0], "centroid") for l in per_seed if scale in l]
+            if not r:
+                continue
+            med_curve.append((scale, float(np.median(r)), float(np.median(c))))
+            print(f"  {scale:7.3f} {np.median(r):+8.1f}% [{min(r):+6.1f},{max(r):+6.1f}] "
+                  f"{np.median(c):+8.1f}% [{min(c):+6.1f},{max(c):+6.1f}]")
+        pos_med = [(s, r) for s, r, _ in med_curve if s > 0]
+        if pos_med:
+            worst = min(r for _, r in pos_med)
+            print(f"  worst median level dip (+side): {worst:+.1f}%")
+        if cen_signs_pos:
+            agree = max(cen_signs_pos.count(1), cen_signs_pos.count(-1))
+            print(f"  centroid endpoint sign agreement (+side): {agree}/{len(cen_signs_pos)}")
+        if cen_signs_neg:
+            agree = max(cen_signs_neg.count(1), cen_signs_neg.count(-1))
+            print(f"  centroid endpoint sign agreement (-side): {agree}/{len(cen_signs_neg)}")
+        print()
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("folders", nargs="+", type=Path)
-    ap.add_argument("--refs", type=Path, required=True,
+    ap.add_argument("--refs", type=Path, default=None,
                     help="folder holding REF_neu.wav and REF_pos.wav at the SAME duration "
-                    "and seed -- levels are not comparable across durations")
+                    "and seed. CAUTION: the five-seed panel showed this GT point is "
+                    "seed-noise; prefer --group for any decision")
     ap.add_argument("--pattern", default="*slider*.wav")
+    ap.add_argument("--group", action="store_true",
+                    help="aggregate folders differing only by -seedN/-sN suffix: median "
+                    "ladders, trend-sign consistency, worst level dip. No GT matching.")
     args = ap.parse_args(argv)
+    if args.group:
+        grouped_report(list(args.folders), args.pattern)
+        return 0
+    if args.refs is None:
+        ap.error("--refs is required unless --group is given")
 
     neu = feats(*load(args.refs / "REF_neu.wav"))
     pos = feats(*load(args.refs / "REF_pos.wav"))

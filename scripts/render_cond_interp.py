@@ -52,6 +52,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--prompts_file", type=Path,
                     default=_ROOT / "conceptmod/textsliders/data/prompts-triphop-v3-single.yaml")
     ap.add_argument("--cache_dir", type=Path, default=_ROOT / "cache/triphop-v3")
+    ap.add_argument("--ref", action="store_true",
+                    help="also render the neutral and pole captions plain, so the folder "
+                    "carries its own baselines (12s folders without these were unscoreable)")
+    ap.add_argument("--encode_ar", action="store_true",
+                    help="run the AR/LM stage to populate an empty --cache_dir. Needed for a duration\n"
+                    "the cache was not built at: conditions are per-duration, and without this the\n"
+                    "script fails with '--skip_ar set but missing LM/AR cache'.")
     ap.add_argument("--model_dir", type=Path, default=Path("/ml2/music/models/MiniMax-Music3"))
     ap.add_argument("--out_dir", type=Path, required=True)
     ap.add_argument("--pole", choices=["pos", "neg"], default="pos")
@@ -68,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     entries = build_conditions(
         prompts=[prompt], cache_dir=args.cache_dir, duration=args.duration,
         seeds=[args.seed], device=torch.device(device), model_dir=args.model_dir,
-        skip_ar=True, dummy=False,
+        skip_ar=not args.encode_ar, dummy=False,
     )
     conds = entries[0][1]
     pipe = _load_pipeline(args.model_dir, device)
@@ -78,31 +85,43 @@ def main(argv: list[str] | None = None) -> int:
     n = min(cond_neu.shape[1], cond_pole.shape[1])
     cond_neu, cond_pole = cond_neu[:, :n], cond_pole[:, :n]
 
-    original_forward = pipe.transformer.forward
-    state = {"u": 0.0, "swapped": 0}
+    # Swap the condition at the condition_encoder OUTPUT, before the denoise
+    # stage chunks it into windows. Patching transformer.forward (the previous
+    # approach) aligned the cached cond from position 0 for EVERY window, which
+    # silently corrupted any duration long enough to chunk: at 12s (2 windows,
+    # 60 cond calls over 30 steps) even the u=0 identity failed against REF_neu.
+    original_ce = pipe.condition_encoder.forward
+    state = {"u": 0.0, "swapped": 0, "offset": 0}
 
-    def mixed_forward(hidden_states, timestep, encoder_hidden_states, return_dict=True):
-        # Replace only the conditional branch (nonzero condition) with the mix,
-        # cropped/expanded to the incoming length. The uncond zeros pass through,
-        # so CFG treats the mix exactly as it would treat a real caption's cond.
-        if encoder_hidden_states.abs().any():
-            u = state["u"]
-            m = min(n, encoder_hidden_states.shape[1])
-            mix = (1.0 - u) * cond_neu[:, :m] + u * cond_pole[:, :m]
-            if mix.shape[0] != hidden_states.shape[0]:
-                mix = mix.expand(hidden_states.shape[0], -1, -1)
-            if mix.shape[1] != encoder_hidden_states.shape[1]:
-                pad = encoder_hidden_states[:, mix.shape[1]:]
-                mix = torch.cat([mix, pad], dim=1)
-            encoder_hidden_states = mix
-            state["swapped"] += 1
-        return original_forward(hidden_states, timestep, encoder_hidden_states, return_dict=return_dict)
+    def mixed_ce(frame_hiddens, *fargs, **fkwargs):
+        # Single-window only. At >200 AR frames the pipeline denoises in
+        # OVERLAPPING windows (measured at 12s: two calls, 200 frames each over
+        # ~300 total, 689 tokens each vs 1033 cached) and calls the condition
+        # encoder once per window on that window's slice. Neither position-0
+        # alignment nor sequential-offset slicing reproduces the overlapped
+        # layout -- both failed the u=0 identity at 12s -- so refuse rather
+        # than silently compose garbage. 200 frames = 8s is the largest valid
+        # duration; the 4s and 8s identities are exact.
+        out = original_ce(frame_hiddens, *fargs, **fkwargs)
+        if out.shape[1] < n or state["swapped"] > 0:
+            raise SystemExit(
+                f"chunked denoise detected (window {out.shape[1]} tokens < cached {n}, "
+                f"call #{state['swapped'] + 1}): condition swapping is only valid at "
+                f"durations that fit ONE denoise window (<=200 AR frames, i.e. <=8s)."
+            )
+        u = state["u"]
+        mix = (1.0 - u) * cond_neu[:, :n] + u * cond_pole[:, :n]
+        mix = mix.to(device=out.device, dtype=out.dtype)
+        if out.shape[1] > n:
+            mix = torch.cat([mix, out[:, n:]], dim=1)
+        state["swapped"] += 1
+        return mix
 
-    pipe.transformer.forward = mixed_forward
+    pipe.condition_encoder.forward = mixed_ce
     args.out_dir.mkdir(parents=True, exist_ok=True)
     sr = int(pipe.sampling_rate)
     for u in [float(x) for x in args.us.split(",") if x.strip()]:
-        state["u"], state["swapped"] = u, 0
+        state["u"], state["swapped"], state["offset"] = u, 0, 0
         gen = torch.Generator(device).manual_seed(int(args.seed))
         print(f"rendering cond-mix pole={args.pole} u={u:g}", flush=True)
         audio = pipe(prompt=prompt.neutral, lyrics=prompt.lyrics,
@@ -114,7 +133,22 @@ def main(argv: list[str] | None = None) -> int:
         arr = np.asarray(wav, dtype=np.float64)  # mono-downmix std = scorer's rms
         rms = float((arr.mean(axis=1) if arr.ndim == 2 else arr).std())
         print(f"  wrote {dest.name}  rms={rms:.4f}  swapped={state['swapped']}", flush=True)
-    pipe.transformer.forward = original_forward
+    pipe.condition_encoder.forward = original_ce
+    if args.ref:
+        pole_text = prompt.positive if args.pole == "pos" else prompt.negative
+        for label, text in (("neu", prompt.neutral), (args.pole, pole_text)):
+            dest = args.out_dir / f"REF_{label}.wav"
+            if dest.exists():
+                print(f"skip existing {dest.name}", flush=True)
+                continue
+            gen = torch.Generator(device).manual_seed(int(args.seed))
+            print(f"rendering REF {label}", flush=True)
+            audio = pipe(prompt=text, lyrics=prompt.lyrics, audio_duration=float(args.duration),
+                         generator=gen, output="audios")[0]
+            wav = _to_wav_array(audio)
+            sf.write(str(dest), wav, sr)
+            arr = np.asarray(wav, dtype=np.float64)
+            print(f"  wrote {dest.name}  rms={float((arr.mean(axis=1) if arr.ndim == 2 else arr).std()):.4f}", flush=True)
     return 0
 
 

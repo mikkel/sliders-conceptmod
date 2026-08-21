@@ -69,6 +69,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--prompts_file", type=Path,
                     default=_ROOT / "conceptmod/textsliders/data/prompts-triphop-v3-single.yaml")
     ap.add_argument("--cache_dir", type=Path, default=_ROOT / "cache/triphop-v3")
+    ap.add_argument("--encode_ar", action="store_true",
+                    help="run the AR/LM stage to populate an empty --cache_dir. Needed for a duration\n"
+                    "the cache was not built at: conditions are per-duration, and without this the\n"
+                    "script fails with '--skip_ar set but missing LM/AR cache'.")
     ap.add_argument("--model_dir", type=Path, default=Path("/ml2/music/models/MiniMax-Music3"))
     ap.add_argument("--out_dir", type=Path, required=True)
     ap.add_argument("--mode", choices=["axis", "posedge", "orth", "parcap"], default="axis")
@@ -102,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     entries = build_conditions(
         prompts=[prompt], cache_dir=args.cache_dir, duration=args.duration,
         seeds=[args.seed], device=torch.device(device), model_dir=args.model_dir,
-        skip_ar=True, dummy=False,
+        skip_ar=not args.encode_ar, dummy=False,
     )
     conds = entries[0][1]
     pipe = _load_pipeline(args.model_dir, device)
@@ -116,6 +120,17 @@ def main(argv: list[str] | None = None) -> int:
     state = {"scale": 0.0, "calls": 0}
 
     def composed_forward(hidden_states, timestep, encoder_hidden_states, return_dict=True):
+        if encoder_hidden_states.abs().any() and encoder_hidden_states.shape[1] < cond_pos.shape[1]:
+            # Chunked inference: the incoming cond is one WINDOW's slice, and
+            # composing against cached conds aligned from position 0 corrupts
+            # every window after the first. The 12s cells rendered before this
+            # guard existed are invalid for exactly that reason.
+            raise SystemExit(
+                f"chunked denoise detected (window {encoder_hidden_states.shape[1]} < "
+                f"cached cond {cond_pos.shape[1]}): composition would misalign windows "
+                f">1. Use a duration that fits one window, or extend this script with "
+                f"per-window offsets."
+            )
         base = original_forward(hidden_states, timestep, encoder_hidden_states, return_dict=False)[0]
         s = state["scale"]
         # Compose on the CONDITIONAL branch only by default. With v = v_u + w(v_c - v_u),

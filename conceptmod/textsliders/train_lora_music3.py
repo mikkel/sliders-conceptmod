@@ -430,17 +430,31 @@ def build_conditions(
         hashed = text if not use_lm else f"__lm{scale:+.3f}__\n{text}"
         return _prompt_hash(hashed, lyrics, duration, seed)
 
-    need_ar = False
+    missing_jobs = []
     for text, lyrics, scale, seed in jobs:
         hashed = text if not use_lm else f"__lm{scale:+.3f}__\n{text}"
         if not _cache_path(cache_dir, hashed, lyrics, duration, seed).exists():
-            need_ar = True
+            missing_jobs.append((text, scale, seed))
+    need_ar = bool(missing_jobs)
 
     pipe = None
     lm_network = None
     if need_ar:
         if skip_ar:
-            raise FileNotFoundError(f"--skip_ar set but missing LM/AR cache in {cache_dir}")
+            # Name every missing key input: three separate jobs have failed on
+            # this error with no way to tell WHICH (prompt, seed, duration)
+            # cell the cache lacked. The cache is keyed per caption text, per
+            # AR seed, and per duration -- all three must match.
+            detail = "; ".join(
+                f"prompt={text[:48]!r} seed={seed} dur={duration:g}"
+                + (f" lm={scale:+g}" if use_lm else "")
+                for text, scale, seed in missing_jobs[:4]
+            )
+            more = "" if len(missing_jobs) <= 4 else f" (+{len(missing_jobs) - 4} more)"
+            raise FileNotFoundError(
+                f"--skip_ar set but {len(missing_jobs)} condition(s) missing from "
+                f"{cache_dir}: {detail}{more}"
+            )
         pipe = _load_ar_pipeline(model_dir, device)
         if use_lm:
             lm_network = _attach_lm_slider(pipe, lm_weights, device)
@@ -809,13 +823,19 @@ def build_x0_banks(
     per_row: int,
     num_steps: int,
     dummy: bool,
+    source: str = "neutral",
 ) -> list[list[torch.Tensor]]:
     """One bank of clean latents per (row, cond-seed) entry, cached on disk.
-    Generated from the *neutral* condition with LoRA multipliers already at 0."""
+    Generated from the `source` condition (default neutral) with LoRA
+    multipliers already at 0. `source` exists for the anchor-dependence
+    diagnostic: probe geometry anchored to neutral-generated latents reads the
+    same for unrelated caption pairs, so measuring it on positive- or
+    negative-anchored latents separates "the pair's geometry" from "distance
+    off the anchor's own trajectory"."""
     banks: list[list[torch.Tensor]] = []
     cache_dir.mkdir(parents=True, exist_ok=True)
     for index, (_prompt, conds) in enumerate(entries):
-        neutral = conds["neutral"]
+        neutral = conds[source]
         bank: list[torch.Tensor] = []
         for i in range(max(1, per_row)):
             x0_seed = int(seed) * 100 + i
@@ -1030,6 +1050,7 @@ def train(args: argparse.Namespace) -> Path:
             per_row=int(args.x0_per_row),
             num_steps=int(args.x0_steps),
             dummy=bool(args.dummy),
+            source=str(args.x0_source),
         )
 
     optimizer = torch.optim.AdamW(network.parameters(), lr=lr)
@@ -1466,6 +1487,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="comma-separated AR seeds; each prompt row gets one condition set per seed (default: --seed)",
     )
     parser.add_argument("--x0_per_row", type=int, default=2, help="clean-latent anchors per condition set")
+    parser.add_argument(
+        "--x0_source",
+        choices=["neutral", "positive", "negative"],
+        default="neutral",
+        help="which caption's condition generates the x0 anchors. Non-default is a "
+        "DIAGNOSTIC (probe anchor-dependence); training should stay on neutral",
+    )
     parser.add_argument("--x0_steps", type=int, default=30, help="Euler steps when generating x0 anchors")
     parser.add_argument(
         "--target_mode",

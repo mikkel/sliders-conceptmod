@@ -205,14 +205,35 @@ fixed and only the denoise seed changed, the caption swap's own signature swings
 from +110.6% centroid to −51.6% across five seeds. Every percentage in the
 sections below, and in the git history of August 20–21, is one draw.
 
-Longer clips fix only part of this, and it is important not to over-read them.
-The *teacher* cell (axis, both branches, post-CFG net 1.0) goes from −54.7% /
-+3.9% on two 4s seeds to −27.2% / −25.2% at 12s — agreement within 2 points
-where 4s disagreed by 59. But the *caption swap itself* stays unstable at every
-duration tried: REF_pos against neutral is −8% at seed 7 and −64% at seed 11 at
-8s, and −10.4% vs −53.8% at 12s. So duration buys a stable instrument, not a
-stable target. **Measure at 12s, report medians over ≥3 seeds, quote the spread,
-and do not treat a single-seed caption swap as ground truth at any duration.**
+Longer clips do not fix it. The caption swap stays unstable at every valid
+duration measured: REF_pos against neutral reads −8% rms at seed 7 and −64% at
+seed 11 at 8s. **Report medians over ≥3 seeds, quote the spread, and never treat
+a single-seed caption swap as ground truth.**
+
+**Composed/condmix cells above 8s are invalid — do not quote them.** Past ~200 AR
+frames the pipeline denoises in *overlapping* windows and re-encodes the
+condition per window; the diagnostic scripts aligned cached conditions from
+position 0, so every 12s cell was silently corrupted (the tell: the u=0 identity
+fails at 12s and is exact to four digits at 8s). Both scripts now refuse >8s.
+An earlier revision of this file cited 12s teacher numbers from those cells;
+they are withdrawn.
+
+**The caption pair, not the recipe, decides whether a slider works.** Identical
+recipe, 3-seed grouped ladders, at slider +1.0:
+
+| pair | level | brightness |
+|---|---|---|
+| trip-hop ↔ glossy EDM (`R-final`) | **−76.0%** | +46.0% |
+| dusty ↔ glossy (`F-dust`) | **−7.5%** | +46.2% |
+
+Same brightness, 10x less level damage, and a symmetric minus side (+6.4% level
+/ −13.0% centroid, against the trip-hop pair's +77% level / −8% centroid). Two
+sessions of recipe search — loss, clipping, rank, anchors, `--traj_frac`,
+`--target_mode`, `--gain_penalty` — moved the level channel by single digits.
+The pair moved it by 68 points. Poles that differ in BPM and arrangement put the
+edit in content the *AR plan* owns, and the transformer LoRA cannot reach it; it
+distils instead into a compounding level term. **Choose pairs that differ in one
+production attribute at fixed genre/BPM/arrangement.**
 
 **The mergeable-LoRA constraint is not what limits these sliders.** Composing the
 teacher on the conditional CFG branch and merging it into both branches agree to
