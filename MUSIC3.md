@@ -185,6 +185,50 @@ Also (fixed, see below): `calibrate_scale.py` `_load_cache_entries` KeyErrored o
 anchor files in a shared cache dir (it expects only condition entries) —
 work around with a scratch dir holding just the condition files.
 
+## Read this before the `cos` sections below (August 21 2026)
+
+A day spent raising the probe metric from 0.52 to 0.81 produced no audible
+improvement, and the measurement campaign that followed retracted most of what
+the next four sections assert. They are kept because their *measurements* are
+sound and still useful; their *conclusions* are superseded. Specifically:
+
+**`cos` does not predict renders.** Checkpoints scoring 0.82, 0.78 and 0.77 on
+the probe render, respectively, digital silence, a usable effect, and a track
+with 96% of its level gone. The probe evaluates the adapter at x_t drawn from
+*unperturbed* trajectories — precisely the states an open-loop adapter handles
+well — while at inference it drives its own trajectory for ~50 steps. Rank runs
+with the probe to catch broken ones; accept them only on a rendered ladder
+(`scripts/score_render_curve.py`).
+
+**Single-seed 4s feature deltas are not evidence.** With captions and conditions
+fixed and only the denoise seed changed, the caption swap's own signature swings
+from +110.6% centroid to −51.6% across five seeds. Every percentage in the
+sections below, and in the git history of August 20–21, is one draw. At 12s the
+same measurement is stable to ~2 points between seeds where 4s disagreed by 59.
+**Measure at 12s, report medians over ≥3 seeds, and quote the spread.**
+
+**The mergeable-LoRA constraint is not what limits these sliders.** Composing the
+teacher on the conditional CFG branch and merging it into both branches agree to
+0.2 rms points at equal post-CFG net strength (nets 1.0 and 1.7 both checked).
+
+**What does limit them, reproducibly:** the teacher's rendered level recovers as
+strength rises (median +7% at net 1.7 over five seeds, always at or above
+neutral) while every trained LoRA falls monotonically to −86…−99%. Closed-loop
+x_t sampling (`--traj_frac`, three settings) moves that by ≤3 points and is not
+the mechanism. Aiming each side at its own pole instead of the pos−neg axis is
+worse, and is ill-posed bidirectionally — the trainer now refuses that
+combination.
+
+**Three retracted claims, so they are not rediscovered:** "the pole-edge teacher
+at net 1.0 reproduces the caption swap" is an algebraic identity, not evidence
+about targets; "cond-only and both-branch composition differ at net 1.7" came
+from comparing a stereo-array `.std()` print against a mono-downmix file score;
+and the prompt-pair geometry screen (`cos(edge+, -edge-)`, `even/odd`) returns
+≈ −0.73 for every pair tried because the probe's x_t are anchored to latents
+generated from the *neutral* caption. Measured at un-anchored x_t the same pairs
+spread over 0.26 instead of 0.04 and change rank order. **Do not gate prompt
+pairs on the anchored number.**
+
 ## Why transformer `cos` stops near 0.5, and the comparable metric (August 2026)
 
 Transformer sliders all plateau at last-step `cos` 0.43–0.55 while LM halves reach
