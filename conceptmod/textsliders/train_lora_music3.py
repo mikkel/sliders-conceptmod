@@ -214,13 +214,15 @@ def _make_dummy_transformer() -> torch.nn.Module:
     )
 
 
-def _load_transformer(model_dir: Path, device: torch.device) -> torch.nn.Module:
+def _load_transformer(
+    model_dir: Path, device: torch.device, dtype: torch.dtype = torch.bfloat16
+) -> torch.nn.Module:
     from diffusers import MiniMaxMusic3Transformer1DModel
 
     transformer = MiniMaxMusic3Transformer1DModel.from_pretrained(
         str(model_dir),
         subfolder="transformer",
-        torch_dtype=torch.bfloat16,
+        torch_dtype=dtype,
         local_files_only=True,
     )
     transformer.requires_grad_(False)
@@ -552,6 +554,12 @@ def build_eval_probe(
     amp: bool,
     n_noise: int = 2,
 ) -> EvalProbe:
+    """The probe's x0 anchors come from `x0_bank`, i.e. the same clean latents the
+    run trains on. That is fine when every run shares one bank, but it gives a
+    home-field advantage to runs that concentrate on those anchors: a --x0_per_row 8
+    run spreads capacity over 8 anchors and is then scored on 2 of them. Pass a
+    bank built with a probe-only seed (see --eval_holdout) to measure
+    generalization across anchors instead of fit to the training ones."""
     prompt, conds = entry
     length = int(conds["target"].shape[1])
     dtype = torch.bfloat16 if amp else torch.float32
@@ -793,7 +801,7 @@ def train(args: argparse.Namespace) -> Path:
         for prompt in prompts:
             prompt.guidance_scale = float(args.guidance)
     target_replace = TARGET_REPLACE_FULL if args.targets == "full" else TARGET_REPLACE_ATTN
-    lr_name = str(train_cfg.get("lr_scheduler", "cosine"))
+    lr_name = str(args.lr_scheduler or train_cfg.get("lr_scheduler", "cosine"))
     model_dir = Path(args.model_dir or pretrained.get("name_or_path") or DEFAULT_MODEL_DIR)
     cache_dir = Path(args.cache_dir or DEFAULT_CACHE_DIR)
     save_dir = Path(args.save_dir or save_cfg.get("path") or DEFAULT_SAVE_DIR)
@@ -831,7 +839,9 @@ def train(args: argparse.Namespace) -> Path:
         transformer.requires_grad_(False)
         transformer.train()
     else:
-        transformer = _load_transformer(model_dir, device)
+        transformer = _load_transformer(
+            model_dir, device, torch.float32 if args.teacher_fp32 else torch.bfloat16
+        )
 
     network = LoRANetwork(
         transformer,
@@ -879,12 +889,22 @@ def train(args: argparse.Namespace) -> Path:
 
     probe = None
     eval_every = max(0, int(args.eval_every))
+    probe_bank = x0_banks[0] if x0_banks else None
+    if eval_every and entries and args.eval_holdout and args.xt_mode != "noise":
+        # A clean latent the run never trains on, so the probe scores generalization
+        # across anchors rather than fit to the two it was fed.
+        print("generating held-out eval anchor", flush=True)
+        probe_bank = build_x0_banks(
+            entries[:1], transformer, cache_dir=cache_dir, model_dir=model_dir,
+            device=device, seed=int(args.eval_seed), per_row=1,
+            num_steps=int(args.x0_steps), dummy=bool(args.dummy),
+        )[0]
     if eval_every and entries:
         print("building fixed eval probe", flush=True)
         probe = build_eval_probe(
             transformer,
             entries[0],
-            x0_banks[0] if x0_banks else None,
+            probe_bank,
             device=device,
             seed=int(args.eval_seed),
             amp=amp_enabled,
@@ -899,6 +919,11 @@ def train(args: argparse.Namespace) -> Path:
     log_handle = log_path.open("w", encoding="utf-8")
     last_loss = None
     last_eval: dict[str, float] | None = None
+    # Long runs can degrade: a 2000-step fp32-teacher run peaked at cos 0.8529
+    # (step 1100) and finished at 0.7563, with the +1 pole drifting while -1 held.
+    # Keep the best-scoring weights so `_last` is not the only thing on disk.
+    best_eval: dict[str, float] | None = None
+    best_step = 0
     mid_step = max(1, steps // 2)
     progress = tqdm(range(steps), desc="train")
     for step in progress:
@@ -943,7 +968,7 @@ def train(args: argparse.Namespace) -> Path:
         cond_neg = _cond("negative")
         cond_neu = _cond("neutral")
         cond_tgt = _cond("target")
-        if amp_enabled:
+        if amp_enabled and not args.teacher_fp32:
             latents = latents.to(amp_dtype)
             timestep = timestep.to(amp_dtype)
             cond_pos = cond_pos.to(amp_dtype)
@@ -953,7 +978,11 @@ def train(args: argparse.Namespace) -> Path:
 
         _set_lora_multiplier(network, 0.0)
         with torch.no_grad():
-            if amp_enabled:
+            # vel_pos - vel_neg is a 2-5% difference of large numbers. In bf16 that
+            # axis is only good to cos ~0.89-0.95, which is label noise the slider
+            # is then fit against: scoring the same checkpoints with an fp32 teacher
+            # reads ~0.04 higher cos across the board.
+            if amp_enabled and not args.teacher_fp32:
                 with torch.autocast(device_type="cuda", dtype=amp_dtype):
                     vel_pos = transformer(latents, timestep, cond_pos, return_dict=False)[0]
                     vel_neg = transformer(latents, timestep, cond_neg, return_dict=False)[0]
@@ -1036,6 +1065,11 @@ def train(args: argparse.Namespace) -> Path:
         if probe is not None and ((step + 1) % eval_every == 0 or (step + 1) == steps):
             last_eval = evaluate_probe(transformer, network, probe, amp_enabled)
             record["eval"] = last_eval
+            if best_eval is None or last_eval["cos"] > best_eval["cos"]:
+                best_eval, best_step = last_eval, step + 1
+                best_path = save_dir / f"{stem}_best.safetensors"
+                network.save_weights(str(best_path), dtype=torch.float32)
+                record["saved_best"] = True
             print(
                 f"eval step {step + 1}/{steps} cos={last_eval['cos']:.4f} "
                 f"cos_neg={last_eval['cos_neg']:.4f} collapse={last_eval['collapse']:.4f} "
@@ -1078,8 +1112,11 @@ def train(args: argparse.Namespace) -> Path:
         "loss_kind": args.loss,
         "grad_clip": args.grad_clip,
         "eval": last_eval,
+        "eval_best": best_eval,
+        "eval_best_step": best_step,
         "eval_timesteps": list(EVAL_TIMESTEPS),
         "eval_seed": int(args.eval_seed),
+        "eval_holdout": bool(args.eval_holdout),
         "prompts": [asdict(prompt) for prompt in prompts],
         "weights": str(weights_path),
     }
@@ -1160,6 +1197,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--x0_per_row", type=int, default=2, help="clean-latent anchors per condition set")
     parser.add_argument("--x0_steps", type=int, default=30, help="Euler steps when generating x0 anchors")
     parser.add_argument(
+        "--teacher_fp32",
+        action="store_true",
+        help="compute vel_pos/vel_neg/vel_neu in fp32 (the student still trains under "
+        "bf16 autocast, as inference runs it). Removes ~0.04 of target noise at the "
+        "cost of ~2x model memory and slower teacher forwards.",
+    )
+    parser.add_argument(
+        "--lr_scheduler",
+        choices=["cosine", "constant"],
+        default=None,
+        help="default: the config's value (cosine). Cosine anneals to eta_min 1e-6 "
+        "by --steps, which measurably costs cos: an otherwise identical 1000-step "
+        "run reads 0.8089 at step 500 where the 500-step run finishes at 0.7928",
+    )
+    parser.add_argument(
         "--loss",
         choices=["mse", "nmse", "cos"],
         default="nmse",
@@ -1188,6 +1240,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "to --eval_seed and a fixed t grid so runs are comparable",
     )
     parser.add_argument("--eval_seed", type=int, default=1234, help="fixed eval probe seed")
+    parser.add_argument(
+        "--eval_holdout",
+        action="store_true",
+        help="score the probe on a clean latent the run never trains on. Off by "
+        "default so numbers stay comparable with runs scored on the shared bank; "
+        "required to compare runs that differ in --x0_per_row, since the shared "
+        "bank favours runs that concentrate on those anchors",
+    )
     parser.add_argument("--plus_label", type=str, default=None, help="override sidecar plus_label")
     parser.add_argument("--minus_label", type=str, default=None, help="override sidecar minus_label")
     parser.add_argument(
