@@ -551,15 +551,15 @@ class EvalProbe:
     timesteps: list[torch.Tensor]
     directions: list[torch.Tensor]  # vel_pos - vel_neg
     neutrals: list[torch.Tensor]  # vel_neu
-    # Neutral does not lie on the pos-neg line (its rms sits below BOTH poles
-    # here), so the axis is not what either side of the slider should render.
-    # Keep each pole's displacement from neutral to score --target_mode pole
-    # runs on their own target as well as on the axis.
-    edges_plus: list[torch.Tensor] = field(default_factory=list)  # +side pole - vel_neu
-    edges_minus: list[torch.Tensor] = field(default_factory=list)  # -side pole - vel_neu
     t_values: list[float]
     cond_target: torch.Tensor
     guidance: float
+    # Defaulted fields must come last. Neutral does not lie on the pos-neg line
+    # (its rms sits below BOTH poles here), so the axis is not what either side
+    # of the slider should render; keep each pole's displacement from neutral to
+    # score --target_mode pole runs on their own target as well as on the axis.
+    edges_plus: list[torch.Tensor] = field(default_factory=list)  # +side pole - vel_neu
+    edges_minus: list[torch.Tensor] = field(default_factory=list)  # -side pole - vel_neu
 
 
 EVAL_TIMESTEPS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
