@@ -512,6 +512,8 @@ def _slider_loss(
     kind: str,
     mag_weight: float,
     gain_weight: float = 0.0,
+    gain_mode: str = "penalty",
+    gain_tw: float = 1.0,
 ) -> torch.Tensor:
     """`axis` is the signed target delta, guidance * (vel_pos - vel_neg) for +1.
 
@@ -524,19 +526,48 @@ def _slider_loss(
             timestep contributes equally.
     cos   — optimize the reported metric directly (scale-free), plus a
             magnitude term pulling ||delta|| towards ||axis||.
+    nmse_ortho — gain and shape supervised as SEPARATE quantities: nmse fits
+            only the components of the edit orthogonal to vel_neu; the parallel
+            (pure-gain) component is supervised solely by the gain term, so it
+            requires gain_weight > 0 and gain_mode="match" (enforced at parse).
+            Motivation: the gain component is the one direction that points the
+            same way at every one of the ~50 solve steps, so per-step error in
+            it compounds multiplicatively at render while shape error partly
+            cancels; a joint MSE prices both identically.
+
+    gain_mode:
+    penalty — push the gain component toward ZERO (the original --gain_penalty;
+            measured inert on both the dust and trip-hop pairs, kept as a
+            negative control). Zero is also the wrong target: the teacher's own
+            delta carries a level component.
+    match — push the gain component toward the TEACHER's own gain component
+            (axis · unit_neu), i.e. exactly as much level change as the concept
+            actually asks for, no more.
+
+    gain_tw: timestep-dependent multiplier on the gain term (1.0 = uniform).
+            The caller passes ~2*(1-t): a per-step gain bias introduced early in
+            the solve (low t, near noise) has the most remaining steps to
+            compound through, so it is priced highest.
     """
     delta = vel - vel_neu
+    unit = vel_neu.flatten()
+    unit = unit / unit.norm().clamp_min(1e-8)
     if gain_weight > 0.0:
         # The component of the delta along vel_neu just rescales the velocity.
         # It is only ~16% of the concept axis, but it is the one component that
         # points the same way at every denoise step, so it compounds through the
         # ~50-step solve while shape components partly cancel: the rendered
         # slider comes out ~5x too much level change and ~10x too little
-        # brightness. Penalising it below its natural share counteracts that.
-        unit = vel_neu.flatten()
-        unit = unit / unit.norm().clamp_min(1e-8)
-        gain = (delta.flatten() @ unit) / axis.norm().clamp_min(1e-8)
-        gain_term = gain_weight * gain.pow(2)
+        # brightness.
+        g_delta = delta.flatten() @ unit
+        if gain_mode == "match":
+            g_target = axis.flatten() @ unit
+        elif gain_mode == "penalty":
+            g_target = axis.new_zeros(())
+        else:
+            raise ValueError(f"unknown gain_mode {gain_mode!r}")
+        gain = (g_delta - g_target) / axis.norm().clamp_min(1e-8)
+        gain_term = gain_weight * float(gain_tw) * gain.pow(2)
     else:
         gain_term = 0.0
     if kind == "mse":
@@ -544,6 +575,13 @@ def _slider_loss(
     if kind == "nmse":
         scale = axis.pow(2).mean().clamp_min(1e-8)
         return torch.nn.functional.mse_loss(vel, vel_neu + axis) / scale + gain_term
+    if kind == "nmse_ortho":
+        d_par = (delta.flatten() @ unit)
+        a_par = (axis.flatten() @ unit)
+        d_perp = delta - (d_par * unit).view_as(delta)
+        a_perp = axis - (a_par * unit).view_as(axis)
+        scale = a_perp.pow(2).mean().clamp_min(1e-8)
+        return (d_perp - a_perp).pow(2).mean() / scale + gain_term
     if kind == "cos":
         cos = torch.nn.functional.cosine_similarity(
             delta.flatten().unsqueeze(0), axis.flatten().unsqueeze(0)
@@ -935,6 +973,13 @@ def rollout_states(
 
 
 def train(args: argparse.Namespace) -> Path:
+    if args.loss == "nmse_ortho" and not (args.gain_penalty > 0.0 and args.gain_mode == "match"):
+        raise SystemExit(
+            "--loss nmse_ortho leaves the pure-gain component of the delta out of the "
+            "shape loss entirely, so it must be supervised by the gain term: pass "
+            "--gain_penalty > 0 --gain_mode match. Without that the gain component is "
+            "unconstrained — and gain is the component that compounds into level collapse."
+        )
     config = load_config_defaults(Path(args.config_file) if args.config_file else None)
     prompts_path = Path(args.prompts_file or config.get("prompts_file") or DEFAULT_PROMPTS)
     if not prompts_path.is_absolute():
@@ -1269,10 +1314,14 @@ def train(args: argparse.Namespace) -> Path:
         # never uses at that state, and silently contradicted --traj_scales'
         # "each state is trained at its own setting".)
         primary = float(state_scale) if use_traj and abs(state_scale) > 1e-6 else 1.0
+        # A per-step gain bias introduced early in the solve (low t) has the most
+        # remaining steps to compound through; ~2*(1-t) prices that. E[1-t] over
+        # the training draw is ~0.5, so the factor keeps the mean weight near 1.
+        gain_tw = 2.0 * (1.0 - float(timestep.float().mean())) if args.gain_tweight else 1.0
         vel_primary = _lora_forward(primary)
         loss = _slider_loss(
             vel_primary.float(), vel_neu.float(), _target_delta(primary), args.loss,
-            args.mag_weight, args.gain_penalty,
+            args.mag_weight, args.gain_penalty, args.gain_mode, gain_tw,
         )
         vel_plus = vel_primary if primary > 0 else None
         vel_minus = vel_primary if primary < 0 else None
@@ -1284,7 +1333,7 @@ def train(args: argparse.Namespace) -> Path:
                 loss
                 + _slider_loss(
                     vel_other.float(), vel_neu.float(), _target_delta(other), args.loss,
-                    args.mag_weight, args.gain_penalty,
+                    args.mag_weight, args.gain_penalty, args.gain_mode, gain_tw,
                 )
             )
             if other > 0:
@@ -1400,8 +1449,20 @@ def train(args: argparse.Namespace) -> Path:
         "loss": last_loss,
         "loss_kind": args.loss,
         "gain_penalty": float(args.gain_penalty),
+        "gain_mode": args.gain_mode,
+        "gain_tweight": bool(args.gain_tweight),
+        "mag_weight": float(args.mag_weight),
         "uncond_weight": float(args.uncond_weight),
         "grad_clip": args.grad_clip,
+        # Reproducibility: every random source this run consumed. `seed` drives
+        # LoRA init (global RNG), the (t, eps) data stream, x0 anchors and
+        # rollouts; cond_seeds the AR/condition encoding; eval_seed the probe.
+        # A run that cannot state its seeds cannot be paired against another.
+        "seed": int(args.seed),
+        "lr": lr,
+        "lr_scheduler": lr_name,
+        "prompts_file": str(prompts_path),
+        "cache_dir": str(cache_dir),
         "eval": last_eval,
         "eval_best": best_eval,
         "eval_best_step": best_step,
@@ -1541,7 +1602,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="penalise the delta's component along vel_neu (a pure rescaling of "
         "the velocity). That component is only ~16%% of the concept axis but is "
         "coherent across denoise steps, so it compounds into the render while "
-        "shape components cancel; 0 disables",
+        "shape components cancel; 0 disables. --gain_mode picks the target the "
+        "component is pushed toward",
+    )
+    parser.add_argument(
+        "--gain_mode",
+        choices=["penalty", "match"],
+        default="penalty",
+        help="penalty=push the vel_neu-parallel (pure gain) component of the delta "
+        "toward zero (legacy --gain_penalty; measured inert on the dust and "
+        "trip-hop pairs). match=push it toward the teacher's OWN gain component "
+        "(axis . unit_neu) — the teacher carries some level change, so zero is "
+        "the wrong target",
+    )
+    parser.add_argument(
+        "--gain_tweight",
+        action="store_true",
+        help="weight the gain term by ~2*(1-t): a gain bias at low t (early in "
+        "the solve) has the most remaining steps to compound through",
     )
     parser.add_argument(
         "--teacher_fp32",
@@ -1560,11 +1638,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--loss",
-        choices=["mse", "nmse", "cos"],
+        choices=["mse", "nmse", "cos", "nmse_ortho"],
         default="nmse",
         help="mse=legacy (target energy varies ~200x across t, so low-t steps "
         "dominate); nmse=per-step energy-normalized; cos=optimize the reported "
-        "axis metric plus a magnitude term",
+        "axis metric plus a magnitude term; nmse_ortho=fit only the components "
+        "orthogonal to vel_neu, with the pure-gain component supervised solely "
+        "by the gain term (requires --gain_penalty>0 --gain_mode match)",
     )
     parser.add_argument(
         "--mag_weight",

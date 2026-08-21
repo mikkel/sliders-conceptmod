@@ -135,7 +135,9 @@ def _inspect_wav(path: Path) -> tuple[float, float]:
     return duration, rms
 
 
-def _accept_wav(path: Path, requested: float) -> tuple[bool, str, float, float]:
+def _accept_wav(
+    path: Path, requested: float, accept_silent: bool = False
+) -> tuple[bool, str, float, float]:
     if not path.exists() or path.stat().st_size < 1024:
         return False, "missing or tiny", 0.0, 0.0
     try:
@@ -144,20 +146,26 @@ def _accept_wav(path: Path, requested: float) -> tuple[bool, str, float, float]:
         return False, f"unreadable ({exc})", 0.0, 0.0
     if duration < requested * DURATION_TOLERANCE:
         return False, f"short {duration:.2f}s < {requested * DURATION_TOLERANCE:.2f}s", duration, rms
-    if rms < MIN_RMS:
+    if rms < MIN_RMS and not accept_silent:
         return False, f"silent rms={rms:.6f}", duration, rms
     return True, "ok", duration, rms
 
 
-def _write_wav(path: Path, audio, sample_rate: int, requested: float) -> tuple[float, float]:
+def _write_wav(
+    path: Path, audio, sample_rate: int, requested: float, accept_silent: bool = False
+) -> tuple[float, float]:
     path.parent.mkdir(parents=True, exist_ok=True)
     array = _to_wav_array(audio)
     tmp = path.with_name(path.name + ".tmp.wav")
     sf.write(str(tmp), array, sample_rate, format="WAV")
-    ok, reason, duration, rms = _accept_wav(tmp, requested)
+    ok, reason, duration, rms = _accept_wav(tmp, requested, accept_silent=accept_silent)
     if not ok:
         tmp.unlink(missing_ok=True)
         raise RuntimeError(f"rejected {path.name}: {reason}")
+    if rms < MIN_RMS:
+        # --accept_silent: a silent render is EVIDENCE for the scorer (the
+        # silence gate must see it), not an error and never a seed retry.
+        print(f"KEEPING SILENT RENDER {path.name} rms={rms:.6f}", flush=True)
     tmp.replace(path)
     print(f"wrote {path} duration={duration:.2f}s rms={rms:.4f}", flush=True)
     return duration, rms
@@ -316,7 +324,8 @@ def generate(args: argparse.Namespace) -> list[Path]:
     stats: dict[str, tuple[float, float]] = {}
     pending: list[tuple[Path, str, float | None]] = []
     for dest, prompt, scale in jobs:
-        ok, reason, duration, rms = _accept_wav(dest, requested)
+        ok, reason, duration, rms = _accept_wav(
+            dest, requested, accept_silent=bool(getattr(args, "accept_silent", False)))
         if ok and not args.force:
             print(f"skip existing {dest.name} duration={duration:.2f}s rms={rms:.4f}", flush=True)
             stats[dest.name] = (duration, rms)
@@ -393,7 +402,9 @@ def generate(args: argparse.Namespace) -> list[Path]:
                         output="audios",
                     )[0]
                 try:
-                    duration, rms = _write_wav(dest, audio, sample_rate, requested)
+                    duration, rms = _write_wav(
+                        dest, audio, sample_rate, requested,
+                        accept_silent=bool(getattr(args, "accept_silent", False)))
                     break
                 except RuntimeError as exc:
                     if attempt >= retries:
@@ -432,6 +443,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--scales", default="-2,0,2")
     p.add_argument("--row", type=int, default=0, help="which prompt row to render (default 0)")
     p.add_argument("--retry_seeds", type=int, default=2, help="seed bumps when a clip renders short/silent")
+    p.add_argument(
+        "--accept_silent",
+        action="store_true",
+        help="keep a below-MIN_RMS render instead of rejecting/retrying it. The "
+        "pipeline needs collapse evidence on disk (with --retry_seeds 0, so a "
+        "seed bump can never silently unpair a comparison); short/unreadable "
+        "clips still fail",
+    )
     p.add_argument("--duration", type=float, default=8.0)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--rank", type=int, default=None)

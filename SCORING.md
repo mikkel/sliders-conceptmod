@@ -114,3 +114,42 @@ Concept versus proxy (an EQ tilt and real "gloss" are the same vector in these
 features); musical damage at constant level and spectrum beyond what G4 catches;
 anything past one denoise window (~8 s) unless explicitly rendered; slider
 stacking; and the audibility constants are judgement calls, not measurements.
+
+## Amendments from the pipeline build (2026-08-21, evening)
+
+Implemented in `scripts/slider_pipeline.py` + `slider_pipeline/`; the goodhart
+attack table above is now an executable test (`slider_pipeline.py selftest`
+feeds synthetic collapse / silence / hiss / song-replace / no-op / reversed /
+dead-pole ladders to the gates and asserts every veto fires).
+
+1. **Phase-1 ranking is a PAIRED design on frozen seeds, and that is a gate on
+   the experiment, not a preference.** Measured on disk: between-seed sd of the
+   +1 rms delta on the trip-hop pair is ~1.0 ln while every recipe effect ever
+   measured is <= 0.25 ln — unpaired ranking is unfalsifiable. Paired on the
+   same three seeds, E-gp2 - R-final = +0.25 mean, sd 0.18, sign-consistent
+   3/3; the dust pair's two variants tie at 0.001 +- 0.011. The pipeline
+   refuses specs with unpinned seeds, checks the config echo of every adopted
+   checkpoint, and verifies zero-scale clips agree across variants (they are
+   slider-off renders of the same seed, so divergence = broken pairing).
+2. **The one rms convention is per-channel-power rms** (`sqrt(mean(all
+   samples^2))` over the de-interleaved array), per the blind-spot audit:
+   mono-downmix rms mixes level with stereo width through phase cancellation
+   (up to 40 % on real renders). Mono rms and `mono_cancel_db` stay logged.
+3. **G6's null distribution has a concrete construction**: pseudo-candidates
+   whose "+1 clip" is a different seed's zero-scale render, all assignments of
+   substitute seeds, 95th percentile of the resulting E. Zero-only null seeds
+   are rendered per sweep because three compare seeds alone give too few
+   combinations.
+4. **Two candidate cheap signals were tested against ground truth and deleted**
+   rather than shipped: probe-time `gain_frac` (no threshold separates the
+   accepted slider from silence; mostly re-measures the gain_penalty knob) and
+   `trajectory_cos` (ranks silence top at matched multiplier even within one
+   pair; gain-corrected variant ranks a song replacement in a tie for first).
+   Details in MUSIC3.md "Two more candidate metrics, tested and rejected".
+   Consequence: there is currently NO verified in-training early-abort signal;
+   the cheapest honest failure detector remains a rendered ladder.
+5. **G7 is split by cost**: the over-range multiplier check renders with every
+   ladder (no silence beyond the fit point); long-duration (20 s windowed) and
+   held-out-seed confirmation run on the promoted winner only (`confirm`
+   stage), before anything is called a winner out loud. Held-out seeds are
+   named in the spec and never touched by ranking.

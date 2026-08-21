@@ -257,6 +257,58 @@ generated from the *neutral* caption. Measured at un-anchored x_t the same pairs
 spread over 0.26 instead of 0.04 and change rank order. **Do not gate prompt
 pairs on the anchored number.**
 
+## Two more candidate metrics, tested and rejected (August 21 2026)
+
+Both were built as cheap collapse early-warnings; both were verified against
+the checkpoints with known render verdicts before being trusted, and both
+failed. Recorded here so neither is rebuilt.
+
+**`gain_frac` (probe-time fraction of the LoRA delta along `vel_neu`) does not
+separate anything.** Hypothesis: pure gain is the one delta component coherent
+across all ~50 solve steps, so a rising probe-time gain fraction should predict
+a volume-knob or silent render. Measured on the fixed eval probe across 13
+checkpoints spanning every verdict: R-final family (renders −76 % rms) 0.160–
+0.163, G-space 0.147, **D-pole-uni (renders SILENCE) 0.126**, E-gp05 (−76 %)
+0.111, **F-dust-nopen (the accepted slider) 0.107**, G-grit (inaudible) 0.072,
+D-pop-uni (song replacement) 0.066, E-gp2 (−71 %) 0.058, G-vintage (no axis)
+0.036. No threshold separates good from bad in either direction — the accepted
+slider sits between silence and collapse — and the number mostly re-measures
+the `--gain_penalty` knob itself (E-gp2, trained with the penalty, scores
+lowest while still collapsing −71 %). The mechanism is the same as the probe
+cos failure: one-step measurements at unperturbed states cannot see a
+compounding property. The code was deleted, not surfaced.
+
+**`trajectory_cos` (end-of-solve cosine against a live-composed teacher) ranks
+silence above working sliders — even within one caption pair.** The metric
+solves 50 deterministic steps for neutral / teacher / LoRA from shared noise
+and scores `cos(x_lora−x_neu, x_tea−x_neu)`. Cross-pair it was already known
+to invert (F-dust-nopen 0.31–0.35 vs D-pole-uni 0.53–0.68). The rescue
+hypothesis — that within a FIXED pair, where every variant chases the same
+teacher, it becomes a valid training-progress signal — was tested on six
+trip-hop-pair variants and fails the same way: at matched multiplier
+**D-pole-uni (silence) scores highest** (0.70 at m=1 vs E-gp2 0.566, E-gp05
+0.555, R-final-s500 0.519), because the teacher's endpoint displacement on
+this pair is itself gain-dominated and total collapse is the fastest way to
+move far along it. `cos_at_matched` (gain-corrected) demotes silence to last
+but then ranks **D-pop-uni — a complete song replacement — in a tie for
+first** (0.5658 vs E-gp2's 0.5659). Among the three mild same-family variants
+it does order correctly (E-gp2 > E-gp05 ≈ R-final, matching the paired render
+ordering), but a signal that inverts on exactly the catastrophic modes it was
+built to catch cannot rank, gate, or early-abort anything. Deleted; the
+measurements live in this section. On the dust pair it also resolved a 0.03
+"difference" between two variants whose rendered ladders are certified
+identical (paired diff 0.001 ± 0.011 ln) — it measures fit-to-teacher, and
+fit-to-teacher is not render quality.
+
+**What replaced them: the paired comparison.** With every seed frozen
+(train/init seed, cond seed, x0 anchors, eval seed, render seeds), recipe
+effects that are invisible unpaired become certifiable: on the trip-hop pair
+the between-seed sd of the +1 rms delta is ~1.0 ln, yet the paired per-seed
+difference E-gp2 − R-final is +0.46/+0.11/+0.17 — sign-consistent 3/3, mean
++0.25, paired sd 0.18 (a 5–20x noise reduction). The dust pair's gp05-vs-nopen
+"identical ladders" claim is confirmed at 0.001 ± 0.011 ln the same way. This
+is the design basis of `scripts/slider_pipeline.py`.
+
 ## Why transformer `cos` stops near 0.5, and the comparable metric (August 2026)
 
 Transformer sliders all plateau at last-step `cos` 0.43–0.55 while LM halves reach
@@ -588,6 +640,23 @@ sweep more seeds before drawing a conclusion if long rhyme renders truncate
 in practice.
 
 ## Train
+
+**For recipe/loss comparison sweeps, do not hand-launch trainings — use the
+pipeline**, which pins every seed, refuses config drift, renders paired
+ladders, applies the SCORING.md gates, and writes a ranked evidence report:
+
+```bash
+$PY scripts/slider_pipeline.py selftest        # instrument controls (run first)
+$PY scripts/slider_pipeline.py train  slider_pipeline/specs/phase1-loss-triphop.yaml --gpu 0
+$PY scripts/slider_pipeline.py render slider_pipeline/specs/phase1-loss-triphop.yaml --gpu 0
+$PY scripts/slider_pipeline.py score  slider_pipeline/specs/phase1-loss-triphop.yaml
+$PY scripts/slider_pipeline.py report slider_pipeline/specs/phase1-loss-triphop.yaml
+# new caption pair? certify its axis BEFORE training (G0):
+$PY scripts/slider_pipeline.py onboard --prompts_file ... --cache_dir ... \
+  --out_root eval/listen/pipeline/onboard-<pair> --intended centroid:+1
+```
+
+One-off trainings (a shipped slider, an LM half) stay manual:
 
 Transformer slider (energy / distortion / tempo / space):
 
