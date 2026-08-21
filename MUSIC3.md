@@ -203,9 +203,16 @@ with the probe to catch broken ones; accept them only on a rendered ladder
 **Single-seed 4s feature deltas are not evidence.** With captions and conditions
 fixed and only the denoise seed changed, the caption swap's own signature swings
 from +110.6% centroid to −51.6% across five seeds. Every percentage in the
-sections below, and in the git history of August 20–21, is one draw. At 12s the
-same measurement is stable to ~2 points between seeds where 4s disagreed by 59.
-**Measure at 12s, report medians over ≥3 seeds, and quote the spread.**
+sections below, and in the git history of August 20–21, is one draw.
+
+Longer clips fix only part of this, and it is important not to over-read them.
+The *teacher* cell (axis, both branches, post-CFG net 1.0) goes from −54.7% /
++3.9% on two 4s seeds to −27.2% / −25.2% at 12s — agreement within 2 points
+where 4s disagreed by 59. But the *caption swap itself* stays unstable at every
+duration tried: REF_pos against neutral is −8% at seed 7 and −64% at seed 11 at
+8s, and −10.4% vs −53.8% at 12s. So duration buys a stable instrument, not a
+stable target. **Measure at 12s, report medians over ≥3 seeds, quote the spread,
+and do not treat a single-seed caption swap as ground truth at any duration.**
 
 **The mergeable-LoRA constraint is not what limits these sliders.** Composing the
 teacher on the conditional CFG branch and merging it into both branches agree to
