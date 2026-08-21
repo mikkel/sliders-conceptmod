@@ -24,6 +24,16 @@ Modes:
   orth      axis, with the v_neu-parallel component removed
   parcap    axis, with the v_neu-parallel component held at 1x instead of g
 
+NET-STRENGTH BOOKKEEPING: composing on the conditional branch only is amplified
+by CFG, so the delta that reaches the velocity is 1.7*s*g; with --both_branches
+it is s*g. The printed "post-CFG net" is the honest number -- the 2026-08-21
+posedge/negpole rows were mislabeled by exactly this 1.7x.
+
+CAUTION on posedge at s*g=1 cond-only: v_u + w*(v_neu_c + 1.0*(v_pole_c -
+v_neu_c) - v_u) == v_u + w*(v_pole_c - v_u). It is algebraically THE caption
+swap, same trajectory step for step, so matching REF_pole there verifies the
+plumbing, not the objective. The informative settings are the fractional ones.
+
     python scripts/render_teacher_guidance.py --mode axis --scales 0.333,1 \
       --out_dir eval/listen/teacher-4s
 """
@@ -71,6 +81,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--duration", type=float, default=4.0,
                     help="keep this equal to the cached conditions' duration")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--latent_seed", type=int, default=None,
+                    help="denoise-noise seed (default: --seed). Lets the crater be checked "
+                    "on a different trajectory without re-encoding AR conditions")
     ap.add_argument("--device", type=int, default=0)
     ap.add_argument("--guidance", type=float, default=None, help="override the prompt's g")
     ap.add_argument("--both_branches", action="store_true",
@@ -154,10 +167,18 @@ def main(argv: list[str] | None = None) -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     sr = int(pipe.sampling_rate)
 
+    latent_seed = int(args.seed if args.latent_seed is None else args.latent_seed)
+    seed_tag = "" if latent_seed == int(args.seed) else f"_ls{latent_seed}"
     for scale in [float(x) for x in args.scales.split(",") if x.strip()]:
         state["scale"], state["calls"], state["skipped"] = scale, 0, 0
-        gen = torch.Generator(device).manual_seed(int(args.seed))
-        print(f"rendering mode={args.mode} s={scale:g} (effective g*s={g*scale:g})", flush=True)
+        gen = torch.Generator(device).manual_seed(latent_seed)
+        cfg_mult = 1.0 if args.both_branches else 1.7
+        print(
+            f"rendering mode={args.mode} s={scale:g} g*s={g*scale:g} "
+            f"post-CFG net={cfg_mult * g * scale:g} "
+            f"({'both branches' if args.both_branches else 'cond only, x1.7 through CFG'})",
+            flush=True,
+        )
         audio = pipe(prompt=prompt.neutral, lyrics=prompt.lyrics,
                      audio_duration=float(args.duration), generator=gen, output="audios")[0]
         wav = _to_wav_array(audio)
@@ -165,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         suffix = ("_both" if args.both_branches else "") + (
             "_negpole" if (args.mode == "posedge" and args.pole == "neg") else ""
         )
-        dest = args.out_dir / f"teacher_{args.mode}{suffix}_{tag}.wav"
+        dest = args.out_dir / f"teacher_{args.mode}{suffix}{seed_tag}_{tag}.wav"
         sf.write(str(dest), wav, sr)
         rms = float(np.asarray(wav, dtype=np.float64).std())
         print(f"  wrote {dest.name}  rms={rms:.4f}  composed={state['calls']} "
@@ -174,12 +195,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.ref:
         pipe.transformer.forward = original_forward
         for label, text in (("neu", prompt.neutral), ("pos", prompt.positive), ("neg", prompt.negative)):
-            gen = torch.Generator(device).manual_seed(int(args.seed))
+            gen = torch.Generator(device).manual_seed(latent_seed)
             print(f"rendering REF {label}", flush=True)
             audio = pipe(prompt=text, lyrics=prompt.lyrics, audio_duration=float(args.duration),
                          generator=gen, output="audios")[0]
             wav = _to_wav_array(audio)
-            dest = args.out_dir / f"REF_{label}.wav"
+            dest = args.out_dir / f"REF_{label}{seed_tag}.wav"
             sf.write(str(dest), wav, sr)
             print(f"  wrote {dest.name}  rms={float(np.asarray(wav, dtype=np.float64).std()):.4f}", flush=True)
 

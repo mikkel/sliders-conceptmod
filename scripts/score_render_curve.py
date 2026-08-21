@@ -97,7 +97,16 @@ def main(argv: list[str] | None = None) -> int:
     pos = feats(*load(args.refs / "REF_pos.wav"))
     gt = {k: pct(pos, neu, k) for k in ("rms", "centroid", "hi4k")}
     print(f"ground truth (caption swap, neutral -> + pole, {args.refs.name}): "
-          f"rms {gt['rms']:+.1f}%  centroid {gt['centroid']:+.1f}%  hi4k {gt['hi4k']:+.1f}%\n")
+          f"rms {gt['rms']:+.1f}%  centroid {gt['centroid']:+.1f}%  hi4k {gt['hi4k']:+.1f}%")
+    gt_neg = None
+    neg_ref = args.refs / "REF_neg.wav"
+    if neg_ref.exists():
+        neg = feats(*load(neg_ref))
+        gt_neg = {k: pct(neg, neu, k) for k in ("rms", "centroid", "hi4k")}
+        print(f"ground truth (caption swap, neutral -> - pole): "
+              f"rms {gt_neg['rms']:+.1f}%  centroid {gt_neg['centroid']:+.1f}%  "
+              f"hi4k {gt_neg['hi4k']:+.1f}%")
+    print()
 
     rows = []
     for folder in args.folders:
@@ -116,15 +125,35 @@ def main(argv: list[str] | None = None) -> int:
             d = {k: pct(lad[s], base, k) for k in ("rms", "centroid", "hi4k")}
             print(f"  {s:7.3f} {d['rms']:+8.1f}% {d['centroid']:+9.1f}% {d['hi4k']:+8.1f}%")
             curve.append((s, d))
-        pts_c = [(s, d["centroid"]) for s, d in curve]
+        # + side only: a broken run's minus side can spuriously cross the
+        # + target, and the curve is not assumed monotone across zero.
+        pos_curve = [(s, d) for s, d in curve if s >= 0]
+        neg_curve = sorted(((s, d) for s, d in curve if s <= 0), reverse=True)
+        if gt_neg is not None and len(neg_curve) > 1:
+            # - side: level is the discriminating feature there (the - caption is
+            # louder, barely darker); find where rms matches and report the
+            # brightness error at that setting, scanning outward from 0.
+            pts_rn = [(s, d["rms"]) for s, d in neg_curve]
+            s_neg = crossing(pts_rn, gt_neg["rms"])
+            if s_neg is None:
+                print(f"  - side: rms never reaches ground truth ({gt_neg['rms']:+.1f}%)")
+            else:
+                cent_at = np.interp(
+                    s_neg,
+                    [s for s, _ in sorted(neg_curve)],
+                    [d["centroid"] for _, d in sorted(neg_curve)],
+                )
+                print(f"  - side level-matched at scale {s_neg:.3f}: centroid {cent_at:+.1f}% "
+                      f"(ground truth {gt_neg['centroid']:+.1f}%)")
+        pts_c = [(s, d["centroid"]) for s, d in pos_curve]
         s_star = crossing(pts_c, gt["centroid"])
         if s_star is None:
-            reach = max(d["centroid"] for _, d in curve)
+            reach = max((d["centroid"] for _, d in pos_curve), default=float("-inf"))
             print(f"  brightness never reaches ground truth (+{gt['centroid']:.1f}%); "
                   f"tops out at {reach:+.1f}%\n")
             rows.append((folder.name, None, None))
             continue
-        pts_r = [(s, d["rms"]) for s, d in curve]
+        pts_r = [(s, d["rms"]) for s, d in pos_curve]
         rms_at = np.interp(s_star, [s for s, _ in pts_r], [y for _, y in pts_r])
         err = rms_at - gt["rms"]
         print(f"  brightness-matched at scale {s_star:.3f}: rms {rms_at:+.1f}% "

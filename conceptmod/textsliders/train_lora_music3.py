@@ -560,6 +560,11 @@ class EvalProbe:
     # score --target_mode pole runs on their own target as well as on the axis.
     edges_plus: list[torch.Tensor] = field(default_factory=list)  # +side pole - vel_neu
     edges_minus: list[torch.Tensor] = field(default_factory=list)  # -side pole - vel_neu
+    # Prompt-pair geometry: how far neutral sits off the pos-neg chord. A merged
+    # LoRA's delta is ~odd in its multiplier, so only the odd part of the two
+    # edges, (edge_plus - edge_minus)/2 = (v_pos - v_neg)/2, is reachable by one
+    # bidirectional slider; even_over_odd says how much of the caption swap is not.
+    geometry: dict = field(default_factory=dict)
 
 
 EVAL_TIMESTEPS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
@@ -624,6 +629,26 @@ def build_eval_probe(
             edges_plus.append(pole_plus.float() - vel_neu.float())
             edges_minus.append(pole_minus.float() - vel_neu.float())
             t_values.append(float(t_val))
+    cos_anti, even_over_odd = [], []
+    for edge_p, edge_m in zip(edges_plus, edges_minus):
+        cos_anti.append(
+            torch.nn.functional.cosine_similarity(
+                edge_p.flatten().unsqueeze(0), -edge_m.flatten().unsqueeze(0)
+            ).item()
+        )
+        odd = 0.5 * (edge_p - edge_m)
+        even = 0.5 * (edge_p + edge_m)
+        even_over_odd.append((even.norm() / odd.norm().clamp_min(1e-8)).item())
+    geometry = {
+        "cos_edge_antipodal": sum(cos_anti) / max(len(cos_anti), 1),
+        "even_over_odd": sum(even_over_odd) / max(len(even_over_odd), 1),
+    }
+    print(
+        f"probe prompt geometry: cos(edge+, -edge-)={geometry['cos_edge_antipodal']:.4f} "
+        f"||even||/||odd||={geometry['even_over_odd']:.3f} "
+        "(one bidirectional LoRA reaches only the odd part of the caption swap)",
+        flush=True,
+    )
     return EvalProbe(
         latents=latents,
         timesteps=timesteps,
@@ -631,6 +656,7 @@ def build_eval_probe(
         neutrals=neutrals,
         edges_plus=edges_plus,
         edges_minus=edges_minus,
+        geometry=geometry,
         t_values=t_values,
         cond_target=_cond("target"),
         guidance=float(prompt.guidance_scale),
@@ -832,8 +858,12 @@ def rollout_states(
     trajectory, so the adapter only ever sees states the base model would have
     reached without it -- and the eval probe scores it at those same states.
     At inference the adapter produces its own trajectory and the deviation
-    compounds: the shipped slider tracks its teacher at net 1x and collapses
-    the level at 1.7x (MUSIC3.md, "open-loop drift"). Rolling the *current*
+    can compound (the DAgger argument). NOTE the teacher-4s renders weaken the
+    drift story for the observed level collapse: the teacher itself craters rms
+    at fractional strengths (axis at post-CFG net 1.0 renders -54% rms), and the
+    probe's proj_abs ~0.57 means the LoRA under-delivers magnitude, so much of
+    the "collapse at 1.7x" is the teacher's own curve sampled at the effective
+    (not nominal) strength. Rolling the *current*
     adapter out and training on the states it lands in is the DAgger fix. The
     target at those states is still the closed-loop teacher, so the adapter
     learns a restoring force where it operates instead of only on the base
@@ -911,6 +941,18 @@ def train(args: argparse.Namespace) -> Path:
         for prompt in prompts:
             prompt.guidance_scale = float(args.guidance)
     target_replace = TARGET_REPLACE_FULL if args.targets == "full" else TARGET_REPLACE_ATTN
+    if args.target_mode == "pole" and args.bidirectional:
+        raise SystemExit(
+            "--target_mode pole with --bidirectional is ill-posed: a LoRA's delta is "
+            "(to first order) an odd function of its multiplier, but the two pole "
+            "displacements are not antipodal (neutral sits off the pos-neg chord), so "
+            "the pair of targets demands a large even component. Measured: P-pole / "
+            "P-pole-traj50 ended with collapse +0.62/+0.73, mag 9.4/5.1, cos_edge "
+            "0.06/0.11 -- the optimizer inflates the weights chasing second-order "
+            "terms and destroys the direction. Train one side per LoRA instead: "
+            "--target_mode pole --no-bidirectional (swap the prompt file's "
+            "positive/negative to get the other side)."
+        )
     lr_name = str(args.lr_scheduler or train_cfg.get("lr_scheduler", "cosine"))
     model_dir = Path(args.model_dir or pretrained.get("name_or_path") or DEFAULT_MODEL_DIR)
     cache_dir = Path(args.cache_dir or DEFAULT_CACHE_DIR)
@@ -1200,8 +1242,12 @@ def train(args: argparse.Namespace) -> Path:
             )
 
         # A trajectory state belongs to the slider setting that produced it, so
-        # that setting is the one whose restoring force is learned there.
-        primary = 1.0 if state_scale >= 0.0 else -1.0
+        # that setting is the one whose restoring force is learned there: forward
+        # at the state's own scale, target scaled to match. (Training slider 1.0
+        # on a state visited at 0.33 supervises a strength the deployed slider
+        # never uses at that state, and silently contradicted --traj_scales'
+        # "each state is trained at its own setting".)
+        primary = float(state_scale) if use_traj and abs(state_scale) > 1e-6 else 1.0
         vel_primary = _lora_forward(primary)
         loss = _slider_loss(
             vel_primary.float(), vel_neu.float(), _target_delta(primary), args.loss,
@@ -1274,15 +1320,23 @@ def train(args: argparse.Namespace) -> Path:
         if probe is not None and ((step + 1) % eval_every == 0 or (step + 1) == steps):
             last_eval = evaluate_probe(transformer, network, probe, amp_enabled)
             record["eval"] = last_eval
-            if best_eval is None or last_eval["cos"] > best_eval["cos"]:
+            # A pole run is aimed at its own edge, not the pos-neg axis; select
+            # its best checkpoint on the metric it optimizes.
+            best_key = "cos_edge" if (args.target_mode == "pole" and "cos_edge" in last_eval) else "cos"
+            if best_eval is None or last_eval[best_key] > best_eval.get(best_key, float("-inf")):
                 best_eval, best_step = last_eval, step + 1
                 best_path = save_dir / f"{stem}_best.safetensors"
                 network.save_weights(str(best_path), dtype=torch.float32)
                 record["saved_best"] = True
+            edge_txt = (
+                f" cos_edge={last_eval['cos_edge']:.4f} cos_edge_neg={last_eval['cos_edge_neg']:.4f}"
+                if "cos_edge" in last_eval
+                else ""
+            )
             print(
                 f"eval step {step + 1}/{steps} cos={last_eval['cos']:.4f} "
                 f"cos_neg={last_eval['cos_neg']:.4f} collapse={last_eval['collapse']:.4f} "
-                f"mag={last_eval['mag']:.3f} proj_abs={last_eval['proj_abs']:.4f}",
+                f"mag={last_eval['mag']:.3f} proj_abs={last_eval['proj_abs']:.4f}{edge_txt}",
                 flush=True,
             )
         log_handle.write(json.dumps(record) + "\n")
@@ -1331,6 +1385,7 @@ def train(args: argparse.Namespace) -> Path:
         "eval_best": best_eval,
         "eval_best_step": best_step,
         "eval_timesteps": list(EVAL_TIMESTEPS),
+        "prompt_geometry": (probe.geometry if probe is not None else None),
         "eval_seed": int(args.eval_seed),
         "eval_holdout": bool(args.eval_holdout),
         "prompts": [asdict(prompt) for prompt in prompts],
