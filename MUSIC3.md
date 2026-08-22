@@ -772,16 +772,20 @@ For gender, pass `--kind lm` and the LM weights.
 
 Do not add a second converter in this repo. Shipped sliders use LoRANetwork
 names (`lora_unet-transformer_blocks-N-attn-to_q.lora_down.weight`,
-`lora_te-model-layers-N-self_attn-q_proj…`), not PEFT `base_model.model…`
-paths, so the Anima/Krea path in
+`lora_te-model-layers-N-self_attn-q_proj…`), not PEFT. Convert them with
 [`scripts/convert_lora_comfyui.py`](https://github.com/mikkel/conceptmod/blob/main/scripts/convert_lora_comfyui.py)
-(same file as [ntc-ai/conceptmod#3](https://github.com/ntc-ai/conceptmod/pull/3))
-cannot rewrite them as-is — it skips with `no lora_A/lora_B keys`. The Music 3
-backends (`music3`, `music3_lm`) live on that same script; detection is from
-`lora_unet-` / `lora_te-` keys.
+on **[mikkel/conceptmod](https://github.com/mikkel/conceptmod) `main`**.
+Music 3 backends (`music3`, `music3_lm`) landed in
+[8f865fe](https://github.com/mikkel/conceptmod/commit/8f865fea59e02d439a479d80466196044ed00076);
+`dd0c165` is tests-only and still skips LoRANetwork files as
+`no lora_A/lora_B keys`. Detection is from `lora_unet-` / `lora_te-` keys.
+
+Krea verification (the Krea map is still derived from conceptmod's loader,
+not a known-good ComfyUI LoRA) and further Qwen / Music 3 CLIP work happen
+on conceptmod. Do not duplicate them here.
 
 ```bash
-# clone conceptmod at main (script commit dd0c165 or later)
+# clone mikkel/conceptmod at main (8f865fe or later)
 python /path/to/conceptmod/scripts/convert_lora_comfyui.py \
   path/to/energy_unit_last.safetensors
 ```
@@ -831,7 +835,7 @@ Tests for the mapping live next to the script:
 
 ```bash
 cd /path/to/conceptmod
-pytest tests/test_convert_lora_comfyui.py
+pytest tests/test_convert_lora_comfyui.py tests/test_comfyui_lora_apply.py
 ```
 
 ## Encoder-first note
