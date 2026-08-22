@@ -72,3 +72,6 @@ The GPU trainers were not rewritten beyond that import.
 
 Seed `0`, `250` Adam steps, CPU.
 
+See [tf-leak.md](tf-leak.md) for whether that gender leak is a Music 3 TF
+trainer bug (it is not) or caption BPM sitting inside `pos − neg` (it is).
+
