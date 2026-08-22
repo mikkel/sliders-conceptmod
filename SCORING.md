@@ -153,3 +153,19 @@ dead-pole ladders to the gates and asserts every veto fires).
    held-out-seed confirmation run on the promoted winner only (`confirm`
    stage), before anything is called a winner out loud. Held-out seeds are
    named in the spec and never touched by ranking.
+
+## Amendment 6 — scope: transformer sliders only (2026-08-21, night)
+
+The contract was frozen on transformer-slider attacks, and a control run shows
+it does not generalize to LM halves: shipped, ears-approved `energy-lm-v4`,
+rendered through the identical paired 12 s ladder bed, fails G3/G4/G6 exactly
+like seven deliberately varied dust LM candidates (onset corr 0.05–0.13 at
+every scale; details in MUSIC3.md "Dust LM campaign"). The mechanism: LM
+halves change the arrangement by design, so same-seed onset/envelope identity
+against the scale-0 clip is ~0 for any working LM slider, and the G6 null is
+built from the same seed-noise structure. **Do not gate or rank LM halves with
+this instrument** — it measures the host, not the slider. An LM-specific
+contract (identity defined against arrangement-preserving features, null from
+re-rolled plans) must be frozen before any LM optimization loop starts. Until
+then LM halves are judged by the axis probe, training metrics, ending A/B, and
+ears only.

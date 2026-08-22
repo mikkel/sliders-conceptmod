@@ -639,6 +639,70 @@ cap (base 76.7s, sliders 62–85s). rhyme-v5 +2 hit the cap on that one seed
 sweep more seeds before drawing a conclusion if long rhyme renders truncate
 in practice.
 
+## Dust LM campaign: the ladder gates do not transfer to LM hosts (August 21 2026)
+
+Trained the LM half for the dust pair (`prompts-cand-dust-v1.yaml`, the pair of
+the shipped `dust-tf-v1` = overnight `F-dust-nopen`) with the v4/v5 recipe plus
+a `--seed` arg added to `train_lm_slider_music3.py` (LoRA init was the only
+unseeded RNG). Seven runs, all with healthy training metrics — cos± 0.93–0.98,
+collapse −0.82…−0.95, edrift ≤ 0.05:
+
+| run | delta vs recipe | steps | cos± | collapse |
+|---|---|---:|---|---|
+| dust-lm-v1 | baseline (seed 7) | 719 | 0.98 | −0.95 |
+| dust-lm-v1-s101 / -s202 | floor replicates | 800 / 657 | 0.98 | −0.95 |
+| dust-lm-v1-planreg03 / -planreg10 | `--planreg_weight 0.3/1.0` | 709 / 800 | 0.98 | −0.95 |
+| dust-lm-v1-ts05 | `--target_scale 0.5` | 800 | 0.93 | −0.82 |
+| dust-lm-v1-r4 | rank 4 / alpha 4 | 542 | 0.98 | −0.95 |
+
+**Every one was vetoed by the SCORING.md ladder gates, and so was the
+control.** Rendered paired ladders (seeds 7/23/77, ±1 ladder + ±2 over-range)
+at 4 s and again at 12 s, scored with `slider_pipeline.gates` (axis frozen to
+`centroid:+1`, the cond-interp-certified dust direction): G2 level passes at
+12 s, but G3 direction (rho −0.64…+0.57), G4 identity (onset corr 0.05–0.13 at
+*every* scale, no dose-response toward 0) and G6 null (E_min 0.00–0.41 vs E95
+0.48) fail for all seven. The contestants were designed attacks on those
+gates: `--planreg_weight` penalizes hidden drift along the teacher-forced
+composition (it halves frame-position drift by construction — pdrift 0.0014 →
+0.0006 at weight 1.0), `--target_scale` trains a cooler unit, rank 4 cuts
+capacity. None moved rendered identity, because the identity channel is
+**sampled-token divergence**: any prompt-last displacement flips early AR
+tokens and the composition re-rolls; teacher-forced hidden drift is not the
+mechanism.
+
+The decisive control: **shipped, ears-approved `energy-lm-v4` fails the
+identical 12 s bed the same way** (G4 onset corr 0.045–0.13, G3 rho 0.18, G6
+E_min 0.00, even G5 trips). The gates were frozen from the transformer
+campaign — G4's "genuinely different song scores 0.172" calibration, the 4 s
+bed, and the G6 null are all transformer-render facts. LM halves *by design*
+change the arrangement (that is why axes moved into the LM), so same-seed
+onset/envelope correlation against the scale-0 clip is ~0 for **any working LM
+slider**. The instrument is valid for transformer sliders only; scoring an LM
+half with it measures the host, not the slider. Consequences:
+
+- Do not gate LM halves with `slider_pipeline` until an LM-specific contract
+  exists. The instruments that *are* validated for LM hosts: the axis probe
+  (`probe_lm_axis_signal.py`) as the pre-training screen, training metrics
+  (cos/collapse/edrift), ending behavior (`render_end_ab.py`), and ears
+  (LISTEN sets / the blind AB session).
+- On the validated screen the dust pair is **weak**: sep 0.136 / cos 0.17 —
+  below the ~0.20 usable floor (gender works at 0.20; energy-v4 is 0.33). The
+  flat minimal-pair captions are the documented failure mode for LM sliders
+  ("divergent poles beat tidy minimal pairs"). If the 40 s listen set shows
+  nothing, the remedy is a structured-caption v4-style dust pair — which needs
+  human sign-off per the caption policy — not more recipe search. Seven
+  recipes moved nothing; the pair is the lever, same as the TF campaign found.
+- Deliverables kept: `models/dust-lm-v1` (+ variants), listen sets under
+  `eval/listen/dust-lm-40s/` and `eval/listen/pipeline/dust-lm-{v1,12s}/`
+  (scores.json + REPORT.md per bed), control under
+  `eval/listen/pipeline/control-energy-lm-12s/`. Nothing registered into
+  `app/sliders.json` — dust ships TF-only until ears pass on an LM half.
+
+Tooling added: `--seed` (LM trainer, sidecar-recorded), `--planreg_weight`,
+`--target_scale`, `generate_listen.py --accept_short` (default on: an early
+`<|audio_end|>` is a natural song ending, kept at first-draw seed; the old
+reject/retry behavior is `--no-accept_short`).
+
 ## Train
 
 **For recipe/loss comparison sweeps, do not hand-launch trainings — use the

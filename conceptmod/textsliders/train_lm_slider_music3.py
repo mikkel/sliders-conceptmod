@@ -151,13 +151,14 @@ def _frame_margins(lm, hidden_tail: torch.Tensor) -> torch.Tensor:
 def _forward_teacher_forced(lm, prompt_embeds: torch.Tensor, frame_embeds: torch.Tensor | None):
     """One forward over [prompt; composed frames]. Returns the prompt-last
     hidden state (the slider target position — causality makes it identical to
-    a prompt-only forward) and the end margins at positions prompt-last..end."""
+    a prompt-only forward), the end margins at positions prompt-last..end, and
+    the full hidden sequence for optional plan-drift regularization."""
     embeds = prompt_embeds if frame_embeds is None else torch.cat((prompt_embeds, frame_embeds), dim=1)
     mask = torch.ones(embeds.shape[:2], dtype=torch.long, device=embeds.device)
     hidden = lm.model(inputs_embeds=embeds, attention_mask=mask).last_hidden_state
     prompt_last = hidden[:, prompt_embeds.shape[1] - 1]
     margins = _frame_margins(lm, hidden[:, prompt_embeds.shape[1] - 1 :])
-    return prompt_last.float(), margins
+    return prompt_last.float(), margins, hidden
 
 
 @torch.no_grad()
@@ -235,6 +236,15 @@ def _endreg_cache_path(cache_dir: Path, model_dir: str, text: str, frames_cap: i
 
 def train(args: argparse.Namespace) -> Path:
     device = torch.device(f"cuda:{int(args.device)}")
+    # Pin every consumer of global RNG (LoRA init is the only one) so two runs
+    # differing only in --seed are step-for-step comparable, as in the
+    # transformer trainer's determinism fix. The endreg pre-roll carries its
+    # own generator (--endreg_seed).
+    torch.manual_seed(int(args.seed))
+    torch.cuda.manual_seed_all(int(args.seed))
+    import random
+
+    random.seed(int(args.seed))
     rows, prompts_meta = _load_rows(Path(args.prompts_file))
     if args.plus_label:
         prompts_meta["plus_label"] = args.plus_label
@@ -282,11 +292,13 @@ def train(args: argparse.Namespace) -> Path:
             # Raw pos/neg targets share a large common component vs neutral (both
             # captions add axis-independent detail); training against them makes
             # +1 and -1 point the same way. Antisymmetrize around neutral instead.
-            axis = (pos_tgt - neg_tgt) / 2.0
+            axis = (pos_tgt - neg_tgt) / 2.0 * float(args.target_scale)
             common = (pos_tgt + neg_tgt) / 2.0 - neu_ref
             tgt_plus = neu_ref + axis + beta * common
             tgt_minus = neu_ref - axis + beta * common
         else:
+            if float(args.target_scale) != 1.0:
+                raise ValueError("--target_scale is defined for symmetric targets only")
             tgt_plus, tgt_minus = pos_tgt, neg_tgt
         row_data.append(
             {
@@ -332,10 +344,14 @@ def train(args: argparse.Namespace) -> Path:
             frame_embeds = None if blob["frame_embeds"] is None else blob["frame_embeds"].to(device)
             with torch.no_grad():
                 prompt_embeds = lm.model.embed_tokens(data["tokens"][0])
-                _last, base_margins = _forward_teacher_forced(lm, prompt_embeds, frame_embeds)
+                _last, base_margins, base_hidden = _forward_teacher_forced(lm, prompt_embeds, frame_embeds)
             data["prompt_embeds"] = prompt_embeds
             data["frame_embeds"] = frame_embeds
             data["base_margins"] = base_margins
+            # Frame-position hiddens for --planreg_weight: the composition the
+            # slider must not re-plan. Prompt positions excluded (the slider
+            # target lives at prompt-last; causality keeps it frame-free).
+            data["base_hidden"] = base_hidden[:, prompt_embeds.shape[1] :].float()
             ended_count += int(blob["ended"])
             n_frames = 0 if frame_embeds is None else frame_embeds.shape[1]
             print(
@@ -383,17 +399,23 @@ def train(args: argparse.Namespace) -> Path:
             # keeps the prompt-last hidden identical to a prompt-only forward,
             # so the slider loss is unchanged and the end margins come free.
             _set_scale(network, 1.0)
-            pred_pos, m_pos = _forward_teacher_forced(lm, data["prompt_embeds"], data["frame_embeds"])
+            pred_pos, m_pos, hid_pos = _forward_teacher_forced(lm, data["prompt_embeds"], data["frame_embeds"])
             ploss = F.mse_loss(pred_pos, tgt_plus)
             end_pos = F.mse_loss(m_pos, data["base_margins"])
+            plan_pos = F.mse_loss(hid_pos[:, data["prompt_embeds"].shape[1] :].float(), data["base_hidden"])
 
             _set_scale(network, -1.0)
-            pred_neg, m_neg = _forward_teacher_forced(lm, data["prompt_embeds"], data["frame_embeds"])
+            pred_neg, m_neg, hid_neg = _forward_teacher_forced(lm, data["prompt_embeds"], data["frame_embeds"])
             nloss = F.mse_loss(pred_neg, tgt_minus)
             end_neg = F.mse_loss(m_neg, data["base_margins"])
+            plan_neg = F.mse_loss(hid_neg[:, data["prompt_embeds"].shape[1] :].float(), data["base_hidden"])
             edrift_p = float((m_pos - data["base_margins"]).abs().mean().detach())
             edrift_n = float((m_neg - data["base_margins"]).abs().mean().detach())
+            pdrift_p = float(plan_pos.detach())
+            pdrift_n = float(plan_neg.detach())
         else:
+            if args.planreg_weight > 0:
+                raise ValueError("--planreg_weight requires the audio-end regularizer (its pre-roll supplies the plan)")
             _set_scale(network, 1.0)
             pred_pos = _encode_train(lm, neu_ids, neu_mask)
             ploss = F.mse_loss(pred_pos, tgt_plus)
@@ -402,7 +424,9 @@ def train(args: argparse.Namespace) -> Path:
             pred_neg = _encode_train(lm, neu_ids, neu_mask)
             nloss = F.mse_loss(pred_neg, tgt_minus)
             end_pos = end_neg = torch.zeros((), device=device)
+            plan_pos = plan_neg = torch.zeros((), device=device)
             edrift_p = edrift_n = 0.0
+            pdrift_p = pdrift_n = 0.0
 
         v_pos = pred_pos - neu_ref
         v_neg = pred_neg - neu_ref
@@ -414,7 +438,7 @@ def train(args: argparse.Namespace) -> Path:
         pperc = (torch.norm(pred_pos - tgt_plus) / torch.norm(v_pos_t).clamp_min(1e-6)).item()
         nperc = (torch.norm(pred_neg - tgt_minus) / torch.norm(v_neg_t).clamp_min(1e-6)).item()
 
-        loss = ploss + nloss + 0.5 * args.endreg_weight * (end_pos + end_neg)
+        loss = ploss + nloss + 0.5 * args.endreg_weight * (end_pos + end_neg) + args.planreg_weight * (plan_pos + plan_neg)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_value_(network.parameters(), clip_value=1.0)
@@ -433,6 +457,9 @@ def train(args: argparse.Namespace) -> Path:
             # Mean |end-margin drift| in nats along the teacher-forced roll.
             "edrift_p": edrift_p,
             "edrift_n": edrift_n,
+            # Mean-squared hidden drift along the composed frames (planreg).
+            "pdrift_p": pdrift_p,
+            "pdrift_n": pdrift_n,
         }
         history.append(row)
         pbar.set_description(
@@ -482,9 +509,12 @@ def train(args: argparse.Namespace) -> Path:
         "steps": stopped,
         "steps_budget": args.steps,
         "lr": args.lr,
+        "seed": int(args.seed),
         "rows": len(row_data),
         "symmetric": bool(args.symmetric),
         "common_beta": beta,
+        "target_scale": float(args.target_scale),
+        "planreg_weight": float(args.planreg_weight),
         "first": history[0] if history else None,
         "last": history[-1] if history else None,
         "target_replace": TARGET_REPLACE,
@@ -536,6 +566,12 @@ def parse_args():
     p.add_argument("--save_every", type=int, default=200)
     p.add_argument("--device", type=int, default=0)
     p.add_argument(
+        "--seed",
+        type=int,
+        default=7,
+        help="LoRA init seed; pin it so runs differing only in --seed are comparable",
+    )
+    p.add_argument(
         "--symmetric",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -546,6 +582,22 @@ def parse_args():
         type=float,
         default=0.0,
         help="blend back beta*(midpoint - neutral) if symmetric ±1 sounds too weak",
+    )
+    p.add_argument(
+        "--target_scale",
+        type=float,
+        default=1.0,
+        help="train the symmetric unit against target_scale x the pole axis: a cooler-trained "
+        "unit is a different delta shape, not a dial-down of the same one (relabeling the "
+        "render scale is score-invariant; this is not that)",
+    )
+    p.add_argument(
+        "--planreg_weight",
+        type=float,
+        default=0.0,
+        help="penalize hidden-state drift along the teacher-forced composition (frame positions "
+        "only, both poles): keeps the sampled arrangement near the base song while the slider "
+        "still moves the prompt conditioning. Requires --endreg_weight > 0",
     )
     p.add_argument("--plus_label", default=None, help="override sidecar plus_label")
     p.add_argument("--minus_label", default=None, help="override sidecar minus_label")
