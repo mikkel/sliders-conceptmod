@@ -124,6 +124,12 @@ defaults were then changed to that recipe — see MUSIC3.md “Current
 transformer trainer defaults”. A better-posed next sweep is loss variants
 **on the dust pair**, which has a passing baseline to beat.
 
+Do not open a recipe search to “fix energy leak.” [docs/tf-leak.md](../docs/tf-leak.md)
+shows BPM lives in the energy / distortion `pos − neg` teacher. `pole`,
+`nmse_ortho`, `gain_penalty`, and gender `--attributes` leave it there.
+The next energy comparison is the same dust defaults on
+`prompts-cand-energy-v1.yaml` (BPM pinned 110) vs energy-slider-v2.
+
 ## Troubleshooting
 
 | symptom | cause |

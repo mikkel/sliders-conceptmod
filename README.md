@@ -1,8 +1,9 @@
 # Concept Sliders
 
 **MiniMax Music 3 port:** see [MUSIC3.md](MUSIC3.md) (current trainer defaults,
-shipped sliders, GPU pitfalls) and [slider_pipeline/README.md](slider_pipeline/README.md)
-(paired recipe-comparison runbook). Listen sets live in `eval/listen/`. Use the
+shipped sliders, GPU pitfalls), [slider_pipeline/README.md](slider_pipeline/README.md)
+(paired recipe-comparison runbook), and [docs/](docs/README.md) (CPU leak
+geometry, script index). Listen sets live in `eval/listen/`. Use the
 `minimax-music3` conda env and **do not** `pip install -r requirements.txt`.
 
 **Krea image sliders (opt-in):** see [docs/krea-slider.md](docs/krea-slider.md).
