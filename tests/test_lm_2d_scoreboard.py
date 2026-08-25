@@ -337,3 +337,27 @@ def test_the_live_default_is_still_v9_on_hidden_mse():
     assert args.common_beta == 0.0
     assert "v9" in LM_RECIPES
     assert "semantic_kl" in POLE_MODES
+    assert "semantic_kl_plus_hidden" in POLE_MODES
+
+
+def test_hybrid_hits_exam_score_1_on_both_live_pairs():
+    """Not a rename of the 1.000 hidden-MSE baselines; both live pairs pass."""
+    ids = by_id()
+    row = ids["semantic_kl_plus_hidden"]
+    # KL leaves a sliver of visible hidden unmatched; swing stays ≥ 0.99.
+    assert row["exam_score"] == pytest.approx(1.0, abs=0.01)
+    assert row["exam_score"] > ids["semantic_kl_poles"]["exam_score"]
+    assert row["cells"]["exam_divergent"] is True
+    assert row["cells"]["exam_close"] is True
+    assert row["predicts"] == {}
+    for baseline in ("faithful_raw", "hidden_beta1", "faithful_attrs"):
+        assert ids[baseline]["exam_score"] == pytest.approx(1.0)
+        assert row["id"] != baseline
+    poles = ids["semantic_kl_poles"]
+    assert poles["exam_score"] < 0.5
+    assert poles["cells"]["exam_close"] is False
+    order = [r["id"] for r in board()]
+    assert order.index("semantic_kl_plus_hidden") < order.index("semantic_kl_poles")
+    assert EXAM_ALIAS.get("semantic_kl_plus_hidden", "semantic_kl_plus_hidden") == (
+        "semantic_kl_plus_hidden"
+    )

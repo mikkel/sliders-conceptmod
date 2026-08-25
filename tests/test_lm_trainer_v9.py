@@ -26,9 +26,12 @@ from conceptmod.textsliders.slider_targets import (
     lm_ortho_hold,
     lm_pair_odd_sub_e,
     lm_project_odd_axis,
+    lm_readout_row_basis,
+    lm_semantic_kl_plus_hidden_loss,
     lm_semantic_pole_loss,
     lm_slider_loss,
     lm_unit,
+    lm_unread_hidden,
 )
 from conceptmod.textsliders.train_lm_slider_music3 import (
     lm_train_loss,
@@ -565,6 +568,99 @@ def test_semantic_kl_loss_uses_existing_helper():
             tgt_minus,
             pole_mode="semantic_kl",
         )
+
+
+def test_hybrid_pole_loss_is_kl_plus_unread_mse_not_full_hidden_mse():
+    """semantic_kl_plus_hidden is not a rename of hidden MSE or of KL."""
+    pos, neg, neu = _ungated_pair()
+    tgt_plus, tgt_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful")
+    pred_plus = neu + torch.tensor([0.8, 0.4])
+    pred_minus = neu + torch.tensor([-0.7, -0.3])
+    # Row 0 reads only dim 0; dim 1 is unread (the close-pair axis).
+    readout = torch.tensor([[1.0, 0.0], [0.5, 0.0], [-0.3, 0.0]], dtype=torch.float32)
+    hybrid = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        hold_weight=0.0,
+        pole_mode="semantic_kl_plus_hidden",
+        readout=readout,
+    )
+    expected = lm_semantic_kl_plus_hidden_loss(
+        pred_plus, pred_minus, tgt_plus, tgt_minus, readout
+    )
+    assert float(hybrid) == pytest.approx(float(expected), abs=1e-6)
+    kl = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        hold_weight=0.0,
+        pole_mode="semantic_kl",
+        readout=readout,
+    )
+    hidden = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        hold_weight=0.0,
+        pole_mode="hidden",
+    )
+    assert float(hybrid) != pytest.approx(float(kl), abs=1e-4)
+    assert float(hybrid) != pytest.approx(float(hidden), abs=1e-4)
+    # Same policy, different unread residual: KL is 0, hybrid is the unread MSE.
+    q = lm_readout_row_basis(readout)
+    shift = lm_unread_hidden(torch.tensor([0.0, 0.7]), readout, basis=q)
+    same_policy = tgt_plus + shift
+    assert torch.allclose(
+        lm_next_token_logits(same_policy, readout),
+        lm_next_token_logits(tgt_plus, readout),
+        atol=1e-5,
+    )
+    kl_only = lm_semantic_pole_loss(
+        lm_next_token_logits(same_policy, readout),
+        lm_next_token_logits(tgt_minus, readout),
+        lm_next_token_logits(tgt_plus, readout),
+        lm_next_token_logits(tgt_minus, readout),
+    )
+    hybrid_shift = lm_semantic_kl_plus_hidden_loss(
+        same_policy, tgt_minus, tgt_plus, tgt_minus, readout, basis=q
+    )
+    assert float(kl_only) == pytest.approx(0.0, abs=1e-6)
+    assert float(hybrid_shift) > 0.0
+    # Differ on both subspaces: full MSE is not KL + unread MSE.
+    moved = tgt_plus + torch.tensor([0.4, 0.7])
+    hybrid_moved = lm_semantic_kl_plus_hidden_loss(
+        moved, tgt_minus, tgt_plus, tgt_minus, readout, basis=q
+    )
+    full_mse = lm_slider_loss(moved, tgt_minus, tgt_plus, tgt_minus)
+    assert float(hybrid_moved) != pytest.approx(float(full_mse), abs=1e-4)
+    with pytest.raises(ValueError, match="semantic readout"):
+        lm_train_loss(
+            pred_plus,
+            pred_minus,
+            tgt_plus,
+            tgt_minus,
+            pole_mode="semantic_kl_plus_hidden",
+        )
+    card = parse_args(
+        [
+            "--prompts_file",
+            "prompts.yaml",
+            "--lm_target",
+            "faithful",
+            "--pole_mode",
+            "semantic_kl_plus_hidden",
+        ]
+    )
+    assert card.lm_target == "faithful"
+    assert resolve_pole_mode(card.pole_mode) == "semantic_kl_plus_hidden"
+    assert parse_args(["--prompts_file", "prompts.yaml"]).pole_mode == "hidden"
 
 
 def test_hidden_pole_mode_leaves_v9_and_pair_odd_sub_e_unchanged():

@@ -306,6 +306,34 @@ def test_kl_leaves_the_invisible_block_at_zero_and_mse_does_not():
     assert mse["pass"] is True
 
 
+def test_hybrid_pins_the_unread_axis_and_passes_both_exam_pairs():
+    """semantic_kl_plus_hidden is not a rename of faithful_raw / hidden MSE."""
+    for name in ("divergent", "close"):
+        row = cell(name)["semantic_kl_plus_hidden"]
+        assert row["pole_mode"] == "semantic_kl_plus_hidden"
+        assert row["teacher"] == "faithful"
+        assert row["pass"] is True, f"{name}: {row['reason']}"
+    close = cell("close")
+    hybrid = close["semantic_kl_plus_hidden"]
+    kl = close["semantic_kl_poles"]
+    mse = close["faithful_raw"]
+    assert hybrid["invisible_kept"] == pytest.approx(1.0, abs=1e-2)
+    assert kl["invisible_kept"] == pytest.approx(0.0, abs=1e-3)
+    assert hybrid["pass"] is True
+    assert kl["pass"] is False
+    assert mse["pass"] is True
+    assert hybrid["kl_small_hidden_far"] is False
+    # Distinct recipe: same teacher as both, different pole term than either.
+    assert hybrid["name"] != mse["name"]
+    assert hybrid["pole_mode"] != mse["pole_mode"]
+    assert hybrid["pole_mode"] != kl["pole_mode"]
+    divergent = cell("divergent")["semantic_kl_plus_hidden"]
+    assert divergent["roll_overlap"] >= EXAM_ROLL_OVERLAP
+    assert divergent["roll_swing_kept"] >= EXAM_ROLL_SWING
+    assert hybrid["roll_overlap"] >= EXAM_ROLL_OVERLAP
+    assert hybrid["roll_swing_kept"] >= EXAM_ROLL_SWING
+
+
 def test_a_solved_loss_is_not_evidence_the_slider_works():
     close = cell("close")
     kl = close["semantic_kl_poles"]

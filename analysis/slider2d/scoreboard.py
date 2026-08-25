@@ -132,6 +132,7 @@ SHEET_LEFTOVER = {
     "semantic_kl_midpoint": "kl_on_midpoint",
     "semantic_kl_poles": "v16_semantic_kl",
     "semantic_kl_sub_e": "v16_semantic_kl_sub_e",
+    "semantic_kl_plus_hidden": "semantic_kl_plus_hidden",
 }
 SHEET_GENDER = {
     "faithful_raw": "v6_faithful",
@@ -145,6 +146,7 @@ SHEET_GENDER = {
     "pair_odd_sub_e": "v9_hidden",
     "semantic_kl_midpoint": "kl_on_midpoint",
     "semantic_kl_poles": "v16_semantic_kl",
+    "semantic_kl_plus_hidden": "semantic_kl_plus_hidden",
     "gender_like_no_e": "v9_hidden",
     "hidden_beta1": "hidden_beta1",
 }
@@ -905,6 +907,20 @@ def collect_scoreboard(
             leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
             fixture="sheet leftover + sheet gender",
             notes="on-sheet, but unused gender still moves the leak token.",
+        ),
+        _row(
+            "semantic_kl_plus_hidden",
+            "semantic KL + unread-hidden residual on real poles",
+            exam=exam,
+            leftover=sheet_left("semantic_kl_plus_hidden"),
+            gender=sheet_gen("semantic_kl_plus_hidden"),
+            leftover_leak=sheet_left("semantic_kl_plus_hidden").get("leak_tok"),
+            fixture="sheet leftover + sheet gender + pair exam",
+            notes=(
+                "hybrid: energy-v18's on-sheet KL on the semantic-band logits, "
+                "plus MSE on the readout null space that gender-v16 left behind. "
+                "Not a rename of faithful_raw / hidden_beta1 / faithful_attrs."
+            ),
         ),
         _row(
             "semantic_kl_sub_e",

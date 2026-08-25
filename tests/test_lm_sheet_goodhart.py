@@ -350,6 +350,10 @@ def test_semantic_kl_ignores_the_readout_null_space():
     for name in ("kl_faithful", "kl_faithful_sub_e"):
         assert rows[name]["null_kept"] == pytest.approx(0.0, abs=1e-6)
         assert rows[name]["on_sheet"] >= 0.8
+    hybrid = rows["kl_plus_hidden_faithful"]
+    assert hybrid["null_kept"] == pytest.approx(1.0, abs=0.05)
+    assert hybrid["on_sheet"] >= 0.8
+    assert hybrid["pole_mode"] == "semantic_kl_plus_hidden"
 
 
 # -- sweeps ---------------------------------------------------------------
@@ -496,9 +500,9 @@ def test_semantic_pole_loss_adds_the_hold_like_the_mse_one():
 def test_the_live_default_is_still_hidden_mse_onto_the_midpoint():
     """Wiring exists; the default must stay v9 / hidden.
 
-    ``faithful_sub_e`` and ``semantic_kl`` are live flags now. Neither
-    is the default: pole supervision is still ``--lm_target v9`` and
-    ``--pole_mode hidden`` (hidden MSE).
+    ``faithful_sub_e``, ``semantic_kl`` and ``semantic_kl_plus_hidden``
+    are live flags now. None of them is the default: pole supervision
+    is still ``--lm_target v9`` and ``--pole_mode hidden`` (hidden MSE).
     """
     args = parse_args(["--prompts", "x.yaml"])
     assert args.lm_target == "v9"

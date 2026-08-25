@@ -79,6 +79,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_hold_dir,
     lm_next_token_logits,
     lm_pair_odd_sub_e,
+    lm_semantic_kl_plus_hidden_loss,
     lm_semantic_pole_loss,
     lm_slider_loss,
     lm_unit,
@@ -593,7 +594,7 @@ class SharedResidual:
 
 
 TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e")
-POLE_MODES = ("hidden", "semantic_kl")
+POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_plus_hidden")
 
 
 def _sub_e(h: torch.Tensor, neu: torch.Tensor, held: torch.Tensor | None) -> torch.Tensor:
@@ -705,6 +706,8 @@ def fit_sheet(
     live default. ``semantic_kl`` is ``lm_semantic_pole_loss`` on the
     readout's logits; the brief's v16 sets hold to 0 there, and this
     function does not stop you passing one so the choice stays visible.
+    ``semantic_kl_plus_hidden`` keeps that KL and pins the unread
+    residual.
     """
     mode = str(pole_mode).strip().lower()
     if mode not in POLE_MODES:
@@ -738,6 +741,20 @@ def fit_sheet(
                     pred_minus,
                     t_plus,
                     t_minus,
+                    hold=hold,
+                    hold_weight=lam if hold is not None else 0.0,
+                )
+            elif mode == "semantic_kl_plus_hidden":
+                term = lm_semantic_kl_plus_hidden_loss(
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    head.weight,
+                    pred_plus_logits=head.logits(pred_plus),
+                    pred_minus_logits=head.logits(pred_minus),
+                    tgt_plus_logits=head.logits(t_plus),
+                    tgt_minus_logits=head.logits(t_minus),
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
                 )
@@ -907,6 +924,14 @@ def gender_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             steps=steps,
             seed=seed,
         ),
+        score_sheet(
+            "semantic_kl_plus_hidden",
+            field,
+            pole_mode="semantic_kl_plus_hidden",
+            teacher="faithful",
+            steps=steps,
+            seed=seed,
+        ),
     ]
     return rows
 
@@ -982,6 +1007,14 @@ def leaky_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             pole_mode="semantic_kl",
             teacher="faithful_sub_e",
             leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "semantic_kl_plus_hidden",
+            field,
+            pole_mode="semantic_kl_plus_hidden",
+            teacher="faithful",
             steps=steps,
             seed=seed,
         ),
@@ -1183,6 +1216,14 @@ def null_space_table(*, steps: int = 200, seed: int = 0) -> list[dict]:
             pole_mode="semantic_kl",
             teacher="faithful_sub_e",
             leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "kl_plus_hidden_faithful",
+            field,
+            pole_mode="semantic_kl_plus_hidden",
+            teacher="faithful",
             steps=steps,
             seed=seed,
         ),
