@@ -14,6 +14,9 @@ unused axis), hold is 0. Gender stays on this default: omit leak_*,
 hold 0. Leaky axes use ``--lm_target pair_odd_sub_e``: teacher is
 pair-odd minus ``ê_⊥ = ê−(ê·û)û`` (the λ→∞ hold limit, no stiffness).
 ê must be leftover unused (genre + BPM / mix), not a slider synonym.
+``--lm_target faithful_sub_e`` is the same leftover odd on the real
+poles (midpoint stays ½(h++h−)); ``--pole_mode semantic_kl`` is
+next-token KL on the semantic band. Neither is the default.
 
 Old short-û project+hold is ``--lm_target v9_project`` (slider-level
 gate) or ``--lm_target v9_always``. Published Hub floor is
@@ -64,21 +67,35 @@ from conceptmod.textsliders.slider_targets import (
     lm_anchor_kappa,
     lm_anchor_targets,
     lm_axis_hold,
+    lm_faithful_sub_e,
     lm_hold_dir,
     lm_hidden_targets,
+    lm_next_token_logits,
     lm_odd_align,
     lm_ortho_hold,
     lm_pair_odd_sub_e,
     lm_project_decisions,
     lm_project_odd_axis,
+    lm_semantic_pole_loss,
     lm_slider_loss,
 )
 
 DEFAULT_MODEL = Path("/ml2/music/models/MiniMax-Music3")
-LM_RECIPES = ("v9", "pair_odd_sub_e", "v9_project", "v9_always", "hub", "symmetric", "faithful")
+LM_RECIPES = (
+    "v9",
+    "pair_odd_sub_e",
+    "v9_project",
+    "v9_always",
+    "hub",
+    "symmetric",
+    "faithful",
+    "faithful_sub_e",
+)
+POLE_MODES = ("hidden", "semantic_kl")
 PROJECT_RECIPES = frozenset({"v9_project", "v9_always"})
 V9_RECIPES = frozenset({"v9", "v9_project", "v9_always"})
-SUB_E_RECIPES = frozenset({"pair_odd_sub_e"})
+SUB_E_RECIPES = frozenset({"pair_odd_sub_e", "faithful_sub_e"})
+PAIR_ODD_RECIPES = frozenset({"pair_odd_sub_e"})
 TARGET_REPLACE = ["Qwen3Attention"]
 
 # Row fields this trainer actually consumes (`attributes` is expanded away by
@@ -97,12 +114,13 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     ``--symmetric`` is the polarity step inside ``v9`` / ``pair_odd_sub_e`` /
     ``v9_project`` / ``v9_always`` / ``hub`` / ``symmetric``. It is not a
     second loss. ``pair_odd_sub_e`` is the leaky-axis teacher (pair-odd
-    minus ê_⊥); gender stays ``v9``.
+    minus ê_⊥); gender stays ``v9``. ``faithful_sub_e`` is ê-cleaned
+    real poles (not a polarity step).
     """
     recipe = str(lm_target).strip().lower()
     if recipe not in LM_RECIPES:
         raise ValueError(f"lm_target must be one of {LM_RECIPES}, got {lm_target!r}")
-    if recipe in V9_RECIPES | SUB_E_RECIPES and not symmetric:
+    if recipe in V9_RECIPES | PAIR_ODD_RECIPES and not symmetric:
         raise ValueError(
             "lm_target=v9 keeps --symmetric as the polarity step; "
             "use --lm_target faithful --no-symmetric for raw poles"
@@ -114,6 +132,14 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     if recipe == "symmetric" and not symmetric:
         raise ValueError("lm_target=symmetric requires --symmetric")
     return recipe
+
+
+def resolve_pole_mode(pole_mode: str) -> str:
+    """``hidden`` (default, hidden MSE) or ``semantic_kl`` (semantic-band KL)."""
+    mode = str(pole_mode).strip().lower()
+    if mode not in POLE_MODES:
+        raise ValueError(f"pole_mode must be one of {POLE_MODES}, got {pole_mode!r}")
+    return mode
 
 
 def resolve_v9_gate(
@@ -249,6 +275,18 @@ def lm_train_targets(
             pos, neg, neu, leak_dir, slider_dir=slider_dir, target_scale=target_scale
         )
         return plus, minus, None, None
+    if recipe == "faithful_sub_e":
+        if leak_dir is None:
+            raise ValueError("lm_target=faithful_sub_e requires a declared leak_dir")
+        if slider_dir is None:
+            raise ValueError(
+                "lm_target=faithful_sub_e requires a declared slider_dir "
+                "(ê_⊥ = ê−(ê·û)û; do not subtract raw ê)"
+            )
+        plus, minus = lm_faithful_sub_e(
+            pos, neg, neu, leak_dir, slider_dir=slider_dir, target_scale=target_scale
+        )
+        return plus, minus, None, None
     if recipe in PROJECT_RECIPES:
         if slider_dir is None:
             raise ValueError("lm_target=v9_project requires a declared slider_dir")
@@ -299,6 +337,8 @@ def lm_train_loss(
     anchor_plus: torch.Tensor | None = None,
     anchor_minus: torch.Tensor | None = None,
     anchor_weight: float = 0.0,
+    pole_mode: str = "hidden",
+    readout: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Live pole loss: ``lm_slider_loss`` plus optional hold.
 
@@ -306,6 +346,10 @@ def lm_train_loss(
     Raw ê that overlaps the slider is not held — that punches û.
     The project path holds the residual orthogonal to ``slider_dir``.
     The live graph has no hold embedding either way.
+
+    ``pole_mode=hidden`` (default) is hidden MSE. ``semantic_kl`` is
+    ``lm_semantic_pole_loss`` on ``lm_next_token_logits`` of the
+    semantic-band readout — not a second KL.
     """
     hold = None
     if float(hold_weight) > 0.0:
@@ -319,6 +363,19 @@ def lm_train_loss(
             hold = lm_ortho_hold(pred_plus, pred_minus, neu, slider_dir)
         else:
             raise ValueError("hold_weight>0 requires a declared leak_dir or slider_dir")
+    mode = resolve_pole_mode(pole_mode)
+    if mode == "semantic_kl":
+        if readout is None:
+            raise ValueError("pole_mode=semantic_kl requires a semantic readout")
+        head = readout.to(dtype=pred_plus.dtype)
+        return lm_semantic_pole_loss(
+            lm_next_token_logits(pred_plus, head),
+            lm_next_token_logits(pred_minus, head),
+            lm_next_token_logits(tgt_plus, head),
+            lm_next_token_logits(tgt_minus, head),
+            hold=hold,
+            hold_weight=hold_weight,
+        )
     return lm_slider_loss(
         pred_plus,
         pred_minus,
@@ -416,20 +473,32 @@ def _set_scale(network: LoRANetwork, scale: float) -> None:
         lora.multiplier = float(scale)
 
 
+def _semantic_readout(lm) -> torch.Tensor:
+    """Semantic-code band of ``lm_head.weight`` — the live next-token readout.
+
+    Same slice ``_frame_margins`` already multiplies out for the end margin.
+    ``lm_next_token_logits`` / ``lm_semantic_pole_loss`` consume this.
+    """
+    from diffusers.modular_pipelines.minimax_music3.encoders import (
+        _AUDIO_CODE_OFFSET,
+        _SEMANTIC_VOCAB_SIZE,
+    )
+
+    return lm.lm_head.weight[_AUDIO_CODE_OFFSET : _AUDIO_CODE_OFFSET + _SEMANTIC_VOCAB_SIZE]
+
+
 def _frame_margins(lm, hidden_tail: torch.Tensor) -> torch.Tensor:
     """End margin — logit(<|audio_end|>) - logsumexp(semantic-code band) — at
     each decode position. hidden_tail: [1, P, hidden]; returns float32 [P].
     Only the lm_head rows that decide stop-vs-continue are multiplied out."""
     from diffusers.modular_pipelines.minimax_music3.encoders import (
-        _AUDIO_CODE_OFFSET,
         _AUDIO_END_TOKEN_ID,
-        _SEMANTIC_VOCAB_SIZE,
     )
 
     weight = lm.lm_head.weight
     hidden = hidden_tail[0]
     end_logit = (hidden @ weight[_AUDIO_END_TOKEN_ID]).float()
-    sem_logits = (hidden @ weight[_AUDIO_CODE_OFFSET : _AUDIO_CODE_OFFSET + _SEMANTIC_VOCAB_SIZE].T).float()
+    sem_logits = (hidden @ _semantic_readout(lm).T).float()
     return end_logit - torch.logsumexp(sem_logits, dim=-1)
 
 
@@ -537,6 +606,7 @@ def train(args: argparse.Namespace) -> Path:
         prompts_meta["minus_label"] = args.minus_label
 
     recipe = resolve_lm_recipe(lm_target=args.lm_target, symmetric=args.symmetric)
+    pole_mode = resolve_pole_mode(getattr(args, "pole_mode", "hidden"))
     axis_captions = resolve_slider_axis_captions(
         slider_positive=args.slider_positive,
         slider_negative=args.slider_negative,
@@ -560,17 +630,17 @@ def train(args: argparse.Namespace) -> Path:
             "slider_negative. Do not silently use a row's (pos-neg) — that is "
             "the unused-attribute leak."
         )
-    if recipe == "pair_odd_sub_e":
+    if recipe in SUB_E_RECIPES:
         if leak_captions is None:
             raise ValueError(
-                "lm_target=pair_odd_sub_e needs a declared leftover leak axis: "
+                f"lm_target={recipe} needs a declared leftover leak axis: "
                 "--leak_positive / --leak_negative, or YAML leak_positive / "
                 "leak_negative (or leak: [pos, neg]). ê is leftover unused, "
                 "not a slider synonym."
             )
         if axis_captions is None:
             raise ValueError(
-                "lm_target=pair_odd_sub_e needs a declared slider axis so it "
+                f"lm_target={recipe} needs a declared slider axis so it "
                 "can subtract ê_⊥ = ê−(ê·û)û, not raw ê: "
                 "--slider_positive / --slider_negative, or YAML slider_positive "
                 "/ slider_negative."
@@ -583,7 +653,10 @@ def train(args: argparse.Namespace) -> Path:
             "eats a clean pair."
         )
     if recipe in V9_RECIPES | SUB_E_RECIPES and float(args.common_beta) != 0.0:
-        print("note: lm_target=v9 / pair_odd_sub_e is κ=0 (no even blend-back); ignoring --common_beta")
+        print(
+            "note: lm_target=v9 / pair_odd_sub_e / faithful_sub_e is κ=0 "
+            "(no even blend-back); ignoring --common_beta"
+        )
     align_min, align_scope = resolve_v9_gate(
         recipe=recipe,
         project_align_min=getattr(args, "project_align_min", None),
@@ -605,6 +678,7 @@ def train(args: argparse.Namespace) -> Path:
     lm.to(device)
     lm.eval()
     lm.requires_grad_(False)
+    readout = _semantic_readout(lm) if pole_mode == "semantic_kl" else None
 
     beta = float(args.common_beta)
     slider_dir = None
@@ -630,6 +704,8 @@ def train(args: argparse.Namespace) -> Path:
         leak_dir = leak_pos_h - leak_neg_h
         if recipe == "pair_odd_sub_e":
             hold_note = "teacher=pair_odd − ê_⊥, ê_⊥=ê−(ê·û)û; hold 0"
+        elif recipe == "faithful_sub_e":
+            hold_note = "teacher=real poles − odd ê_⊥, midpoint ½(h++h−); hold 0"
         else:
             hold_note = "hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd"
         print(
@@ -693,6 +769,15 @@ def train(args: argparse.Namespace) -> Path:
                 "pair_odd_sub_e: teacher=pair-odd − ê_⊥, hold_ê=0 "
                 "(λ→∞ hold limit; no project onto short û)"
             )
+        elif recipe == "faithful_sub_e":
+            print(
+                "faithful_sub_e: teacher=real poles − odd ê_⊥, hold_ê=0 "
+                "(midpoint stays ½(h++h−); not t± = h0 ± a)"
+            )
+    if pole_mode == "semantic_kl":
+        print("pole_mode=semantic_kl: next-token KL on the semantic band of lm_head")
+    else:
+        print("pole_mode=hidden: hidden MSE onto the chosen targets")
 
     row_data = []
     for encoded, should_project in zip(encoded_rows, decisions):
@@ -706,8 +791,8 @@ def train(args: argparse.Namespace) -> Path:
         dropped = ""
         row_slider_dir = slider_dir
         row_leak_dir = leak_dir
-        row_hold = hold_w if (recipe not in {"v9", "pair_odd_sub_e"} or leak_dir is not None) else 0.0
-        if recipe == "pair_odd_sub_e":
+        row_hold = hold_w if (recipe not in {"v9"} | SUB_E_RECIPES or leak_dir is not None) else 0.0
+        if recipe in SUB_E_RECIPES:
             row_hold = 0.0
         if recipe == "v9":
             dropped = " teacher=odd"
@@ -719,6 +804,10 @@ def train(args: argparse.Namespace) -> Path:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
         elif recipe == "pair_odd_sub_e":
             dropped = " teacher=pair_odd_sub_e hold_ê=0"
+            if encoded["align"] is not None:
+                dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
+        elif recipe == "faithful_sub_e":
+            dropped = " teacher=faithful_sub_e hold_ê=0"
             if encoded["align"] is not None:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
         elif encoded["align"] is not None:
@@ -904,6 +993,8 @@ def train(args: argparse.Namespace) -> Path:
             anchor_plus=data.get("anchor_plus"),
             anchor_minus=data.get("anchor_minus"),
             anchor_weight=anchor_w,
+            pole_mode=pole_mode,
+            readout=readout,
         )
         loss = pole + 0.5 * args.endreg_weight * (end_pos + end_neg) + args.planreg_weight * (plan_pos + plan_neg)
         opt.zero_grad(set_to_none=True)
@@ -979,6 +1070,7 @@ def train(args: argparse.Namespace) -> Path:
         "seed": int(args.seed),
         "rows": len(row_data),
         "lm_target": recipe,
+        "pole_mode": pole_mode,
         "symmetric": bool(args.symmetric),
         "hold_weight": hold_w,
         "project_align_min": align_min if recipe in PROJECT_RECIPES else getattr(args, "project_align_min", None),
@@ -1059,7 +1151,18 @@ def parse_args(argv=None):
         "minus ê_⊥ (λ→∞ hold, hold 0). Short slider_positive is not the "
         "teacher. v9_project: old slider-level |odd·û| gate. "
         "v9_always: old always-project. hub: published leakage_floor "
-        "blend-back (still leaks). symmetric / faithful: old poles",
+        "blend-back (still leaks). symmetric / faithful: old poles. "
+        "faithful_sub_e: real poles with leftover ê subtracted from the "
+        "odd part only (midpoint stays ½(h++h−); needs leak_*). Not the default",
+    )
+    p.add_argument(
+        "--pole_mode",
+        default="hidden",
+        choices=POLE_MODES,
+        help="pole supervision (default hidden = current hidden MSE onto the "
+        "chosen targets). semantic_kl: next-token KL of the student policy "
+        "to the teacher hidden's policy, using the semantic band of lm_head "
+        "(lm_semantic_pole_loss). Do not make this the default",
     )
     p.add_argument(
         "--symmetric",
@@ -1097,9 +1200,10 @@ def parse_args(argv=None):
         type=float,
         default=None,
         help="v9: weight on ((h(±1)−h0)·ê)² (default 8 when ê is declared, else 0). "
-        "pair_odd_sub_e: default 0 (ê_⊥ is already out of the teacher). "
+        "pair_odd_sub_e / faithful_sub_e: default 0 (ê_⊥ is already out of "
+        "the teacher). "
         "v9_project / v9_always: weight on ||(h(±1)−h0)_⊥û||² (default 1.0). "
-        "Do not scale λ by D; prefer pair_odd_sub_e on leftover ê",
+        "Do not scale λ by D; prefer leftover ê in the teacher",
     )
     p.add_argument(
         "--project_align_min",

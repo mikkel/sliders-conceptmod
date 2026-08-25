@@ -494,18 +494,19 @@ def test_semantic_pole_loss_adds_the_hold_like_the_mse_one():
 
 
 def test_the_live_default_is_still_hidden_mse_onto_the_midpoint():
-    """This PR is analysis / test / doc. It must not move the live default.
+    """Wiring exists; the default must stay v9 / hidden.
 
-    ``--pole_mode`` is not a live flag at all: pole supervision is
-    ``--lm_target``, the default is ``v9``, and the loss is always
-    ``lm_slider_loss``. The report says what wiring ``semantic_kl`` would
-    take and why the fixture changes the answer.
+    ``faithful_sub_e`` and ``semantic_kl`` are live flags now. Neither
+    is the default: pole supervision is still ``--lm_target v9`` and
+    ``--pole_mode hidden`` (hidden MSE).
     """
     args = parse_args(["--prompts", "x.yaml"])
     assert args.lm_target == "v9"
+    assert args.pole_mode == "hidden"
     assert args.common_beta == 0.0
     assert "v9" in LM_RECIPES and "pair_odd_sub_e" in LM_RECIPES
-    assert not hasattr(args, "pole_mode")
+    assert "faithful_sub_e" in LM_RECIPES
+    assert "faithful_sub_e" not in V9_RECIPES
 
 
 def test_the_recommended_live_ladder_is_reachable_today():

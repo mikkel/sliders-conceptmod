@@ -60,7 +60,7 @@ to ``cos(pos−neu, neg−neu)`` itself. Under the v16 default a logged
 collapse near −1 is the bug, not the health check.
 
 CPU only. No Hub, no GPU, no Music 3 weights. Does not change the live
-trainer default; ``--pole_mode`` does not exist live at all (see
+trainer default (still ``--lm_target v9`` / ``--pole_mode hidden``; see
 ``docs/lm-sheet-goodhart.md``).
 """
 

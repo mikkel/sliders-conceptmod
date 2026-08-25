@@ -19,11 +19,14 @@ from conceptmod.textsliders.slider_targets import (
     lm_anchor_kappa,
     lm_anchor_targets,
     lm_axis_hold,
+    lm_faithful_sub_e,
     lm_hidden_targets,
     lm_hold_dir,
+    lm_next_token_logits,
     lm_ortho_hold,
     lm_pair_odd_sub_e,
     lm_project_odd_axis,
+    lm_semantic_pole_loss,
     lm_slider_loss,
     lm_unit,
 )
@@ -34,6 +37,7 @@ from conceptmod.textsliders.train_lm_slider_music3 import (
     resolve_leak_axis_captions,
     resolve_lm_loss_weights,
     resolve_lm_recipe,
+    resolve_pole_mode,
     resolve_slider_axis_captions,
     resolve_v9_gate,
 )
@@ -47,8 +51,10 @@ def _ungated_pair(t: float = 0.5):
 def test_bare_parse_defaults_to_v9_and_symmetric():
     args = parse_args(["--prompts_file", "prompts.yaml"])
     assert args.lm_target == "v9"
+    assert args.pole_mode == "hidden"
     assert args.symmetric is True
     assert resolve_lm_recipe(lm_target=args.lm_target, symmetric=args.symmetric) == "v9"
+    assert resolve_pole_mode(args.pole_mode) == "hidden"
     hold, anchor = resolve_lm_loss_weights(
         "v9", hold_weight=args.hold_weight, anchor_weight=args.anchor_weight, leak_declared=False
     )
@@ -82,6 +88,37 @@ def test_bare_parse_defaults_to_v9_and_symmetric():
     )
     assert sub_hold == 0.0
     assert sub_anchor == 0.0
+    gender_v16 = parse_args(
+        [
+            "--prompts_file",
+            "prompts.yaml",
+            "--lm_target",
+            "faithful",
+            "--pole_mode",
+            "semantic_kl",
+        ]
+    )
+    assert gender_v16.lm_target == "faithful"
+    assert gender_v16.pole_mode == "semantic_kl"
+    assert resolve_lm_recipe(lm_target="faithful", symmetric=True) == "faithful"
+    energy_v16 = parse_args(
+        [
+            "--prompts_file",
+            "prompts.yaml",
+            "--lm_target",
+            "faithful_sub_e",
+            "--pole_mode",
+            "semantic_kl",
+        ]
+    )
+    assert energy_v16.lm_target == "faithful_sub_e"
+    assert energy_v16.pole_mode == "semantic_kl"
+    assert resolve_lm_recipe(lm_target="faithful_sub_e", symmetric=True) == "faithful_sub_e"
+    faith_hold, faith_anchor = resolve_lm_loss_weights(
+        "faithful_sub_e", hold_weight=None, anchor_weight=None, leak_declared=True
+    )
+    assert faith_hold == 0.0
+    assert faith_anchor == 0.0
     always_floor, _ = resolve_v9_gate(
         recipe="v9_always", project_align_min=0.50, project_align_scope="row"
     )
@@ -97,6 +134,8 @@ def test_v9_requires_symmetric_polarity():
         resolve_lm_recipe(lm_target="v9_project", symmetric=False)
     with pytest.raises(ValueError, match="polarity step"):
         resolve_lm_recipe(lm_target="pair_odd_sub_e", symmetric=False)
+    assert resolve_lm_recipe(lm_target="faithful_sub_e", symmetric=False) == "faithful_sub_e"
+    assert resolve_lm_recipe(lm_target="faithful", symmetric=False) == "faithful"
 
 
 def test_axis_is_declared_not_plus_minus_or_row_odd():
@@ -442,3 +481,121 @@ def test_leaky_v4_yamls_declare_leftover_not_slider():
     assert not live.get("leak_positive")
     gender = yaml.safe_load((root / "prompts-gender-v4.yaml").read_text())
     assert not gender.get("leak_positive")
+
+
+def test_faithful_sub_e_targets_are_e_cleaned_real_poles_not_h0_plus_a():
+    """ê-cleaned real poles: midpoint stays ½(h++h−), not t± = h0 ± a."""
+    pos, neg, neu = _ungated_pair()
+    leftover = torch.tensor([0.4, 0.9])
+    plus, minus, anc_p, anc_m = lm_train_targets(
+        pos, neg, neu, recipe="faithful_sub_e", slider_dir=E_SLIDER, leak_dir=leftover
+    )
+    expected_plus, expected_minus = lm_faithful_sub_e(
+        pos, neg, neu, leftover, slider_dir=E_SLIDER
+    )
+    assert torch.allclose(plus, expected_plus)
+    assert torch.allclose(minus, expected_minus)
+    assert anc_p is None and anc_m is None
+    assert torch.allclose((plus + minus) / 2, (pos + neg) / 2)
+    pair_odd = lm_hidden_targets(pos, neg, neu, target_mode="symmetric")
+    assert not torch.allclose(plus, pair_odd[0])
+    assert not torch.allclose(plus, pos)
+    pair_sub_plus, _ = lm_pair_odd_sub_e(pos, neg, neu, leftover, slider_dir=E_SLIDER)
+    assert not torch.allclose(plus, pair_sub_plus)
+    common = (pos + neg) / 2 - neu
+    assert torch.allclose((plus + minus) / 2 - neu, common)
+    held = lm_hold_dir(leftover, slider_dir=E_SLIDER, mode="slider")
+    assert held is not None
+    odd = (plus - minus) / 2
+    assert abs(float(odd @ lm_unit(held))) < 1e-6
+
+
+def test_faithful_sub_e_needs_leak_and_slider():
+    pos, neg, neu = _ungated_pair()
+    leftover = torch.tensor([0.0, 1.0])
+    with pytest.raises(ValueError, match="declared leak_dir"):
+        lm_train_targets(pos, neg, neu, recipe="faithful_sub_e", slider_dir=E_SLIDER)
+    with pytest.raises(ValueError, match="declared slider_dir"):
+        lm_train_targets(pos, neg, neu, recipe="faithful_sub_e", leak_dir=leftover)
+
+
+def test_semantic_kl_loss_uses_existing_helper():
+    """Live semantic_kl is lm_semantic_pole_loss on lm_next_token_logits."""
+    pos, neg, neu = _ungated_pair()
+    tgt_plus, tgt_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful")
+    pred_plus = neu + torch.tensor([0.8, 0.4])
+    pred_minus = neu + torch.tensor([-0.7, -0.3])
+    readout = torch.tensor(
+        [[1.0, 0.2], [0.1, -1.0], [0.4, 0.5], [-0.3, 0.8]], dtype=torch.float32
+    )
+    got = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        hold_weight=0.0,
+        pole_mode="semantic_kl",
+        readout=readout,
+    )
+    expected = lm_semantic_pole_loss(
+        lm_next_token_logits(pred_plus, readout),
+        lm_next_token_logits(pred_minus, readout),
+        lm_next_token_logits(tgt_plus, readout),
+        lm_next_token_logits(tgt_minus, readout),
+    )
+    assert float(got) == pytest.approx(float(expected), abs=1e-6)
+    hidden = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        hold_weight=0.0,
+        pole_mode="hidden",
+    )
+    mse = lm_slider_loss(pred_plus, pred_minus, tgt_plus, tgt_minus)
+    assert float(hidden) == pytest.approx(float(mse), abs=1e-6)
+    assert float(got) != pytest.approx(float(hidden), abs=1e-4)
+    with pytest.raises(ValueError, match="semantic readout"):
+        lm_train_loss(
+            pred_plus,
+            pred_minus,
+            tgt_plus,
+            tgt_minus,
+            pole_mode="semantic_kl",
+        )
+
+
+def test_hidden_pole_mode_leaves_v9_and_pair_odd_sub_e_unchanged():
+    pos, neg, neu = _ungated_pair()
+    leftover = torch.tensor([0.4, 0.9])
+    v9_plus, v9_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="v9")
+    leaked = lm_hidden_targets(pos, neg, neu, target_mode="symmetric")
+    assert torch.allclose(v9_plus, leaked[0])
+    assert torch.allclose(v9_minus, leaked[1])
+    pred_plus = neu + torch.tensor([0.8, 0.4])
+    pred_minus = neu + torch.tensor([-0.7, -0.3])
+    hidden = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        v9_plus,
+        v9_minus,
+        neu=neu,
+        leak_dir=leftover,
+        slider_dir=E_SLIDER,
+        hold_weight=LEAK_HOLD_WEIGHT,
+        pole_mode="hidden",
+    )
+    hold_axis = lm_hold_dir(leftover, slider_dir=E_SLIDER, mode="slider")
+    hold = lm_axis_hold(pred_plus, pred_minus, neu, hold_axis)
+    expected = lm_slider_loss(
+        pred_plus, pred_minus, v9_plus, v9_minus, hold=hold, hold_weight=LEAK_HOLD_WEIGHT
+    )
+    assert float(hidden) == pytest.approx(float(expected), abs=1e-6)
+    sub_plus, sub_minus, _, _ = lm_train_targets(
+        pos, neg, neu, recipe="pair_odd_sub_e", slider_dir=E_SLIDER, leak_dir=leftover
+    )
+    expected_sub = lm_pair_odd_sub_e(pos, neg, neu, leftover, slider_dir=E_SLIDER)
+    assert torch.allclose(sub_plus, expected_sub[0])
+    assert torch.allclose(sub_minus, expected_sub[1])

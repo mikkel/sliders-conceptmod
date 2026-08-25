@@ -124,9 +124,16 @@ own token swing; a target that *is* a caption stays on the sheet and
 prints `c+ 0.60 / collapse +0.13`. Under a caption target `collapse`
 converges to `cos(pos−neu, neg−neu)` itself, so a collapse near −1 is
 the tell that the common component is gone. See
-[docs/lm-sheet-goodhart.md](docs/lm-sheet-goodhart.md). Nothing about
-this is wired: `--pole_mode` is not a flag in
-`train_lm_slider_music3.py`, and the default is still `--lm_target v9`.
+[docs/lm-sheet-goodhart.md](docs/lm-sheet-goodhart.md). `--pole_mode`
+is now a flag (`hidden` default = today's hidden MSE; `semantic_kl` =
+next-token KL on the semantic band of `lm_head`). `--lm_target
+faithful_sub_e` is the ê-cleaned real-pole teacher (odd leftover only;
+midpoint stays ½(h++h−)). **Neither is the default** — default remains
+`--lm_target v9` / `--pole_mode hidden`. The v16 card is gender:
+`--lm_target faithful --pole_mode semantic_kl` (no leak_*); leaky:
+`--lm_target faithful_sub_e --pole_mode semantic_kl` (hold 0).
+`--no-early_stop` stays the train-card choice — those gates are the
+pair-odd lock; do not retune them to KL.
 
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
@@ -856,9 +863,13 @@ $PY conceptmod/textsliders/train_lora_music3.py \
 
 Language-model slider. `--lm_target v9` (pair-odd, hold 0 when no ê)
 and `--endreg_weight 1.0` default on. Gender stays there: omit leak_*,
-do not invent junk ê, do not project onto short û. Leaky axes use
-`--lm_target pair_odd_sub_e` (pair-odd minus leftover `ê_⊥`). Stop
-the studio first (bf16 LM is ~16 GB):
+do not invent junk ê, do not project onto short û. Leaky axes still
+accept `--lm_target pair_odd_sub_e` (pair-odd minus leftover `ê_⊥`).
+The v16 card is the new leaky-axis option, not the default: gender is
+`--lm_target faithful --pole_mode semantic_kl` (no leak_*); leaky is
+`--lm_target faithful_sub_e --pole_mode semantic_kl` (leftover ê from
+YAML `leak_positive` / `leak_negative`, hold 0). `--no-early_stop`
+stays the train-card choice. Stop the studio first (bf16 LM is ~16 GB):
 
 ```bash
 $PY conceptmod/textsliders/train_lm_slider_music3.py \
@@ -867,10 +878,16 @@ $PY conceptmod/textsliders/train_lm_slider_music3.py \
   --save_dir /ml2/music/sliders-conceptmod/models/gender-lm-v14 \
   --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 --no-early_stop --device 0
 $PY conceptmod/textsliders/train_lm_slider_music3.py \
-  --name energy-lm-v14 \
-  --lm_target pair_odd_sub_e \
+  --name gender-lm-v16 \
+  --lm_target faithful --pole_mode semantic_kl \
+  --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml \
+  --save_dir /ml2/music/sliders-conceptmod/models/gender-lm-v16 \
+  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 --no-early_stop --device 0
+$PY conceptmod/textsliders/train_lm_slider_music3.py \
+  --name energy-lm-v16 \
+  --lm_target faithful_sub_e --pole_mode semantic_kl \
   --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \
-  --save_dir /ml2/music/sliders-conceptmod/models/energy-lm-v14 \
+  --save_dir /ml2/music/sliders-conceptmod/models/energy-lm-v16 \
   --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 --no-early_stop --device 0
 ```
 
