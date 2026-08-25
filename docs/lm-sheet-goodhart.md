@@ -137,6 +137,29 @@ argmax, token-space leak and audible swing. `cos±` and `±1` are
    swing while claiming a perfect hidden-space cosine, because the
    mass it should have spent on the axis words went off-sheet instead.
 
+## The mechanism, stated precisely
+
+A tiny vocabulary and one linear readout from the hidden state are
+enough. No curved student is needed, and the curved one is worse: the
+softmax is the only nonlinearity the argument uses.
+
+It is tempting to describe the midpoint as "a blend of the two poles,
+so its softmax prefers some third token". That is not what happens
+here, and the distinction is the whole result. `h0 + a` is not between
+`h+` and `h−` — it is `h+` with `c` removed, i.e. *outside* the region
+any caption occupies, along the one direction all captions share. The
+off-sheet token `garble_hi` wins there because it is further along the
+concept direction û than `slam` (1.30 vs 1.00) and anti-loaded on the
+shared direction ŝ (−1.50). Real captions never reach that far along û
+alone, because they always carry `c`; strip `c` and the most extreme
+word on the axis wins even though nothing on the sheet would say it.
+
+That is why the `common = 0` row passes: with a perfectly odd pair
+there is no `c` to strip, the midpoint *is* the caption, and v9 is
+exactly right. The failure is not "MSE", not "symmetry", and not
+"blending" — it is deleting the shared component of two real
+captions and then aiming at where they aren't.
+
 ## Where semantic KL earns its keep: the readout's null space
 
 Hidden MSE has to match the pole on every dim, including the ones no
