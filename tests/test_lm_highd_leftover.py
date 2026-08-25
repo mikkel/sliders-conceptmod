@@ -19,6 +19,7 @@ from analysis.slider2d.highd import (
     HOLD_EXPLAINS_TOL,
     LIVE_COLLAPSE,
     LIVE_C_PLUS,
+    LIVE_EARLY_WINDOW,
     LIVE_GATE_ALIGN,
     LIVE_GENDER_COLLAPSE,
     LIVE_GENDER_C_PLUS,
@@ -373,6 +374,29 @@ def test_bend_crosses_zero_when_even_matches_odd():
             continue
         # Exact only for G w ⊥ w; the fitted w is only generically orthogonal.
         assert bend_for_collapse(row["collapse"]) == pytest.approx(bend, rel=0.15)
+
+
+def test_window_mean_is_the_stable_read_when_the_reply_is_not_a_mirror():
+    linear = energy_field()
+    bent = energy_field(bend=BEND_ENERGY)
+    for steps in (200, 800):
+        row = score_highd(
+            "lin", linear, leak_dir=synonym_e(linear), hold_weight=LEAK_HOLD_WEIGHT, steps=steps
+        )
+        # Converged: the live window mean and the last step are the same number.
+        assert row["c_plus"] == pytest.approx(row["c_plus_final"], abs=1e-6)
+        assert row["c_plus"] == pytest.approx(row["c_plus_predicted"], abs=1e-3)
+        assert row["window"] == LIVE_EARLY_WINDOW
+    windows = []
+    finals = []
+    for steps in (200, 400, 800):
+        row = score_highd(
+            "bent", bent, leak_dir=synonym_e(bent), hold_weight=LEAK_HOLD_WEIGHT, steps=steps
+        )
+        windows.append(row["c_plus"])
+        finals.append(row["c_plus_final"])
+    assert max(windows) - min(windows) < 0.02
+    assert max(finals) - min(finals) > 0.05
 
 
 def test_live_v14_analogue_lands_both_live_numbers():

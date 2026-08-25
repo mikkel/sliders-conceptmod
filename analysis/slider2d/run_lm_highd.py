@@ -378,6 +378,18 @@ def write_report(blob: dict, path: Path) -> None:
         "Every linear row above matches it to three decimals, so the table is",
         "a geometry statement, not a training artifact.",
         "",
+        (
+            f"Trajectory columns are the mean over the last "
+            f"{gender['window']:.0f} steps, which is what the trainer's own "
+            f"summary reports. On the linear rows that equals the last step "
+            f"exactly — they converge and sit still. A non-mirror reply makes "
+            f"the loss non-convex, so the bend rows orbit: "
+            f"`energy_bend_synonym_l8` holds collapse at "
+            f"{bent['collapse']:+.3f} and loss at {bent['loss']:.3f} while its "
+            f"last-step c+ wanders ±0.05 around the window mean "
+            f"{bent['c_plus']:+.3f}. Read the window, as live does."
+        ),
+        "",
         "Two flags separate the confusions this table exists for:",
         "",
         (

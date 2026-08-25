@@ -67,6 +67,9 @@ LIVE_GENDER_COLLAPSE = -0.95
 LIVE_GENDER_LOSS = 0.009
 # Same-loudness rewrite of the leak captions: loss 278 by step 13.
 LIVE_SPIKE_LOSS = 278.0
+# The trainer's summary averages the last --early_window steps; the live
+# c+ / collapse numbers above are window means, so these rows are too.
+LIVE_EARLY_WINDOW = 50
 
 # ±1 response asymmetry implied by the two live collapse logs:
 # bend = √((1+collapse)/(1−collapse)) for a pure rotation.
@@ -457,8 +460,14 @@ def fit_highd(
     clip_value: float | None = None,
     free_even: bool = False,
     history_every: int = 100,
-) -> tuple[BendResidual, list[dict]]:
-    """Live LM slider loss on the high-D field. Same helpers as the trainer."""
+    window: int = LIVE_EARLY_WINDOW,
+) -> tuple[BendResidual, list[dict], dict[str, float]]:
+    """Live LM slider loss on the high-D field. Same helpers as the trainer.
+
+    Returns the fit, sparse history snapshots, and the mean over the last
+    ``window`` steps — the live summary's own convention, and the only
+    stable read when a non-mirror reply makes the loss non-convex.
+    """
     held = hold_direction(field, leak_dir)
     lam = float(hold_weight) if held is not None else 0.0
     tgt_plus, tgt_minus = teacher_poles(field, teacher=teacher, leak_dir=leak_dir)
@@ -483,10 +492,15 @@ def fit_highd(
             hold_weight=lam if hold is not None else 0.0,
         )
 
+    tail: list[dict] = []
     for i in range(int(steps) + 1):
         loss = step_loss()
+        snap = fit_metrics(residual.snapshot(), field, loss=float(loss.detach()))
         if i % int(history_every) == 0 or i == int(steps):
-            history.append({"step": i, **fit_metrics(residual.snapshot(), field, loss=float(loss.detach()))})
+            history.append({"step": i, **snap})
+        tail.append(snap)
+        if len(tail) > int(window):
+            tail.pop(0)
         if i == int(steps):
             break
         opt.zero_grad()
@@ -494,7 +508,15 @@ def fit_highd(
         if clip_value is not None:
             torch.nn.utils.clip_grad_value_(residual.parameters(), float(clip_value))
         opt.step()
-    return residual.snapshot(), history
+    return residual.snapshot(), history, window_mean(tail)
+
+
+def window_mean(snaps: list[dict]) -> dict[str, float]:
+    """Mean of the last-window snapshots, as the live summary reports."""
+    if not snaps:
+        raise ValueError("window_mean needs at least one snapshot")
+    keys = [k for k in snaps[0] if k != "step"]
+    return {key: sum(float(s[key]) for s in snaps) / len(snaps) for key in keys}
 
 
 def fit_metrics(
@@ -503,25 +525,36 @@ def fit_metrics(
     *,
     loss: float,
 ) -> dict[str, float]:
-    """Live-log columns: trainer c+, collapse, perc, loss."""
+    """Everything read off one residual: live log columns plus geometry."""
     a = field.odd()
+    u = field.short_u()
+    intended = field.intended()
     d_plus = residual.delta(1.0)
     d_minus = residual.delta(-1.0)
-    perc = float((d_plus - a).norm() / a.norm().clamp_min(1e-8))
-    perc_minus = float((d_minus + a).norm() / a.norm().clamp_min(1e-8))
     norm_plus = float(d_plus.norm())
     norm_minus = float(d_minus.norm())
+    leftover = sum(float(d_plus @ direction) ** 2 for direction in field.leftover_dirs()) ** 0.5
+    teacher_leftover = sum(float(a @ direction) ** 2 for direction in field.leftover_dirs()) ** 0.5
+    on_intended = float(d_plus @ intended)
     return {
         "loss": float(loss),
         "c_plus": cosine(d_plus, a),
         "c_minus": cosine(d_minus, -a),
         "collapse": cosine(d_plus, d_minus),
-        "perc": perc,
-        "perc_minus": perc_minus,
+        "perc": float((d_plus - a).norm() / a.norm().clamp_min(1e-8)),
+        "perc_minus": float((d_minus + a).norm() / a.norm().clamp_min(1e-8)),
         "norm_plus": norm_plus,
         "norm_minus": norm_minus,
         # Live logs pperc / nperc per pole; an even reply shows up here first.
         "norm_ratio": norm_plus / max(norm_minus, 1e-8),
+        "cos_short_u": cosine(d_plus, u),
+        "cos_intended": cosine(d_plus, intended),
+        "leftover_norm": leftover,
+        "leftover_teacher": teacher_leftover,
+        "leftover_kept": leftover / (teacher_leftover + 1e-8) if teacher_leftover > 1e-8 else 0.0,
+        "leftover_leak": leftover / (abs(on_intended) + 1e-8),
+        "proj_intended": on_intended,
+        **leftover_bipolar(d_plus, d_minus),
     }
 
 
@@ -538,7 +571,7 @@ def score_highd(
     clip_value: float | None = None,
     free_even: bool = False,
 ) -> dict:
-    residual, history = fit_highd(
+    residual, history, window = fit_highd(
         field,
         leak_dir=leak_dir,
         hold_weight=hold_weight,
@@ -551,17 +584,13 @@ def score_highd(
     held = hold_direction(field, leak_dir)
     used_hold = float(hold_weight) if held is not None else 0.0
     cover = hold_cover(field, held)
-    a = field.odd()
-    u = field.short_u()
-    intended = field.intended()
-    d_plus = residual.delta(1.0)
-    d_minus = residual.delta(-1.0)
-    leftover = sum(float(d_plus @ direction) ** 2 for direction in field.leftover_dirs()) ** 0.5
-    teacher_leftover = sum(float(a @ direction) ** 2 for direction in field.leftover_dirs()) ** 0.5
-    on_intended = float(d_plus @ intended)
     subtracted = teacher.strip().lower() != "pair_odd"
-    row = dict(history[-1])
-    row.pop("step", None)
+    final = dict(history[-1])
+    final.pop("step", None)
+    # Live's summary is the mean over the last window; a non-mirror reply
+    # makes the loss non-convex, so the last step alone wanders.
+    row = dict(window)
+    row.update({f"{key}_final": value for key, value in final.items()})
     row.update(
         hold_predictions(
             cover,
@@ -571,28 +600,22 @@ def score_highd(
         )
     )
     row.update(hold_split(field, held))
-    row.update(leftover_bipolar(d_plus, d_minus))
     row.update(
         {
             "name": name,
             "e_label": e_label,
             "dim": int(field.dim),
             "bend": float(field.bend),
+            "bend_parallel": float(field.bend_parallel),
             "teacher": teacher,
             "hold_weight": float(hold_weight),
             "used_hold": used_hold,
             "gate_align": field.gate_align(),
-            "e_dot_u": 0.0 if leak_dir is None else float(lm_unit(leak_dir) @ u),
+            "e_dot_u": 0.0 if leak_dir is None else float(lm_unit(leak_dir) @ field.short_u()),
             "hold_norm": 0.0 if held is None else float(held.norm()),
             "hold_cover": cover,
             "hold_off": held is None,
-            "cos_short_u": cosine(d_plus, u),
-            "cos_intended": cosine(d_plus, intended),
-            "leftover_norm": leftover,
-            "leftover_teacher": teacher_leftover,
-            "leftover_kept": leftover / (teacher_leftover + 1e-8) if teacher_leftover > 1e-8 else 0.0,
-            "leftover_leak": leftover / (abs(on_intended) + 1e-8),
-            "proj_intended": on_intended,
+            "window": LIVE_EARLY_WINDOW,
             "history": history,
         }
     )
@@ -621,10 +644,13 @@ def gender_like_field(*, bend: float = BEND_GENDER, dim: int = DEFAULT_DIM) -> H
 def energy_field(
     *,
     bend: float = 0.0,
+    bend_parallel: float = 0.0,
     dim: int = DEFAULT_DIM,
     align: float = LIVE_GATE_ALIGN,
 ) -> HighDLeakField:
-    return HighDLeakField(dim=dim, align=align, bend=bend)
+    return HighDLeakField(
+        dim=dim, align=align, bend=bend, bend_parallel=bend_parallel
+    )
 
 
 def energy_2d_field() -> HighDLeakField:
@@ -1018,18 +1044,8 @@ def _bent_row(
     seed: int = 0,
     e_label: str = "synonym ê",
 ) -> dict:
-    field = energy_field(dim=int(dim))
-    field = HighDLeakField(
-        dim=field.dim,
-        align=field.align,
-        content=field.content,
-        leftover=field.leftover,
-        scale=field.scale,
-        bend=float(bend),
-        bend_parallel=float(parallel),
-        seed=field.seed,
-    )
-    row = score_highd(
+    field = energy_field(bend=float(bend), bend_parallel=float(parallel), dim=int(dim))
+    return score_highd(
         name,
         field,
         leak_dir=synonym_e(field),
@@ -1038,8 +1054,6 @@ def _bent_row(
         steps=steps,
         seed=seed,
     )
-    row["bend_parallel"] = float(parallel)
-    return row
 
 
 def calibrate_bend(
@@ -1134,8 +1148,9 @@ def compact(row: dict, *, history: bool = True) -> dict:
             out[key] = value
     out["axis"] = dict(row.get("axis", {}))
     if history:
+        keep = ("step", "loss", "c_plus", "collapse", "perc", "cos_intended")
         out["history"] = [
-            {k: (int(v) if k == "step" else float(v)) for k, v in snap.items()}
+            {k: (int(snap[k]) if k == "step" else float(snap[k])) for k in keep if k in snap}
             for snap in row.get("history", [])
         ]
     return out
