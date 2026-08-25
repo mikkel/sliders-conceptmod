@@ -95,8 +95,8 @@ HOLD_EXPLAINS_TOL = 0.06
 def hold_shrink(hold_weight: float, dim: int) -> float:
     """Fraction of the teacher's ê component the fit keeps.
 
-    ``F.mse_loss`` divides by ``dim``; ``lm_axis_hold`` does not. The ê
-    stationarity condition of ``2·MSE/dim + λ·(w·ê)²`` is therefore
+    ``F.mse_loss`` divides by ``dim``; ``lm_axis_hold`` does not. Both
+    poles give ``(2/dim)·||w − a||² + λ·(w·ê)²``, so along ê
     ``(2/dim)(s − t) + λ s = 0``, i.e. ``s = t / (1 + λ·dim/2)``.
     ``analysis.slider2d.faithful.hold_e_shrink`` is this at ``dim=2``.
     """
@@ -505,7 +505,6 @@ def fit_metrics(
 ) -> dict[str, float]:
     """Live-log columns: trainer c+, collapse, perc, loss."""
     a = field.odd()
-    _pos, _neg, neu = field.poles()
     d_plus = residual.delta(1.0)
     d_minus = residual.delta(-1.0)
     perc = float((d_plus - a).norm() / a.norm().clamp_min(1e-8))
@@ -523,7 +522,6 @@ def fit_metrics(
         "norm_minus": norm_minus,
         # Live logs pperc / nperc per pole; an even reply shows up here first.
         "norm_ratio": norm_plus / max(norm_minus, 1e-8),
-        "neutral_norm": float(neu.norm()),
     }
 
 
