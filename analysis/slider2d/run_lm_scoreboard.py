@@ -128,11 +128,21 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
     ]
     if winners:
         names = ", ".join(f"`{r['id']}`" for r in winners)
-        lines.append(
-            f"**Works, in order:** {names}. Both keep leftover leak at 0 "
-            "and stay on the caption sheet with the concept swing intact. "
-            "They share the target (ê-cleaned real poles), not the loss."
-        )
+        cleaned = [r["id"] for r in winners if r["id"] in ("faithful_sub_e", "semantic_kl_sub_e")]
+        data_fix = [r["id"] for r in winners if r["id"] == "faithful_attrs"]
+        bits = [f"**Works, in order:** {names}."]
+        bits.append("Leftover leak is 0 and the caption sheet stays intact.")
+        if data_fix:
+            bits.append(
+                "`faithful_attrs` is the data fix: unused gender/BPM are pinned "
+                "in the captions, so leftover ê is not in the text."
+            )
+        if cleaned:
+            shown = " and ".join(f"`{n}`" for n in cleaned)
+            bits.append(
+                f"{shown} share the target (ê-cleaned real poles), not the loss."
+            )
+        lines.append(" ".join(bits))
     else:
         lines.append("No recipe passed the compiled gate.")
     if gender_only:
