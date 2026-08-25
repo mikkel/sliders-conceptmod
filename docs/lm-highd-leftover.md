@@ -229,6 +229,12 @@ Still not a cell:
 - **whether Qwen actually hears "genre + BPM, no density" as unused.**
   `leftover_match` is the assumption that decides the residual leak,
   and only a live probe can measure it.
+- **whether the teacher point is a caption.** Every column here is
+  hidden geometry, so `t± = h0 ± a` can score a clean lock from a
+  place no caption occupies. That needs a next-token readout:
+  [lm-sheet-goodhart.md](lm-sheet-goodhart.md), which borrows this
+  cell's `bend` to reproduce the gender-lm-v4 log and then reads the
+  policy at the same fit.
 
 ## How to run
 

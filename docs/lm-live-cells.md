@@ -114,3 +114,8 @@ the short û *is* the concept. At live width λ=8 is `4·D`, the concept
 sits partly off û, and trainer c+ has a ceiling below gender's 0.97:
 [lm-highd-leftover.md](lm-highd-leftover.md).
 
+Both cells also score a high `cos_intended` as success, and neither
+can ask whether the teacher point is a caption the LM would ever
+produce. The pair-odd midpoint is not, and that is what garbles the
+lyric: [lm-sheet-goodhart.md](lm-sheet-goodhart.md).
+

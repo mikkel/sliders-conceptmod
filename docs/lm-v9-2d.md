@@ -107,8 +107,15 @@ is 0. Old `(a·û)û` project is `--lm_target v9_project`.
   polarity, so project-odd is nearly identity on the intended axis
   (`|odd·û|/||odd|| ≈ 0.95`) and cannot reproduce gender-v1. That
   failure is the mismatch cell in [lm-v9-mismatch.md](lm-v9-mismatch.md).
-- AR endreg / planreg / `pole_mode: semantic_kl` / `collapse_weight`
-  (v6 had those; v9 turns planreg and collapse off).
+- AR endreg / planreg / `collapse_weight` (v6 had those; v9 turns
+  planreg and collapse off).
+- **Whether the teacher point is a caption at all.** Every column on
+  this field is hidden geometry, so `t± = h0 ± a` scores a perfect
+  lock whether or not any real caption sits there. That needs a
+  next-token readout: [lm-sheet-goodhart.md](lm-sheet-goodhart.md).
+  `pole_mode: semantic_kl` is described in the v6 notes as an AR-only
+  pole term and is **not a flag in the live trainer** — pole
+  supervision is `--lm_target`.
 - Real Music 3 hidden geometry, Hub weights, v7 prompt yamls.
 - Caption-BPM leak (that is a TF pair fact; see tf-leak.md).
 - Richer structured poles vs unused junk: [lm-rich-2d.md](lm-rich-2d.md).
