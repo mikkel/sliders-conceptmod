@@ -99,6 +99,16 @@ unused attr.
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
 Published Hub floor is `--lm_target hub` and still leaks — not the default.
 
+**Reading energy-v14 logs:** trainer c+ is fit-to-pair-odd, not slider
+lock — a *working* hold on energy prints c+ ~0.70 / loss off the 0.02
+band, and gender's 0.97 there means "copied pair-odd", not success to
+copy. λ=8 does not port from the 2-D fixture to live D (the hold is
+effectively λ·D/2 against MSE), and with the energy-v4 pole-synonym
+leak captions it reproduces the live ±1 polarity break on a live-D
+fixture. Canary and next step (leftover-only ê + `--hold_weight 1`,
+then `pair_odd_sub_e`) are measured in
+[docs/lm-live-signature.md](docs/lm-live-signature.md).
+
 The live graph has no separate hold embedding. Hold is the residual
 orthogonal to the encoded declared pair, matching the 2-D math.
 
