@@ -366,6 +366,176 @@
       "exam_score": 0.9999999889017341
     },
     {
+      "id": "semantic_kl_pin",
+      "label": "semantic_kl + null-space pin onto real poles",
+      "compiled": "works-on-some-pairs",
+      "cells": {
+        "exam_divergent": true,
+        "exam_close": true,
+        "exam_unused_e": true,
+        "sheet_leftover": false,
+        "sheet_gender": true
+      },
+      "cells_failed": [
+        "sheet_leftover"
+      ],
+      "cells_passed": [
+        "exam_divergent",
+        "exam_close",
+        "exam_unused_e",
+        "sheet_gender"
+      ],
+      "predicts": {},
+      "exam_reason": {
+        "exam_divergent": "on-continuation",
+        "exam_close": "on-continuation",
+        "exam_unused_e": "on-continuation"
+      },
+      "exam_near_gate": {},
+      "exam_overlap": {
+        "exam_divergent": 1.0,
+        "exam_close": 1.0,
+        "exam_unused_e": 1.0
+      },
+      "exam_swing": {
+        "exam_divergent": 0.9999999900000002,
+        "exam_close": 0.9999999889017341,
+        "exam_unused_e": 0.9999999896774194
+      },
+      "exam_flags": {},
+      "leftover_works": false,
+      "gender_works": true,
+      "leftover_leak": 0.2262203030442767,
+      "gender_leak": 0.0,
+      "on_sheet": 0.9381078394750754,
+      "on_sheet_kept": 0.9974386317999863,
+      "off_sheet": 0.0009585373054884864,
+      "argmax_on_sheet": 1.0,
+      "swing_kept": 0.9998024912363533,
+      "pair_odd_cos": 0.6019812226295471,
+      "collapse": 0.12452077865600586,
+      "intended_cos": null,
+      "content_cos": null,
+      "trainer_c_plus": 0.6019812226295471,
+      "trainer_c_plus_distinct": null,
+      "polarity": 0.12452077865600586,
+      "polarity_distinct": null,
+      "perc": null,
+      "loss": null,
+      "rich_kept": null,
+      "strength": null,
+      "pole_cos": 0.9389088153839111,
+      "fixture": "pair-exam both cells + sheet leftover/gender (caption teacher)",
+      "notes": "KL on the scored token plus MSE on ker(readout). Same caption target as faithful_raw; the pin is the block one-token KL cannot see. --lm_target faithful --pole_mode semantic_kl_pin.",
+      "gates": {
+        "leak_lock": 0.2,
+        "sheet_lock": 0.9,
+        "garble_max": 0.05,
+        "argmax_lock": 1.0,
+        "swing_floor": 0.6,
+        "concept_cos": 0.9,
+        "strength_floor": 0.5,
+        "rich_kept_min": 0.7,
+        "exam_overlap": 0.85,
+        "exam_match_kept": 0.75,
+        "exam_off_caption": 0.05,
+        "exam_coherence": 0.9,
+        "exam_swing": 0.6,
+        "exam_leak_lock": 0.2,
+        "pair_odd_cos_scored": false,
+        "collapse_scored": false,
+        "pole_loss_scored": false,
+        "perc_scored": false,
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
+      },
+      "exam_score": 0.9999999889017341
+    },
+    {
+      "id": "unrolled_kl",
+      "label": "unrolled semantic_kl onto real poles",
+      "compiled": "works-on-some-pairs",
+      "cells": {
+        "exam_divergent": true,
+        "exam_close": true,
+        "exam_unused_e": true,
+        "sheet_leftover": false,
+        "sheet_gender": true
+      },
+      "cells_failed": [
+        "sheet_leftover"
+      ],
+      "cells_passed": [
+        "exam_divergent",
+        "exam_close",
+        "exam_unused_e",
+        "sheet_gender"
+      ],
+      "predicts": {},
+      "exam_reason": {
+        "exam_divergent": "on-continuation",
+        "exam_close": "on-continuation",
+        "exam_unused_e": "on-continuation"
+      },
+      "exam_near_gate": {},
+      "exam_overlap": {
+        "exam_divergent": 1.0,
+        "exam_close": 1.0,
+        "exam_unused_e": 1.0
+      },
+      "exam_swing": {
+        "exam_divergent": 0.9999999900000002,
+        "exam_close": 0.9999999889017341,
+        "exam_unused_e": 0.9999999896774194
+      },
+      "exam_flags": {},
+      "leftover_works": false,
+      "gender_works": true,
+      "leftover_leak": 0.2262203030442767,
+      "gender_leak": 0.0,
+      "on_sheet": 0.9381078394750754,
+      "on_sheet_kept": 0.9974386317999863,
+      "off_sheet": 0.0009585373054884864,
+      "argmax_on_sheet": 1.0,
+      "swing_kept": 0.9998024912363533,
+      "pair_odd_cos": 0.6019812226295471,
+      "collapse": 0.12452077865600586,
+      "intended_cos": null,
+      "content_cos": null,
+      "trainer_c_plus": 0.6019812226295471,
+      "trainer_c_plus_distinct": null,
+      "polarity": 0.12452077865600586,
+      "polarity_distinct": null,
+      "perc": null,
+      "loss": null,
+      "rich_kept": null,
+      "strength": null,
+      "pole_cos": 0.9389088153839111,
+      "fixture": "pair-exam transition + sheet leftover/gender (caption teacher)",
+      "notes": "KL at token 0 and after the residual mix that carries delivery into the scored band. Same caption target; no hidden MSE. Fixture-only pole_mode (live has no frozen mix).",
+      "gates": {
+        "leak_lock": 0.2,
+        "sheet_lock": 0.9,
+        "garble_max": 0.05,
+        "argmax_lock": 1.0,
+        "swing_floor": 0.6,
+        "concept_cos": 0.9,
+        "strength_floor": 0.5,
+        "rich_kept_min": 0.7,
+        "exam_overlap": 0.85,
+        "exam_match_kept": 0.75,
+        "exam_off_caption": 0.05,
+        "exam_coherence": 0.9,
+        "exam_swing": 0.6,
+        "exam_leak_lock": 0.2,
+        "pair_odd_cos_scored": false,
+        "collapse_scored": false,
+        "pole_loss_scored": false,
+        "perc_scored": false,
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
+      },
+      "exam_score": 0.9999999889017341
+    },
+    {
       "id": "gender_like_no_e",
       "label": "gender-like (no \u00ea, hold 0)",
       "compiled": "works-on-some-pairs",

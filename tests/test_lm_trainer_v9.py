@@ -526,12 +526,16 @@ def test_semantic_kl_pin_uses_the_hybrid_helper():
         lm_hybrid_kl_null_loss,
     )
 
-    pos, neg, neu = _ungated_pair()
+    # 2-D poles sit in a 3-D hidden so the readout can have a kernel.
+    pos = torch.tensor([1.0, 0.4, 0.3])
+    neg = torch.tensor([-0.8, -0.2, -0.5])
+    neu = torch.zeros(3)
     tgt_plus, tgt_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful")
-    pred_plus = neu + torch.tensor([0.8, 0.4])
-    pred_minus = neu + torch.tensor([-0.7, -0.3])
+    pred_plus = neu + torch.tensor([0.8, 0.4, 0.1])
+    pred_minus = neu + torch.tensor([-0.7, -0.3, 0.2])
     readout = torch.tensor(
-        [[1.0, 0.2], [0.1, -1.0], [0.4, 0.5], [-0.3, 0.8]], dtype=torch.float32
+        [[1.0, 0.2, 0.0], [0.1, -1.0, 0.0], [0.4, 0.5, 0.0], [-0.3, 0.8, 0.0]],
+        dtype=torch.float32,
     )
     got = lm_train_loss(
         pred_plus,
