@@ -57,17 +57,18 @@ def plot_teachers(rows: list[dict], path: Path) -> None:
     }
     for name, (color, label) in styles.items():
         row = want[name]
-        dp = row["delta_plus"]
+        intended = (row["proj_slider"] ** 2 + row["proj_rich"] ** 2) ** 0.5
+        unused = (row["proj_gender"] ** 2 + row["proj_bpm"] ** 2) ** 0.5
         ax.arrow(
-            0, 0, dp[0], (dp[1] ** 2 + dp[2] ** 2) ** 0.5,
+            0, 0, intended, unused,
             color=color, width=0.015, length_includes_head=True, head_width=0.08, alpha=0.95,
         )
-        ax.annotate(f"{label}\nrich={row['rich_kept']:.2f}", (dp[0] + 0.03, (dp[1] ** 2 + dp[2] ** 2) ** 0.5 + 0.04), fontsize=7, color=color)
-    ax.set_xlabel("short û  (loud / energetic)")
+        ax.annotate(f"{label}\nrich={row['rich_kept']:.2f}", (intended + 0.03, unused + 0.04), fontsize=7, color=color)
+    ax.set_xlabel("intended  (short û² + slider-rich²)½")
     ax.set_ylabel("unused  (gender² + BPM²)½")
-    ax.set_title("Rich leaky poles: leftover unused vs slider")
+    ax.set_title("Rich leaky poles: leftover unused vs intended")
     ax.set_aspect("equal")
-    ax.set_xlim(-0.2, 1.5)
+    ax.set_xlim(-0.2, 2.0)
     ax.set_ylim(-0.1, 2.2)
     fig.tight_layout()
     fig.savefig(path, dpi=140)
@@ -143,7 +144,7 @@ def plot_align(rows: list[dict], path: Path) -> None:
         "project_short": "#6c3483",
         "project_rich": "#148f77",
     }
-    plotted = {r for r in rows if r.get("recipe") in colors and r.get("sweep") == "align" and "mismatch" not in r["name"]}
+    plotted = [r for r in rows if r.get("recipe") in colors and r.get("sweep") == "align" and "mismatch" not in r["name"]]
     for recipe, color in colors.items():
         pts = sorted([r for r in plotted if r["recipe"] == recipe], key=lambda r: r["sweep_x"])
         if not pts:
@@ -239,10 +240,14 @@ def write_report(blob: dict, path: Path) -> None:
     else:
         verdict = (
             yes
-            + f"Nothing here beats current `--lm_target v9` (pair-odd + hold-ê λ=8, leak {v9['leak_ratio']:+.3f}, "
-            f"rich kept {v9['rich_kept']:.2f}) without being the hard version of the same ê kill "
-            f"(pair-odd − ê leak_gender {sub['leak_gender']:+.3f}) or a second declared unused axis. "
-            "Do not change the live default. ê is a caption pair in YAML, not an oracle."
+            + f"`project_rich` is leak {proj_r['leak_ratio']:+.3f} and rich-kept {proj_r['rich_kept']:.2f} "
+            "here because û is the oracle intended span (hypothesis 4) — not a live default; "
+            "short û at 0.20 still kills. "
+            f"`pair_odd_sub_all` / `v9_hold_all` (leak {sub_all['leak_ratio']:+.3f} / "
+            f"{by['v9_hold_all']['leak_ratio']:+.3f}) is the same recipe with every unused axis declared. "
+            f"Current `--lm_target v9` leftover leak {v9['leak_ratio']:+.3f} on this cell is undeclared BPM "
+            f"(gender leftover {v9['leak_gender']:+.3f}); richness stays {v9['rich_kept']:.2f}. "
+            "Do not change the live default. ê is a YAML caption pair, not an oracle."
         )
 
     geo = RichField()
