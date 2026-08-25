@@ -23,6 +23,10 @@ Formulas are copied from:
   Subtract ``ê_⊥``, not raw ê. Gender stays ``v9`` with no ê / hold 0.
   ``--lm_target v9_project`` is the old slider-level project+hold
   onto û; ``v9_always`` never gates.
+- ``lm_semantic_kl`` is the v16 pole term (fit the next-token policy
+  of a real caption hidden, not ``h0 ± a``). The committed trainer
+  still applies hidden MSE; this helper is the CPU extract the sheet
+  fixture scores. Do not treat pair-odd cos as the success metric.
 - Encoder MSE in ``train_encoder_music3.py``
 
 No Hub, no GPU, no model weights.
@@ -392,6 +396,74 @@ def lm_pair_odd_sub_e(
     return neu + axis, neu - axis
 
 
+def lm_e_cleaned_captions(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor,
+    target_scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Real caption hiddens with leftover ``ê_⊥`` removed; even kept.
+
+    ``lm_pair_odd_sub_e`` is the synthetic midpoint ``h0 ± â``.
+    Semantic KL on leaky axes targets these cleaned *captions*, not
+    that midpoint. Hold stays 0. ``neu`` is accepted for API symmetry
+    with the other pole helpers and is not used.
+    """
+    del neu
+    axis = (pos - neg) / 2.0 * float(target_scale)
+    held = lm_hold_dir(leak_dir, slider_dir=slider_dir, mode="slider")
+    if held is None:
+        return pos, neg
+    unit = lm_unit(held)
+    drop = ((axis.flatten() @ unit) * unit).view_as(axis)
+    return pos - drop, neg + drop
+
+
+def lm_policy_logits(
+    hidden: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Linear next-token readout: ``hidden @ W.T + b``.
+
+    ``weight`` is ``[vocab, hidden]`` like an LM head. Tiny vocab on
+    the sheet fixture; the live Qwen head on Music 3.
+    """
+    return F.linear(hidden, weight, bias)
+
+
+def lm_semantic_kl(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    teacher_plus: torch.Tensor,
+    teacher_minus: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """KL(encode-pole policy || student policy) at ±1.
+
+    Live ``--pole_mode semantic_kl``: fit the next-token policy of a
+    *real caption hidden*, not the synthetic pair-odd midpoint
+    ``t± = h0 ± a``. Gender / no-ê: teachers are ``encode(pos)`` /
+    ``encode(neg)``. Leaky ``pair_odd_sub_e``: teachers are the
+    ê-cleaned captions from ``lm_e_cleaned_captions``. Hold stays 0.
+    Pair-odd cos / collapse are logs only.
+
+    ``weight`` is the linear readout. ``F.kl_div(log_student, teacher)``
+    is ``KL(teacher || student)``.
+    """
+
+    def _pole(pred: torch.Tensor, teacher: torch.Tensor) -> torch.Tensor:
+        log_q = F.log_softmax(lm_policy_logits(pred, weight, bias), dim=-1)
+        p = F.softmax(lm_policy_logits(teacher, weight, bias), dim=-1)
+        return F.kl_div(log_q, p, reduction="sum")
+
+    return _pole(pred_plus, teacher_plus) + _pole(pred_minus, teacher_minus)
+
+
 def lm_project_odd_axis(
     pos: torch.Tensor,
     neg: torch.Tensor,
@@ -532,8 +604,8 @@ def lm_slider_loss(
 ) -> torch.Tensor:
     """Pole MSE plus optional v9 anchor MSE and orthogonal hold.
 
-    Endreg / planreg / collapse_weight / semantic-KL poles are AR-only and
-    are not expressed on the CPU field.
+    Endreg / planreg / collapse_weight stay AR-only. Semantic-KL poles
+    are ``lm_semantic_kl`` — scored on the sheet fixture, not here.
     """
     pole = F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_minus, tgt_minus)
     weight = float(anchor_weight)

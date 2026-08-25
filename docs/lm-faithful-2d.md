@@ -8,8 +8,10 @@ poles: MSE to `h+` / `h−` (`--lm_target faithful` / v6). This scores
 every honest knob that keeps that teacher, then the non-faithful
 comparables. CPU only. No Hub, no GPU, no Music 3 weights.
 
-Endreg / planreg / `pole_mode: semantic_kl` are AR-only and are not
-on this field. `--common_beta` is ignored in faithful mode (the
+Endreg / planreg stay AR-only. `pole_mode: semantic_kl` vs hidden
+MSE onto the pair-odd midpoint is the sheet cell in
+[lm-lyric-garble.md](lm-lyric-garble.md) — this field cannot see
+off-sheet singing. `--common_beta` is ignored in faithful mode (the
 function returns `pos, neg`). `--target_scale` is symmetric-only.
 
 ## Verdict
@@ -99,7 +101,9 @@ so the poles no longer contain ê.
 
 ## What this field cannot see
 
-- AR endreg / planreg / semantic-KL (v6 had those; not expressed here).
+- AR endreg / planreg (v6 had those; not expressed here).
+  Semantic-KL vs the v15 midpoint Goodhart is
+  [lm-lyric-garble.md](lm-lyric-garble.md).
 - Real Music 3 hidden geometry, Hub weights, multi-row yaml averaging.
 - A third unused axis that is not the even mode. Here even is parallel
   to ê, so hold-ê also fixes collapse. That coincidence is this field,

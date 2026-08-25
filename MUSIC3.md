@@ -108,6 +108,11 @@ gender's 0.97, so a low `c+` inside that closed form is the hold doing
 its job. What ê's wording changes is whether `ê_⊥` is unused leftover
 or the concept off short û. `collapse` is the one number ê / λ / D
 cannot move — see [docs/lm-highd-leftover.md](docs/lm-highd-leftover.md).
+Pair-odd cos ~0.96 / collapse ~−0.95 is also not lock-healthy: v15
+hidden MSE onto `h0 ± ½(h+ − h−)` hits a point that is not a real
+caption, and a next-token sheet at that midpoint is off the written
+poles. That Goodhart is [docs/lm-lyric-garble.md](docs/lm-lyric-garble.md).
+Do not call a run leak-free because cos is 0.96.
 
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.

@@ -107,8 +107,9 @@ is 0. Old `(a·û)û` project is `--lm_target v9_project`.
   polarity, so project-odd is nearly identity on the intended axis
   (`|odd·û|/||odd|| ≈ 0.95`) and cannot reproduce gender-v1. That
   failure is the mismatch cell in [lm-v9-mismatch.md](lm-v9-mismatch.md).
-- AR endreg / planreg / `pole_mode: semantic_kl` / `collapse_weight`
-  (v6 had those; v9 turns planreg and collapse off).
+- AR endreg / planreg / `collapse_weight` (v6 had those; v9 turns
+  planreg and collapse off). `pole_mode: semantic_kl` vs the v15
+  midpoint Goodhart is [lm-lyric-garble.md](lm-lyric-garble.md).
 - Real Music 3 hidden geometry, Hub weights, v7 prompt yamls.
 - Caption-BPM leak (that is a TF pair fact; see tf-leak.md).
 - Richer structured poles vs unused junk: [lm-rich-2d.md](lm-rich-2d.md).
