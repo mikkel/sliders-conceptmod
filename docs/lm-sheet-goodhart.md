@@ -269,6 +269,45 @@ So the campaign's best log and the off-sheet failure are the same fit.
 - `pair_odd_cos` is not a success metric on any of these rows. It is
   maximized by the recipe that garbles most.
 
+## 2026-08-25 live exam: pair type and continuation
+
+The original energy-like cell above is deliberately retained, but it
+means **unused gender inside a clean same-song pair**. It is not a
+stand-in for energy-v4, whose poles are two different tracks
+(pop-punk/BPM 168 and ambient/BPM 52). On that divergent pair the
+genre/BPM direction is intended pole identity, not leak. Subtracting
+it turns `faithful_sub_e` into a blend teacher near the midpoint.
+
+The second missing measurement is continuation. Live `semantic_kl`
+supervises one next-token policy at `<|audio_start|>`. The close-pair
+cell gives the poles nearly the same first policy while putting their
+sequence plan in a hidden direction exposed by later frozen heads.
+Thus KL can be tiny while the fitted hidden remains far from the pole;
+a greedy rollout then enters an absorbing off-sheet token. Hidden MSE
+onto the same raw poles is the control that copies that plan.
+
+| row | pair | live predicted | target | one-token KL | hidden-far | off-caption teacher | continuation KL | rollout match | rollout garble | verdict |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---|
+| `energy_v16_semantic_kl_sub_e` | divergent | energy-lm-v16 (FAIL) | `semantic_kl / faithful_sub_e` | 0.0000 | 0.159 | 0.693 | 1.600 | 0.00 | 0.75 | **FAIL** |
+| `energy_v18_semantic_kl_faithful` | divergent | energy-lm-v18 (PASS) | `semantic_kl / faithful` | 0.0000 | 0.457 | 0.000 | 0.002 | 1.00 | 0.00 | **PASS** |
+| `gender_v16_semantic_kl_faithful` | close | gender-lm-v16 (FAIL) | `semantic_kl / faithful` | 0.0000 | 0.943 | 0.000 | 1.246 | 0.25 | 0.75 | **FAIL** |
+| `gender_hidden_faithful_next` | close | next control | `hidden / faithful` | 0.0000 | 0.000 | 0.000 | 0.000 | 1.00 | 0.00 | **PASS** |
+
+This reproduces the exam ordering: energy-v16 fails because ê removal
+removes the divergent tracks' identity; energy-v18 passes on the same
+pair with raw faithful poles; gender-v16 is explicitly flagged
+`KL-small / hidden-far / rollout-garble`. The result does not establish
+that either mechanism is the unique cause in Music 3—the cell verifies
+which missing measurements are sufficient to predict all three listens.
+
+The untrained control that clears the close-pair continuation gate is:
+
+```text
+gender: --lm_target faithful --pole_mode hidden
+rank 8 / alpha 8 / lr 5e-4 / 800 steps / seed 7 / --no-early_stop
+endreg 1.0 / hold 0
+```
+
 ## What this cell still cannot see
 
 - **Real Qwen lyrics.** The vocabulary here is nine tokens and the
@@ -278,10 +317,10 @@ So the campaign's best log and the off-sheet failure are the same fit.
   flip point at common share 0.40 is a property of
   this readout, not a measured live threshold — the falsifiable
   prediction is the *ordering*, not the number.
-- **Autoregressive sampling.** One next-token policy at the
-  audio-start position, never a rollout. Garble that only appears
-  after error accumulates over a hundred frames is invisible here,
-  and so is anything the flow transformer does downstream.
+- **Real autoregressive dynamics.** The live-exam subcell adds four
+  frozen continuation heads and an absorbing greedy rollout, enough to
+  expose first-token KL's blind spot. It is not Qwen's full transition
+  stack, a hundred-frame generation, or the downstream flow transformer.
 - **Semantic-code geometry.** Live the readout is the semantic band of
   `lm_head`, whose rows are not a hand-chosen basis. Whether real
   semantic-code rows anti-align with the shared caption component the
@@ -316,8 +355,6 @@ as much as the caption and the midpoint do here.
 
 ## Related cells
 
-- [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — one compiled table of
-  every scored 2-D / high-D / sheet recipe, with this cell's gate.
 - [lm-v9-2d.md](lm-v9-2d.md) — the pair-odd teacher and hold-ê on the
   orthonormal 2-D field, where a perfect lock is the success metric.
 - [lm-faithful-2d.md](lm-faithful-2d.md) — why raw-pole MSE (v6) was
@@ -332,7 +369,7 @@ as much as the caption and the midpoint do here.
 
 ```bash
 PYTHONPATH=. python analysis/slider2d/run_lm_sheet.py --out docs/lm-sheet-goodhart
-PYTHONPATH=. pytest tests/test_lm_sheet_goodhart.py -q
+PYTHONPATH=. pytest tests/test_lm_sheet_goodhart.py tests/test_lm_live_exam.py -q
 ```
 
 Seed `0`, `400` Adam steps, 3 prompt rows, 8 hidden dims, 9 tokens, nucleus `p = 0.9`.

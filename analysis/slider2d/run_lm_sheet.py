@@ -43,6 +43,7 @@ from analysis.slider2d.sheet import (
     null_space_table,
     teacher_sheet_table,
 )
+from analysis.slider2d.live_exam import live_exam_cell
 
 
 DEFAULT_OUT = _REPO / "docs" / "lm-sheet-goodhart"
@@ -199,6 +200,7 @@ def write_report(blob: dict, path: Path) -> None:
     faith_sub = next(r for r in leaky if r["name"] == "faithful_sub_e")
     caption = next(r for r in blob["teachers"] if r["name"] == "caption")
     midpoint = next(r for r in blob["teachers"] if r["name"] == "pair_odd")
+    exam = blob["live_exam"]
     lines = [
         "# The sheet cell: hidden-only fields cannot see lyric garble",
         "",
@@ -472,6 +474,53 @@ def write_report(blob: dict, path: Path) -> None:
         "- `pair_odd_cos` is not a success metric on any of these rows. It is",
         "  maximized by the recipe that garbles most.",
         "",
+        "## 2026-08-25 live exam: pair type and continuation",
+        "",
+        "The original energy-like cell above is deliberately retained, but it",
+        "means **unused gender inside a clean same-song pair**. It is not a",
+        "stand-in for energy-v4, whose poles are two different tracks",
+        "(pop-punk/BPM 168 and ambient/BPM 52). On that divergent pair the",
+        "genre/BPM direction is intended pole identity, not leak. Subtracting",
+        "it turns `faithful_sub_e` into a blend teacher near the midpoint.",
+        "",
+        "The second missing measurement is continuation. Live `semantic_kl`",
+        "supervises one next-token policy at `<|audio_start|>`. The close-pair",
+        "cell gives the poles nearly the same first policy while putting their",
+        "sequence plan in a hidden direction exposed by later frozen heads.",
+        "Thus KL can be tiny while the fitted hidden remains far from the pole;",
+        "a greedy rollout then enters an absorbing off-sheet token. Hidden MSE",
+        "onto the same raw poles is the control that copies that plan.",
+        "",
+        "| row | pair | live predicted | target | one-token KL | hidden-far | off-caption teacher | continuation KL | rollout match | rollout garble | verdict |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|---|",
+    ]
+    for row in exam:
+        live = row["live_run"] or "next control"
+        expected = f"{live} ({row['expected_listen']})" if row["expected_listen"] else live
+        lines.append(
+            f"| `{row['name']}` | {row['pair_kind']} | {expected} | "
+            f"`{row['pole_mode']} / {row['target']}` | {row['one_token_kl']:.4f} | "
+            f"{row['hidden_far']:.3f} | {row['off_caption_teacher']:.3f} | "
+            f"{row['teacher_forced_kl']:.3f} | {row['rollout_match']:.2f} | "
+            f"{row['rollout_garble']:.2f} | **{_fmt_bool(row['pass'])}** |"
+        )
+    lines += [
+        "",
+        "This reproduces the exam ordering: energy-v16 fails because ê removal",
+        "removes the divergent tracks' identity; energy-v18 passes on the same",
+        "pair with raw faithful poles; gender-v16 is explicitly flagged",
+        "`KL-small / hidden-far / rollout-garble`. The result does not establish",
+        "that either mechanism is the unique cause in Music 3—the cell verifies",
+        "which missing measurements are sufficient to predict all three listens.",
+        "",
+        "The untrained control that clears the close-pair continuation gate is:",
+        "",
+        "```text",
+        "gender: --lm_target faithful --pole_mode hidden",
+        "rank 8 / alpha 8 / lr 5e-4 / 800 steps / seed 7 / --no-early_stop",
+        "endreg 1.0 / hold 0",
+        "```",
+        "",
         "## What this cell still cannot see",
         "",
         "- **Real Qwen lyrics.** The vocabulary here is nine tokens and the",
@@ -481,10 +530,10 @@ def write_report(blob: dict, path: Path) -> None:
         f"  flip point at common share {blob['flip_point']:.2f} is a property of",
         "  this readout, not a measured live threshold — the falsifiable",
         "  prediction is the *ordering*, not the number.",
-        "- **Autoregressive sampling.** One next-token policy at the",
-        "  audio-start position, never a rollout. Garble that only appears",
-        "  after error accumulates over a hundred frames is invisible here,",
-        "  and so is anything the flow transformer does downstream.",
+        "- **Real autoregressive dynamics.** The live-exam subcell adds four",
+        "  frozen continuation heads and an absorbing greedy rollout, enough to",
+        "  expose first-token KL's blind spot. It is not Qwen's full transition",
+        "  stack, a hundred-frame generation, or the downstream flow transformer.",
         "- **Semantic-code geometry.** Live the readout is the semantic band of",
         "  `lm_head`, whose rows are not a hand-chosen basis. Whether real",
         "  semantic-code rows anti-align with the shared caption component the",
@@ -533,7 +582,7 @@ def write_report(blob: dict, path: Path) -> None:
         "",
         "```bash",
         "PYTHONPATH=. python analysis/slider2d/run_lm_sheet.py --out docs/lm-sheet-goodhart",
-        "PYTHONPATH=. pytest tests/test_lm_sheet_goodhart.py -q",
+        "PYTHONPATH=. pytest tests/test_lm_sheet_goodhart.py tests/test_lm_live_exam.py -q",
         "```",
         "",
         f"Seed `{blob['seed']}`, `{blob['steps']}` Adam steps, "
@@ -561,6 +610,7 @@ def main(argv: list[str] | None = None) -> int:
     betas = beta_sweep(steps=args.steps // 2, seed=args.seed)
     nulls = [floatable(r) for r in null_space_table(steps=args.steps, seed=args.seed)]
     logs = [floatable(r) for r in live_log_table(steps=args.steps, seed=args.seed)]
+    exam = [floatable(r) for r in live_exam_cell(steps=args.steps, seed=args.seed)]
     flip = flip_point(sweep)
     garble_flip = first_above(sweep, "hidden_garble", GARBLE_MAX)
 
@@ -603,6 +653,7 @@ def main(argv: list[str] | None = None) -> int:
         "beta_sweep": betas,
         "null_space": nulls,
         "live_log": logs,
+        "live_exam": exam,
     }
     (out / "metrics.json").write_text(json.dumps(blob, indent=2) + "\n", encoding="utf-8")
     plot_common(sweep, out / "common.png")
