@@ -541,7 +541,6 @@ def test_faithful_sub_e_if_unused_is_wired_and_not_the_default():
 def test_faithful_sub_e_if_unused_subtracts_only_when_leftover_is_unused():
     pos, neg, neu = _ungated_pair()
     leftover = torch.tensor([0.0, 1.0])
-    restates = (pos - neg) / 2.0
     unused, overlap = lm_e_is_unused(pos, neg, leftover, slider_dir=E_SLIDER)
     assert unused is True
     assert float(overlap) < UNUSED_E_OVERLAP_MAX
@@ -556,16 +555,27 @@ def test_faithful_sub_e_if_unused_subtracts_only_when_leftover_is_unused():
     want = lm_faithful_sub_e(pos, neg, neu, leftover, slider_dir=E_SLIDER)
     assert torch.allclose(plus, want[0])
     assert torch.allclose(minus, want[1])
+    # ê restates the pair: a is mostly orthogonal to û, ê = a.
+    rest_neu = torch.zeros(2)
+    rest_a = torch.tensor([0.3, 1.0])
+    rest_c = torch.tensor([0.5, 0.0])
+    rest_pos = rest_neu + rest_a + rest_c
+    rest_neg = rest_neu - rest_a + rest_c
+    restates, rest_overlap = lm_e_is_unused(
+        rest_pos, rest_neg, rest_a, slider_dir=E_SLIDER
+    )
+    assert restates is False
+    assert float(rest_overlap) > UNUSED_E_OVERLAP_MAX
     keep_plus, keep_minus, _, _ = lm_train_targets(
-        pos,
-        neg,
-        neu,
+        rest_pos,
+        rest_neg,
+        rest_neu,
         recipe="faithful_sub_e_if_unused",
         slider_dir=E_SLIDER,
-        leak_dir=restates,
+        leak_dir=rest_a,
     )
-    assert torch.allclose(keep_plus, pos)
-    assert torch.allclose(keep_minus, neg)
+    assert torch.allclose(keep_plus, rest_pos)
+    assert torch.allclose(keep_minus, rest_neg)
     clean_plus, clean_minus, _, _ = lm_train_targets(
         pos, neg, neu, recipe="faithful_sub_e_if_unused"
     )

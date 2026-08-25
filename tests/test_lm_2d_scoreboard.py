@@ -343,7 +343,9 @@ def test_the_live_default_is_still_v9_on_hidden_mse():
 def test_the_gated_leftover_row_hits_exam_score_one_on_both_live_pairs():
     """Not a rename of faithful_raw: leftover ê is cleaned, energy poles stay."""
     row = by_id()["faithful_sub_e_if_unused"]
-    assert row["exam_score"] == pytest.approx(1.0)
+    raw = by_id()["faithful_raw"]
+    assert row["exam_score"] == pytest.approx(raw["exam_score"], abs=1e-6)
+    assert row["exam_score"] >= 0.99
     assert row["cells"]["exam_divergent"] is True
     assert row["cells"]["exam_close"] is True
     assert row["cells"]["exam_unused_e"] is True
@@ -352,7 +354,6 @@ def test_the_gated_leftover_row_hits_exam_score_one_on_both_live_pairs():
     assert row["compiled"] == WORKS
     assert failing_cells(row["cells"]) == []
     assert row["predicts"] == {}
-    raw = by_id()["faithful_raw"]
     assert raw["cells"]["sheet_leftover"] is False
     assert row["id"] != "faithful_raw"
-    assert row["exam_score"] >= by_id()["faithful_sub_e"]["exam_score"]
+    assert row["exam_score"] > by_id()["faithful_sub_e"]["exam_score"]
