@@ -306,6 +306,23 @@ def test_kl_leaves_the_invisible_block_at_zero_and_mse_does_not():
     assert mse["pass"] is True
 
 
+def test_semantic_kl_null_pins_the_readout_null_space_and_passes_both_pairs():
+    """KL + ker(W) MSE keeps caption poles and pins delivery on a close pair."""
+    for name in CELLS:
+        row = cell(name)["semantic_kl_null"]
+        assert row["invisible_kept"] == pytest.approx(1.0, abs=0.02), row["reason"]
+        assert row["pass"] is True, f"{name}: {row['reason']}"
+    poles = cell("divergent")["semantic_kl_poles"]
+    null = cell("divergent")["semantic_kl_null"]
+    assert poles["pass"] is True
+    assert null["pass"] is True
+    close_poles = cell("close")["semantic_kl_poles"]
+    close_null = cell("close")["semantic_kl_null"]
+    assert close_poles["pass"] is False
+    assert close_null["pass"] is True
+    assert close_null["roll_swing_kept"] > close_poles["roll_swing_kept"]
+
+
 def test_a_solved_loss_is_not_evidence_the_slider_works():
     close = cell("close")
     kl = close["semantic_kl_poles"]

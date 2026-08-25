@@ -350,6 +350,8 @@ def test_semantic_kl_ignores_the_readout_null_space():
     for name in ("kl_faithful", "kl_faithful_sub_e"):
         assert rows[name]["null_kept"] == pytest.approx(0.0, abs=1e-6)
         assert rows[name]["on_sheet"] >= 0.8
+    assert rows["kl_null_faithful"]["null_kept"] == pytest.approx(1.0, abs=0.05)
+    assert rows["kl_null_faithful"]["on_sheet"] >= 0.8
 
 
 # -- sweeps ---------------------------------------------------------------

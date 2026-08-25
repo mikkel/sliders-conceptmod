@@ -95,6 +95,8 @@ from conceptmod.textsliders.slider_targets import (
     lm_hold_dir,
     lm_next_token_logits,
     lm_pair_odd_sub_e,
+    lm_readout_null_basis,
+    lm_semantic_null_pole_loss,
     lm_semantic_pole_loss,
     lm_slider_loss,
     lm_unit,
@@ -649,7 +651,7 @@ CELL_IS = {
 
 
 TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e")
-POLE_MODES = ("hidden", "semantic_kl")
+POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_null")
 
 
 def hold_direction(field: PairField, leak_dir: torch.Tensor | None) -> torch.Tensor | None:
@@ -1005,6 +1007,7 @@ def fit_exam(
     if mode not in POLE_MODES:
         raise ValueError(f"pole_mode must be one of {POLE_MODES}, got {pole_mode!r}")
     head = field.readout()
+    null_basis = lm_readout_null_basis(head.weight) if mode == "semantic_kl_null" else None
     held = hold_direction(field, leak_dir)
     lam = float(hold_weight) if held is not None else 0.0
     targets = [
@@ -1033,6 +1036,21 @@ def fit_exam(
                     pred_minus,
                     t_plus,
                     t_minus,
+                    hold=hold,
+                    hold_weight=lam if hold is not None else 0.0,
+                )
+            elif mode == "semantic_kl_null":
+                term = lm_semantic_null_pole_loss(
+                    head.logits(pred_plus),
+                    head.logits(pred_minus),
+                    head.logits(t_plus),
+                    head.logits(t_minus),
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    head.weight,
+                    null_basis=null_basis,
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
                 )
@@ -1309,6 +1327,10 @@ def recipes(field: PairField) -> list[tuple[str, dict]]:
         ("faithful_raw", {"pole_mode": "hidden", "teacher": "faithful"}),
         ("semantic_kl_midpoint", {"pole_mode": "semantic_kl", "teacher": "pair_odd"}),
         ("semantic_kl_poles", {"pole_mode": "semantic_kl", "teacher": "faithful"}),
+        (
+            "semantic_kl_null",
+            {"pole_mode": "semantic_kl_null", "teacher": "faithful"},
+        ),
     ]
     if e is not None:
         out += [

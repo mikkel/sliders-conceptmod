@@ -235,6 +235,18 @@ def test_exam_score_sorts_the_three_live_exam_rows():
     assert scored and nulls and max(scored) < min(nulls)
 
 
+def test_semantic_kl_null_tops_both_exam_pairs():
+    """KL + null-space pin: caption poles, delivery arrives, both pair types."""
+    row = by_id()["semantic_kl_null"]
+    assert row["exam_score"] is not None
+    assert row["exam_score"] >= 0.99
+    assert row["cells"]["exam_divergent"] is True
+    assert row["cells"]["exam_close"] is True
+    poles = by_id()["semantic_kl_poles"]
+    assert row["exam_score"] > poles["exam_score"]
+    assert poles["cells"]["exam_close"] is False
+
+
 def test_every_live_run_is_marked_on_the_row_that_predicted_it():
     rows = by_id()
     for run, (recipe, cell) in LIVE_ROW.items():
@@ -337,3 +349,4 @@ def test_the_live_default_is_still_v9_on_hidden_mse():
     assert args.common_beta == 0.0
     assert "v9" in LM_RECIPES
     assert "semantic_kl" in POLE_MODES
+    assert "semantic_kl_null" in POLE_MODES

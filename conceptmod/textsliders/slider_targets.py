@@ -649,6 +649,97 @@ def lm_semantic_pole_loss(
     return pole
 
 
+def lm_readout_null_basis(
+    readout: torch.Tensor, *, rtol: float = 1e-5
+) -> torch.Tensor | None:
+    """Orthonormal basis for ``ker(W)`` where ``W`` is the semantic readout.
+
+    Vectors in this subspace cannot change ``W @ h``, so semantic KL has zero
+    gradient on them. Hidden MSE on this component is what pins delivery /
+    vocal detail on a close pair without replacing the caption target.
+  """
+    weight = readout.detach().float()
+    if weight.ndim != 2 or weight.shape[0] == 0 or weight.shape[1] == 0:
+        return None
+    _, singular, vh = torch.linalg.svd(weight, full_matrices=True)
+    if singular.numel() == 0:
+        return None
+    thresh = float(rtol) * float(singular[0].clamp_min(1e-8))
+    keep = singular <= thresh
+    if not bool(keep.any()):
+        return None
+    basis = vh[keep].transpose(0, 1)
+    return basis
+
+
+def lm_null_space_mse(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    readout: torch.Tensor,
+    *,
+    null_basis: torch.Tensor | None = None,
+    rtol: float = 1e-5,
+) -> torch.Tensor:
+    """MSE on the readout null-space component of the pole residual."""
+    basis = null_basis
+    if basis is None:
+        basis = lm_readout_null_basis(readout, rtol=rtol)
+    if basis is None:
+        return pred_plus.new_tensor(0.0)
+
+    def _term(pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+        delta = (pred - tgt).flatten().float()
+        coeff = basis.T @ delta
+        return coeff.pow(2).mean()
+
+    return _term(pred_plus, tgt_plus) + _term(pred_minus, tgt_minus)
+
+
+def lm_semantic_null_pole_loss(
+    pred_plus_logits: torch.Tensor,
+    pred_minus_logits: torch.Tensor,
+    tgt_plus_logits: torch.Tensor,
+    tgt_minus_logits: torch.Tensor,
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    readout: torch.Tensor,
+    *,
+    null_weight: float = 1.0,
+    null_basis: torch.Tensor | None = None,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+) -> torch.Tensor:
+    """Semantic KL on the readout row space plus hidden MSE on ``ker(W)``.
+
+    Real caption poles stay the teacher. The KL term matches what the scored
+    token can see; the null-space MSE pins what it cannot — delivery on a
+    close pair, without ``faithful_sub_e``'s blend teacher on a divergent one.
+    """
+    pole = lm_semantic_pole_loss(
+        pred_plus_logits,
+        pred_minus_logits,
+        tgt_plus_logits,
+        tgt_minus_logits,
+        hold=hold,
+        hold_weight=hold_weight,
+    )
+    null_w = float(null_weight)
+    if null_w > 0.0:
+        pole = pole + null_w * lm_null_space_mse(
+            pred_plus,
+            pred_minus,
+            tgt_plus,
+            tgt_minus,
+            readout,
+            null_basis=null_basis,
+        )
+    return pole
+
+
 def encoder_mse_loss(
     pred_pos: torch.Tensor,
     pred_neg: torch.Tensor,
