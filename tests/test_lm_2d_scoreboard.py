@@ -267,6 +267,18 @@ def test_the_untrained_winner_is_faithful_on_hidden_mse():
     assert failing_cells(row["cells"]) == ["sheet_leftover"]
 
 
+def test_new_hidden_kl_recipe_scores_one_on_close_and_divergent_pairs():
+    row = by_id()["hidden_kl_poles"]
+    assert row["exam_score"] == pytest.approx(1.0, abs=5e-4)
+    assert row["cells"]["exam_divergent"] is True
+    assert row["cells"]["exam_close"] is True
+    assert row["exam_overlap"]["exam_divergent"] == pytest.approx(1.0, abs=5e-4)
+    assert row["exam_overlap"]["exam_close"] == pytest.approx(1.0, abs=5e-4)
+    assert row["exam_swing"]["exam_divergent"] == pytest.approx(1.0, abs=5e-4)
+    assert row["exam_swing"]["exam_close"] == pytest.approx(1.0, abs=5e-4)
+    assert row["id"] not in EXAM_ALIAS
+
+
 def test_exam_readings_are_never_invented_for_a_recipe_the_cell_cannot_express():
     for row in board():
         found = exam_cells_for(row["id"], None)["cells"]

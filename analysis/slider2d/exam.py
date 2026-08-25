@@ -649,7 +649,7 @@ CELL_IS = {
 
 
 TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e")
-POLE_MODES = ("hidden", "semantic_kl")
+POLE_MODES = ("hidden", "semantic_kl", "hidden_kl")
 
 
 def hold_direction(field: PairField, leak_dir: torch.Tensor | None) -> torch.Tensor | None:
@@ -1027,7 +1027,7 @@ def fit_exam(
             hold = None
             if held is not None and lam > 0.0:
                 hold = lm_axis_hold(pred_plus, pred_minus, neu, held)
-            if mode == "hidden":
+            if mode in ("hidden", "hidden_kl"):
                 term = lm_slider_loss(
                     pred_plus,
                     pred_minus,
@@ -1036,6 +1036,13 @@ def fit_exam(
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
                 )
+                if mode == "hidden_kl":
+                    term = term + 1e-3 * lm_semantic_pole_loss(
+                        head.logits(pred_plus),
+                        head.logits(pred_minus),
+                        head.logits(t_plus),
+                        head.logits(t_minus),
+                    )
             else:
                 term = lm_semantic_pole_loss(
                     head.logits(pred_plus),
@@ -1309,6 +1316,10 @@ def recipes(field: PairField) -> list[tuple[str, dict]]:
         ("faithful_raw", {"pole_mode": "hidden", "teacher": "faithful"}),
         ("semantic_kl_midpoint", {"pole_mode": "semantic_kl", "teacher": "pair_odd"}),
         ("semantic_kl_poles", {"pole_mode": "semantic_kl", "teacher": "faithful"}),
+        (
+            "hidden_kl_poles",
+            {"pole_mode": "hidden_kl", "teacher": "faithful"},
+        ),
     ]
     if e is not None:
         out += [

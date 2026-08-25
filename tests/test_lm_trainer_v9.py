@@ -31,6 +31,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_unit,
 )
 from conceptmod.textsliders.train_lm_slider_music3 import (
+    HIDDEN_KL_WEIGHT,
     lm_train_loss,
     lm_train_targets,
     parse_args,
@@ -564,6 +565,45 @@ def test_semantic_kl_loss_uses_existing_helper():
             tgt_plus,
             tgt_minus,
             pole_mode="semantic_kl",
+        )
+
+
+def test_hidden_kl_pins_hidden_and_adds_semantic_consistency():
+    pos, neg, neu = _ungated_pair()
+    tgt_plus, tgt_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful")
+    pred_plus = neu + torch.tensor([0.8, 0.4])
+    pred_minus = neu + torch.tensor([-0.7, -0.3])
+    readout = torch.tensor(
+        [[1.0, 0.2], [0.1, -1.0], [0.4, 0.5], [-0.3, 0.8]], dtype=torch.float32
+    )
+    got = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        pole_mode="hidden_kl",
+        readout=readout,
+    )
+    hidden = lm_slider_loss(pred_plus, pred_minus, tgt_plus, tgt_minus)
+    semantic = lm_semantic_pole_loss(
+        lm_next_token_logits(pred_plus, readout),
+        lm_next_token_logits(pred_minus, readout),
+        lm_next_token_logits(tgt_plus, readout),
+        lm_next_token_logits(tgt_minus, readout),
+    )
+    assert got == pytest.approx(hidden + HIDDEN_KL_WEIGHT * semantic)
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful", "--pole_mode", "hidden_kl"]
+    )
+    assert args.pole_mode == "hidden_kl"
+    with pytest.raises(ValueError, match="semantic readout"):
+        lm_train_loss(
+            pred_plus,
+            pred_minus,
+            tgt_plus,
+            tgt_minus,
+            pole_mode="hidden_kl",
         )
 
 

@@ -332,6 +332,27 @@ def test_the_next_untrained_winner_is_faithful_on_hidden_mse():
     assert close["roll_swing_kept"] >= EXAM_ROLL_SWING
 
 
+def test_hidden_kl_real_poles_top_out_both_pair_types():
+    """New recipe: caption poles plus a full-hidden lock and semantic check."""
+    for name in ("divergent", "close"):
+        row = cell(name)["hidden_kl_poles"]
+        assert row["teacher"] == "faithful"
+        assert row["pole_mode"] == "hidden_kl"
+        assert row["pass"] is True, f"{name}: {row['reason']}"
+        assert row["roll_overlap"] == pytest.approx(1.0, abs=5e-4)
+        assert row["roll_swing_kept"] == pytest.approx(1.0, abs=5e-4)
+        assert row["invisible_kept"] == pytest.approx(1.0, abs=1e-2)
+    assert cell("close")["hidden_kl_poles"]["loss"] != pytest.approx(
+        cell("close")["faithful_raw"]["loss"], abs=1e-8
+    )
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_hidden_kl_real_poles_pass_both_pair_types_across_seeds(seed):
+    for name in ("divergent", "close"):
+        assert cell(name, seed)["hidden_kl_poles"]["pass"] is True
+
+
 def test_subtracting_e_is_free_on_a_same_song_pair_and_not_on_two_tracks():
     unused = cell("unused_e")
     divergent = cell("divergent")
