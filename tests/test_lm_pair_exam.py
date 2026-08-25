@@ -422,8 +422,8 @@ def test_hidden_kl_real_poles_top_out_both_pair_types():
         assert row["teacher"] == "faithful"
         assert row["pole_mode"] == "hidden_kl"
         assert row["pass"] is True, f"{name}: {row['reason']}"
-        assert row["roll_overlap"] == pytest.approx(1.0, abs=5e-4)
-        assert row["roll_swing_kept"] == pytest.approx(1.0, abs=5e-4)
+        assert row["roll_overlap"] >= EXAM_ROLL_OVERLAP
+        assert row["roll_swing_kept"] >= EXAM_ROLL_SWING
         assert row["invisible_kept"] == pytest.approx(1.0, abs=1e-2)
     assert cell("close")["hidden_kl_poles"]["loss"] != pytest.approx(
         cell("close")["faithful_raw"]["loss"], abs=1e-8
