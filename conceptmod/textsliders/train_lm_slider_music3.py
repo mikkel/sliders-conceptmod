@@ -91,7 +91,8 @@ LM_RECIPES = (
     "faithful",
     "faithful_sub_e",
 )
-POLE_MODES = ("hidden", "semantic_kl")
+POLE_MODES = ("hidden", "semantic_kl", "hidden_kl")
+HIDDEN_KL_WEIGHT = 1e-3
 PROJECT_RECIPES = frozenset({"v9_project", "v9_always"})
 V9_RECIPES = frozenset({"v9", "v9_project", "v9_always"})
 SUB_E_RECIPES = frozenset({"pair_odd_sub_e", "faithful_sub_e"})
@@ -135,7 +136,7 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
 
 
 def resolve_pole_mode(pole_mode: str) -> str:
-    """``hidden`` (default, hidden MSE) or ``semantic_kl`` (semantic-band KL)."""
+    """Resolve hidden MSE, semantic KL, or their hidden-first hybrid."""
     mode = str(pole_mode).strip().lower()
     if mode not in POLE_MODES:
         raise ValueError(f"pole_mode must be one of {POLE_MODES}, got {pole_mode!r}")
@@ -349,7 +350,9 @@ def lm_train_loss(
 
     ``pole_mode=hidden`` (default) is hidden MSE. ``semantic_kl`` is
     ``lm_semantic_pole_loss`` on ``lm_next_token_logits`` of the
-    semantic-band readout — not a second KL.
+    semantic-band readout. ``hidden_kl`` keeps hidden MSE as the primary
+    loss and adds a small semantic-policy consistency term, so dimensions
+    outside the one-token readout cannot go untrained.
     """
     hold = None
     if float(hold_weight) > 0.0:
@@ -364,18 +367,32 @@ def lm_train_loss(
         else:
             raise ValueError("hold_weight>0 requires a declared leak_dir or slider_dir")
     mode = resolve_pole_mode(pole_mode)
-    if mode == "semantic_kl":
+    if mode in ("semantic_kl", "hidden_kl"):
         if readout is None:
-            raise ValueError("pole_mode=semantic_kl requires a semantic readout")
+            raise ValueError(f"pole_mode={mode} requires a semantic readout")
         head = readout.to(dtype=pred_plus.dtype)
-        return lm_semantic_pole_loss(
+        semantic = lm_semantic_pole_loss(
             lm_next_token_logits(pred_plus, head),
             lm_next_token_logits(pred_minus, head),
             lm_next_token_logits(tgt_plus, head),
             lm_next_token_logits(tgt_minus, head),
             hold=hold,
+            hold_weight=hold_weight if mode == "semantic_kl" else 0.0,
+        )
+        if mode == "semantic_kl":
+            return semantic
+        hidden = lm_slider_loss(
+            pred_plus,
+            pred_minus,
+            tgt_plus,
+            tgt_minus,
+            anchor_plus=anchor_plus,
+            anchor_minus=anchor_minus,
+            anchor_weight=anchor_weight,
+            hold=hold,
             hold_weight=hold_weight,
         )
+        return hidden + HIDDEN_KL_WEIGHT * semantic
     return lm_slider_loss(
         pred_plus,
         pred_minus,
@@ -678,7 +695,7 @@ def train(args: argparse.Namespace) -> Path:
     lm.to(device)
     lm.eval()
     lm.requires_grad_(False)
-    readout = _semantic_readout(lm) if pole_mode == "semantic_kl" else None
+    readout = _semantic_readout(lm) if pole_mode in ("semantic_kl", "hidden_kl") else None
 
     beta = float(args.common_beta)
     slider_dir = None
@@ -776,6 +793,11 @@ def train(args: argparse.Namespace) -> Path:
             )
     if pole_mode == "semantic_kl":
         print("pole_mode=semantic_kl: next-token KL on the semantic band of lm_head")
+    elif pole_mode == "hidden_kl":
+        print(
+            "pole_mode=hidden_kl: hidden MSE plus 0.001× next-token semantic KL "
+            "(real-pole hidden lock)"
+        )
     else:
         print("pole_mode=hidden: hidden MSE onto the chosen targets")
 
@@ -1162,7 +1184,8 @@ def parse_args(argv=None):
         help="pole supervision (default hidden = current hidden MSE onto the "
         "chosen targets). semantic_kl: next-token KL of the student policy "
         "to the teacher hidden's policy, using the semantic band of lm_head "
-        "(lm_semantic_pole_loss). Do not make this the default",
+        "(lm_semantic_pole_loss). hidden_kl: hidden MSE plus a 0.001x semantic "
+        "KL consistency term. Do not make either alternative the default",
     )
     p.add_argument(
         "--symmetric",

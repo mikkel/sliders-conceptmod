@@ -231,8 +231,8 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "The two `semantic_kl_poles` cells are the load-bearing row: it is the",
         "live energy win on a divergent pair and the live gender garble on a",
         "close one, so no single verdict for the recipe is honest and",
-        "`works-on-some-pairs` names which. `faithful_raw` and its data-fixed",
-        "sibling `faithful_attrs` are the only recipes that pass every pair",
+        "`works-on-some-pairs` names which. The new `hidden_kl_poles` row,",
+        "`faithful_raw`, and data-fixed `faithful_attrs` pass every exam pair",
         "they are read on.",
         "",
         "## Short verdict",
@@ -246,7 +246,9 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
             "the data fix — the unpinned attribute written into both pole "
             "captions, the way energy-v4 already pins the singer with "
             "`attributes` — so there is no leftover ê in the text for the "
-            "sheet cell to charge it for."
+            "sheet cell to charge it for. `hidden_kl_poles` is the new loss: "
+            "real caption poles, full-hidden MSE, and a 0.001× semantic-KL "
+            "consistency term. It scores 1.000 on both divergent and close pairs."
         )
     else:
         lines.append("No recipe passed on every pair it is read on.")
@@ -259,7 +261,7 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
             "the same target reached through `--lm_target symmetric "
             "--common_beta 1`) passes all three pair cells and is charged only "
             "by the unused-ê sheet — which is a leak gender-v4 has no `leak_*` "
-            "to trip, so it is the next live card. `semantic_kl_poles` is the "
+            "to trip. `hidden_kl_poles` is the new live card. `semantic_kl_poles` is the "
             "row the live exam is about: the energy win and the gender garble.",
         ]
     lines += [
@@ -309,24 +311,25 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "",
         "## The next live card the board points at",
         "",
-        "`faithful_raw` — `--lm_target faithful --pole_mode hidden` — is the",
-        "only recipe besides its own data-fixed sibling that passes every pair",
-        "it is read on, and it has **no live run**. It is the untrained winner.",
+        "`hidden_kl_poles` — `--lm_target faithful --pole_mode hidden_kl` — is",
+        "the new wired recipe. It reaches `exam_score = 1.000` on both",
+        "energy-v4's divergent pair and gender-v4's close pair. Unlike",
+        "`faithful_raw`, it checks the semantic next-token policy as well as",
+        "pinning the complete hidden target; unlike `semantic_kl_poles`, the",
+        "one-token head cannot leave the close pair's delivery block untrained.",
         "",
-        "It is also the one recipe that fixes what `gender-lm-v16` actually",
-        "did wrong. Both aim at the same target — the real pole captions — so",
-        "the target point is not the difference. The difference is that hidden",
-        "MSE pins the whole state, including the part of it the semantic band",
-        "does not read at `<|audio_start|>`, which on a close pair is where the",
-        "axis lives. In the pair-exam cell that recipe copies 1.00 of the",
-        "invisible block against semantic KL's 0.00, and it is the swing over",
-        "the continuation that separates them, not the loss.",
+        "The ablation verifies both halves of the hypothesis. Real poles avoid",
+        "the nonexistent two-track blend teacher on the divergent pair. Hidden",
+        "MSE pins the part of the state the semantic band does not read at",
+        "`<|audio_start|>`, where the close pair's axis lives. The KL term is",
+        "auxiliary rather than the sole supervision, so a small KL cannot claim",
+        "success while the hidden axis is absent.",
         "",
         "```bash",
         "python conceptmod/textsliders/train_lm_slider_music3.py \\",
-        "  --name gender-lm-v19 \\",
+        "  --name gender-lm-hidden-kl \\",
         "  --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml \\",
-        "  --lm_target faithful --pole_mode hidden \\",
+        "  --lm_target faithful --pole_mode hidden_kl \\",
         "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
         "  --no-early_stop --endreg_weight 1.0",
         "```",

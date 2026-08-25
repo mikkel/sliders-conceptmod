@@ -714,6 +714,16 @@ def collect_scoreboard(
             notes="raw-pole MSE. Caption target; unused ê rides along.",
         ),
         _row(
+            "hidden_kl_poles",
+            "real poles / hidden MSE + semantic KL",
+            exam=exam,
+            fixture="pair-exam divergent + close + unused-e",
+            notes=(
+                "new dual-space loss: hidden MSE pins the full caption state; "
+                "0.001× semantic KL also locks the one-token policy."
+            ),
+        ),
+        _row(
             "faithful_attrs",
             "faithful + attributes / pin unused",
             exam=exam,
