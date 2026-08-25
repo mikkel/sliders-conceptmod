@@ -56,9 +56,9 @@ CELL_MARK = {True: "pass", False: "**fail**", None: "—"}
 
 
 PAIRS_HEADER = (
-    "| recipe | " + " | ".join(c.replace("exam_", "") for c in CELL_ORDER) + " | "
-    "predicts live | compiled |\n"
-    "|---|" + "---|" * len(CELL_ORDER) + "---|---|"
+    "| recipe | exam_score | " + " | ".join(c.replace("exam_", "") for c in CELL_ORDER)
+    + " | predicts live | compiled |\n"
+    "|---|---:|" + "---|" * len(CELL_ORDER) + "---|---|"
 )
 
 
@@ -66,20 +66,24 @@ def _pairs_md(row: dict) -> str:
     cells = " | ".join(CELL_MARK[row["cells"].get(name)] for name in CELL_ORDER)
     runs = row.get("predicts") or {}
     named = ", ".join(f"`{run}` ({cell.replace('exam_', '')})" for cell, run in runs.items())
-    return f"| `{row['id']}` | {cells} | {named or '—'} | {_verdict_md(row['compiled'])} |"
+    return (
+        f"| `{row['id']}` | {_fmt(row.get('exam_score'), '.3f')} | {cells} | "
+        f"{named or '—'} | {_verdict_md(row['compiled'])} |"
+    )
 
 
 TABLE_HEADER = (
-    "| recipe | leftover leak | on-sheet | kept | off-sheet | argmax | "
+    "| recipe | exam_score | leftover leak | on-sheet | kept | off-sheet | argmax | "
     "swing | pair-odd cos *(log)* | ±1 *(log)* | intended cos | "
     "c+ | perc | rich-kept | compiled |\n"
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
 )
 
 
 def _table_md(row: dict) -> str:
     return (
-        f"| `{row['id']}` | {_fmt(row['leftover_leak'], '+.3f')} | "
+        f"| `{row['id']}` | {_fmt(row.get('exam_score'), '.3f')} | "
+        f"{_fmt(row['leftover_leak'], '+.3f')} | "
         f"{_fmt(row['on_sheet'], '.3f')} | {_fmt(row['on_sheet_kept'], '.3f')} | "
         f"{_fmt(row['off_sheet'], '.3f')} | {_fmt(row['argmax_on_sheet'], '.2f')} | "
         f"{_fmt(row['swing_kept'], '.2f')} | {_fmt(row['pair_odd_cos'], '+.3f')} | "
@@ -155,7 +159,8 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "Two of those are the **same recipe** on different prompt files, and",
         "the one with the smallest loss, the best `c+` and the lowest `p%` is",
         "one of the two that garbled. So a recipe is not one row: it is a",
-        "**recipe × pair** grid, and the board is sorted by the pair cells.",
+        "**recipe × pair** grid. The sortable number is `exam_score` =",
+        "`min(overlap, swing)` over the live exam pairs that row is read on.",
         "",
         f"| live run | fixture row | pair | predicted | ears | agrees | why |",
         "|---|---|---|---|---|---|---|",
@@ -206,8 +211,11 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "",
         "## Which pairs each recipe passes",
         "",
-        "Sorted by verdict, then how many pair cells fail, then the worst",
-        "continuation overlap. This is the ranking the live exam grades.",
+        "Sorted by `exam_score` descending, nulls last. `exam_score` is",
+        "`min(overlap, swing)` on `exam_divergent` (energy-v4) and",
+        "`exam_close` (gender-v4) only — unused_e and the sheet cells are",
+        "other questions. A pair with no reading is skipped, not a free 1.0.",
+        "The verdict stays a label; the number is what a human sorts by.",
         "",
         PAIRS_HEADER,
     ]
@@ -263,8 +271,8 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "",
         "## The full joined table",
         "",
-        "Every column the older cells contribute, at the same verdict order as",
-        "the pair table. Pair-odd cos and ±1 are **logged, never scored**.",
+        "Every column the older cells contribute, in `exam_score` order.",
+        "Pair-odd cos and ±1 are **logged, never scored**.",
         "",
         TABLE_HEADER,
     ]
@@ -428,7 +436,8 @@ def main(argv: list[str] | None = None) -> int:
             for name in CELL_ORDER
         )
         print(
-            f"{row['compiled']:20s} {row['id']:26s} {cells} "
+            f"{row['compiled']:20s} {row['id']:26s} "
+            f"exam={_fmt(row.get('exam_score'), '.3f')} {cells} "
             f"leak={_fmt(row['leftover_leak'], '+.3f')} "
             f"cos={_fmt(row['pair_odd_cos'], '+.3f')}"
         )

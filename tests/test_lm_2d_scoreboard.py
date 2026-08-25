@@ -28,6 +28,7 @@ from analysis.slider2d.scoreboard import (
     compile_sheet_row,
     compiled_verdict,
     exam_cells_for,
+    exam_score,
     failing_cells,
     leak_ok,
     live_exam_report,
@@ -135,26 +136,52 @@ def test_the_sheet_gate_numbers_are_unchanged():
     assert cell_works(leak=0.4, intended_cos=0.99) is False
 
 
-def test_sort_is_verdict_then_failing_pairs_then_worst_overlap():
-    def row(rid, verdict, cells, overlap):
-        return {
-            "id": rid,
-            "compiled": verdict,
-            "cells": cells,
-            "exam_overlap": overlap,
-            "leftover_leak": 0.0,
-            "on_sheet": 0.9,
-        }
+def test_exam_score_is_min_overlap_and_swing_on_live_pairs_only():
+    """unused_e cannot inflate the number; a missing pair is skipped, not 1.0."""
+    poles = exam_score(
+        {"exam_divergent": 1.0, "exam_close": 0.90625, "exam_unused_e": 1.0},
+        {"exam_divergent": 1.0, "exam_close": 0.38728, "exam_unused_e": 0.90},
+    )
+    sub = exam_score(
+        {"exam_divergent": 0.552, "exam_unused_e": 0.99},
+        {"exam_divergent": 0.104, "exam_unused_e": 0.99},
+    )
+    faithful = exam_score(
+        {"exam_divergent": 1.0, "exam_close": 1.0, "exam_unused_e": 1.0},
+        {"exam_divergent": 1.0, "exam_close": 1.0, "exam_unused_e": 1.0},
+    )
+    assert faithful == 1.0
+    assert poles == 0.38728
+    assert sub == 0.104
+    assert poles > sub
+    assert exam_score({}, {}) is None
+    assert exam_score({"exam_unused_e": 0.05}, {"exam_unused_e": 0.05}) is None
+    assert exam_score(
+        {"exam_divergent": 0.97},
+        {"exam_divergent": 0.97},
+    ) == 0.97
+
+
+def test_sort_is_exam_score_descending_nulls_last():
+    def row(rid, score, verdict=WORKS_SOME):
+        return {"id": rid, "compiled": verdict, "exam_score": score, "cells": {}}
 
     rows = sort_rows(
         [
-            row("garble", WORKS_SOME, {"exam_divergent": False}, {"exam_divergent": 0.55}),
-            row("clean", WORKS, {"exam_divergent": True}, {"exam_divergent": 1.0}),
-            row("win", WORKS_SOME, {"exam_divergent": True, "exam_close": False}, {"exam_divergent": 1.0, "exam_close": 0.91}),
-            row("dead", FAILS, {"sheet_leftover": False}, {}),
+            row("semantic_kl_sub_e", 0.10),
+            row("semantic_kl_poles", 0.39),
+            row("faithful_raw", 1.0),
+            row("faithful_attrs", 1.0, WORKS),
+            row("hub", None, FAILS),
         ]
     )
-    assert [r["id"] for r in rows] == ["clean", "win", "garble", "dead"]
+    assert [r["id"] for r in rows] == [
+        "faithful_attrs",
+        "faithful_raw",
+        "semantic_kl_poles",
+        "semantic_kl_sub_e",
+        "hub",
+    ]
 
 
 # -- the live exam -------------------------------------------------------
@@ -178,6 +205,34 @@ def test_the_energy_win_outranks_the_energy_garble():
     assert order.index(win) < order.index(garble)
     assert by_id()[win]["cells"]["exam_divergent"] is True
     assert by_id()[garble]["cells"]["exam_divergent"] is False
+
+
+def test_exam_score_sorts_the_three_live_exam_rows():
+    """energy-v18's recipe above energy-v16's; faithful_raw/attrs outrank both."""
+    rows = board()
+    order = [r["id"] for r in rows]
+    ids = by_id()
+    for name in (
+        "faithful_attrs",
+        "faithful_raw",
+        "hidden_beta1",
+        "semantic_kl_poles",
+        "semantic_kl_sub_e",
+    ):
+        assert ids[name]["exam_score"] is not None
+    assert ids["hub"]["exam_score"] is None
+    assert ids["project_short_u"]["exam_score"] is None
+    assert order.index("faithful_attrs") < order.index("semantic_kl_poles")
+    assert order.index("faithful_raw") < order.index("semantic_kl_poles")
+    assert order.index("hidden_beta1") < order.index("semantic_kl_poles")
+    assert order.index("semantic_kl_poles") < order.index("semantic_kl_sub_e")
+    # The live energy-v16 fail is the sub_e row; unused_e must not rescue it.
+    assert ids["semantic_kl_sub_e"]["exam_overlap"]["exam_unused_e"] > 0.9
+    assert ids["semantic_kl_sub_e"]["exam_score"] < 0.5
+    assert ids["semantic_kl_poles"]["exam_score"] > ids["semantic_kl_sub_e"]["exam_score"]
+    scored = [i for i, r in enumerate(rows) if r["exam_score"] is not None]
+    nulls = [i for i, r in enumerate(rows) if r["exam_score"] is None]
+    assert scored and nulls and max(scored) < min(nulls)
 
 
 def test_every_live_run_is_marked_on_the_row_that_predicted_it():

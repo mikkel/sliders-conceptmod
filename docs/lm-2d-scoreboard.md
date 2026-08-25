@@ -22,7 +22,8 @@ alpha 8 / lr 5e-4 / 800 steps / seed 7 / `--no-early_stop` / endreg 1.0
 Two of those are the **same recipe** on different prompt files, and
 the one with the smallest loss, the best `c+` and the lowest `p%` is
 one of the two that garbled. So a recipe is not one row: it is a
-**recipe × pair** grid, and the board is sorted by the pair cells.
+**recipe × pair** grid. The sortable number is `exam_score` =
+`min(overlap, swing)` over the live exam pairs that row is read on.
 
 | live run | fixture row | pair | predicted | ears | agrees | why |
 |---|---|---|---|---|---|---|
@@ -35,7 +36,7 @@ one of the two that garbled. So a recipe is not one row: it is a
 
 ## The compiled gate
 
-A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap ≥ 0.85, position-wise agreement ≥ 0.75 of the pole's own self-agreement), sings nothing off-caption (≤ 0.05), never alternates between the two songs (≥ 0.9), keeps the pole pair's audible swing (≥ 0.6). Unused-attribute leak is scored on the #22 sheet cells (≤ 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak ≤ 0.2, on-sheet kept ≥ 0.9, off-sheet mass ≤ 0.05, argmax-on-sheet = 1 and concept swing kept ≥ 0.6. Pair-odd cos, ±1 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another — the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.
+A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap ≥ 0.85, position-wise agreement ≥ 0.75 of the pole's own self-agreement), sings nothing off-caption (≤ 0.05), never alternates between the two songs (≥ 0.9), keeps the pole pair's audible swing (≥ 0.6). Unused-attribute leak is scored on the #22 sheet cells (≤ 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak ≤ 0.2, on-sheet kept ≥ 0.9, off-sheet mass ≤ 0.05, argmax-on-sheet = 1 and concept swing kept ≥ 0.6. Pair-odd cos, ±1 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another — the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.
 
 Pair-exam cells, on what the student sings over its own 8-token
 continuation:
@@ -68,31 +69,34 @@ rows inherit the leftover sheet of `t± = h0 ± a`, because deleting
 
 ## Which pairs each recipe passes
 
-Sorted by verdict, then how many pair cells fail, then the worst
-continuation overlap. This is the ranking the live exam grades.
+Sorted by `exam_score` descending, nulls last. `exam_score` is
+`min(overlap, swing)` on `exam_divergent` (energy-v4) and
+`exam_close` (gender-v4) only — unused_e and the sheet cells are
+other questions. A pair with no reading is skipped, not a free 1.0.
+The verdict stays a label; the number is what a human sorts by.
 
-| recipe | divergent | close | unused_e | sheet_leftover | sheet_gender | predicts live | compiled |
-|---|---|---|---|---|---|---|---|
-| `faithful_attrs` | pass | pass | pass | pass | pass | — | **works** |
-| `faithful_raw` | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
-| `hidden_beta1` | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
-| `gender_like_no_e` | — | pass | — | — | **fail** | — | works-on-some-pairs |
-| `pair_odd_midpoint` | **fail** | pass | pass | **fail** | **fail** | — | works-on-some-pairs |
-| `semantic_kl_poles` | pass | **fail** | pass | **fail** | pass | `energy-lm-v18` (divergent), `gender-lm-v16` (close) | works-on-some-pairs |
-| `hold_e_perp_l8` | **fail** | — | pass | **fail** | **fail** | — | works-on-some-pairs |
-| `pair_odd_sub_e` | **fail** | — | pass | **fail** | **fail** | — | works-on-some-pairs |
-| `faithful_sub_e` | **fail** | — | pass | pass | — | — | works-on-some-pairs |
-| `semantic_kl_sub_e` | **fail** | — | pass | pass | — | `energy-lm-v16` (divergent) | works-on-some-pairs |
-| `semantic_kl_midpoint` | **fail** | **fail** | pass | **fail** | **fail** | — | works-on-some-pairs |
-| `project_short_u` | — | — | — | **fail** | **fail** | — | **fails** |
-| `hold_e_raw_l8` | — | — | — | **fail** | **fail** | — | **fails** |
-| `hold_e_raw_synonym_l8` | — | — | — | **fail** | **fail** | — | **fails** |
-| `hold_e_raw_l1` | — | — | — | **fail** | **fail** | — | **fails** |
-| `hold_e_perp_l1` | — | — | — | **fail** | **fail** | — | **fails** |
-| `hub` | — | — | — | **fail** | **fail** | — | **fails** |
-| `project_rich_u` | — | — | — | **fail** | — | — | **fails** |
-| `leftover_hold_l8` | — | — | — | **fail** | — | — | **fails** |
-| `leftover_hold_l1` | — | — | — | **fail** | — | — | **fails** |
+| recipe | exam_score | divergent | close | unused_e | sheet_leftover | sheet_gender | predicts live | compiled |
+|---|---:|---|---|---|---|---|---|---|
+| `faithful_attrs` | 1.000 | pass | pass | pass | pass | pass | — | **works** |
+| `faithful_raw` | 1.000 | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
+| `hidden_beta1` | 1.000 | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
+| `gender_like_no_e` | 0.974 | — | pass | — | — | **fail** | — | works-on-some-pairs |
+| `pair_odd_midpoint` | 0.974 | **fail** | pass | pass | **fail** | **fail** | — | works-on-some-pairs |
+| `hold_e_perp_l8` | 0.974 | **fail** | — | pass | **fail** | **fail** | — | works-on-some-pairs |
+| `pair_odd_sub_e` | 0.964 | **fail** | — | pass | **fail** | **fail** | — | works-on-some-pairs |
+| `faithful_sub_e` | 0.833 | **fail** | — | pass | pass | — | — | works-on-some-pairs |
+| `semantic_kl_midpoint` | 0.410 | **fail** | **fail** | pass | **fail** | **fail** | — | works-on-some-pairs |
+| `semantic_kl_poles` | 0.387 | pass | **fail** | pass | **fail** | pass | `energy-lm-v18` (divergent), `gender-lm-v16` (close) | works-on-some-pairs |
+| `semantic_kl_sub_e` | 0.104 | **fail** | — | pass | pass | — | `energy-lm-v16` (divergent) | works-on-some-pairs |
+| `hold_e_perp_l1` | N/A | — | — | — | **fail** | **fail** | — | **fails** |
+| `hold_e_raw_l1` | N/A | — | — | — | **fail** | **fail** | — | **fails** |
+| `hold_e_raw_l8` | N/A | — | — | — | **fail** | **fail** | — | **fails** |
+| `hold_e_raw_synonym_l8` | N/A | — | — | — | **fail** | **fail** | — | **fails** |
+| `hub` | N/A | — | — | — | **fail** | **fail** | — | **fails** |
+| `leftover_hold_l1` | N/A | — | — | — | **fail** | — | — | **fails** |
+| `leftover_hold_l8` | N/A | — | — | — | **fail** | — | — | **fails** |
+| `project_rich_u` | N/A | — | — | — | **fail** | — | — | **fails** |
+| `project_short_u` | N/A | — | — | — | **fail** | **fail** | — | **fails** |
 
 What each cell is:
 
@@ -113,37 +117,37 @@ they are read on.
 
 **Works on every pair it is read on:** `faithful_attrs`. `faithful_attrs` is `--lm_target faithful --pole_mode hidden` plus the data fix — the unpinned attribute written into both pole captions, the way energy-v4 already pins the singer with `attributes` — so there is no leftover ê in the text for the sheet cell to charge it for.
 
-**Works on some pairs:** `faithful_raw`, `hidden_beta1`, `gender_like_no_e`, `pair_odd_midpoint`, `semantic_kl_poles`, `hold_e_perp_l8`, `pair_odd_sub_e`, `faithful_sub_e`, `semantic_kl_sub_e`, `semantic_kl_midpoint`. Each passes at least one pair and fails another. `faithful_raw` (and `hidden_beta1`, which is the same target reached through `--lm_target symmetric --common_beta 1`) passes all three pair cells and is charged only by the unused-ê sheet — which is a leak gender-v4 has no `leak_*` to trip, so it is the next live card. `semantic_kl_poles` is the row the live exam is about: the energy win and the gender garble.
+**Works on some pairs:** `faithful_raw`, `hidden_beta1`, `gender_like_no_e`, `pair_odd_midpoint`, `hold_e_perp_l8`, `pair_odd_sub_e`, `faithful_sub_e`, `semantic_kl_midpoint`, `semantic_kl_poles`, `semantic_kl_sub_e`. Each passes at least one pair and fails another. `faithful_raw` (and `hidden_beta1`, which is the same target reached through `--lm_target symmetric --common_beta 1`) passes all three pair cells and is charged only by the unused-ê sheet — which is a leak gender-v4 has no `leak_*` to trip, so it is the next live card. `semantic_kl_poles` is the row the live exam is about: the energy win and the gender garble.
 
 **Fails:** 9 recipes — hub, hold-ê raw, short-û and rich-û project, and the high-D leftover holds. None of them has a pair-exam reading; they fail on leftover leak and the sheet alone. A perfect pair-odd lock and a solved pole loss are both failure modes here.
 
 ## The full joined table
 
-Every column the older cells contribute, at the same verdict order as
-the pair table. Pair-odd cos and ±1 are **logged, never scored**.
+Every column the older cells contribute, in `exam_score` order.
+Pair-odd cos and ±1 are **logged, never scored**.
 
-| recipe | leftover leak | on-sheet | kept | off-sheet | argmax | swing | pair-odd cos *(log)* | ±1 *(log)* | intended cos | c+ | perc | rich-kept | compiled |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `faithful_attrs` | +0.000 | 0.938 | 0.997 | 0.005 | 1.00 | 1.02 | +0.735 | -0.080 | +1.000 | +0.735 | N/A | 1.00 | **works** |
-| `faithful_raw` | +0.228 | 0.934 | 0.993 | 0.001 | 1.00 | 1.01 | +0.696 | +0.030 | N/A | +0.696 | N/A | N/A | works-on-some-pairs |
-| `hidden_beta1` | +0.228 | 0.934 | 0.993 | 0.001 | 1.00 | 1.01 | +0.696 | +0.030 | N/A | +0.696 | N/A | N/A | works-on-some-pairs |
-| `gender_like_no_e` | N/A | 0.540 | 0.575 | 0.415 | 0.00 | 0.27 | +1.000 | -1.000 | +0.987 | +0.987 | 0 | N/A | works-on-some-pairs |
-| `pair_odd_midpoint` | +0.228 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | N/A | +1.000 | N/A | N/A | works-on-some-pairs |
-| `semantic_kl_poles` | +0.226 | 0.938 | 0.997 | 0.001 | 1.00 | 1.00 | +0.602 | +0.125 | N/A | +0.602 | N/A | N/A | works-on-some-pairs |
-| `hold_e_perp_l8` | +0.006 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.932 | -1.000 | +0.988 | +0.696 | 1 | N/A | works-on-some-pairs |
-| `pair_odd_sub_e` | +0.000 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.928 | -1.000 | N/A | +0.809 | 1 | N/A | works-on-some-pairs |
-| `faithful_sub_e` | +0.000 | 0.883 | 0.939 | 0.001 | 1.00 | 1.11 | +0.621 | +0.105 | N/A | +0.621 | N/A | N/A | works-on-some-pairs |
-| `semantic_kl_sub_e` | +0.000 | 0.889 | 0.945 | 0.001 | 1.00 | 1.09 | +0.522 | +0.209 | N/A | +0.522 | N/A | N/A | works-on-some-pairs |
-| `semantic_kl_midpoint` | +0.227 | 0.366 | 0.390 | 0.406 | 0.33 | 0.26 | +0.901 | -0.960 | N/A | +0.901 | N/A | N/A | works-on-some-pairs |
-| `project_short_u` | +0.000 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +0.781 | +1.000 | N/A | 0.00 | **fails** |
-| `hold_e_raw_l8` | +0.154 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.932 | -1.000 | +0.988 | +0.696 | 1 | N/A | **fails** |
-| `hold_e_raw_synonym_l8` | +0.320 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +0.952 | +0.798 | 1 | N/A | **fails** |
-| `hold_e_raw_l1` | +0.694 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +0.821 | +0.936 | 0 | N/A | **fails** |
-| `hold_e_perp_l1` | +0.694 | 0.323 | 0.344 | 0.415 | 0.00 | 0.27 | +0.955 | -1.000 | +0.821 | +0.936 | 0 | N/A | **fails** |
-| `hub` | +1.388 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +0.584 | +1.000 | N/A | N/A | **fails** |
-| `project_rich_u` | +0.000 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +1.000 | +1.000 | N/A | 1.00 | **fails** |
-| `leftover_hold_l8` | +0.504 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.932 | -1.000 | +0.893 | +0.822 | 1 | N/A | **fails** |
-| `leftover_hold_l1` | +0.529 | 0.323 | 0.344 | 0.415 | 0.00 | 0.27 | +0.955 | -1.000 | +0.884 | +0.885 | 0 | N/A | **fails** |
+| recipe | exam_score | leftover leak | on-sheet | kept | off-sheet | argmax | swing | pair-odd cos *(log)* | ±1 *(log)* | intended cos | c+ | perc | rich-kept | compiled |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `faithful_attrs` | 1.000 | +0.000 | 0.938 | 0.997 | 0.005 | 1.00 | 1.02 | +0.735 | -0.080 | +1.000 | +0.735 | N/A | 1.00 | **works** |
+| `faithful_raw` | 1.000 | +0.228 | 0.934 | 0.993 | 0.001 | 1.00 | 1.01 | +0.696 | +0.030 | N/A | +0.696 | N/A | N/A | works-on-some-pairs |
+| `hidden_beta1` | 1.000 | +0.228 | 0.934 | 0.993 | 0.001 | 1.00 | 1.01 | +0.696 | +0.030 | N/A | +0.696 | N/A | N/A | works-on-some-pairs |
+| `gender_like_no_e` | 0.974 | N/A | 0.540 | 0.575 | 0.415 | 0.00 | 0.27 | +1.000 | -1.000 | +0.987 | +0.987 | 0 | N/A | works-on-some-pairs |
+| `pair_odd_midpoint` | 0.974 | +0.228 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | N/A | +1.000 | N/A | N/A | works-on-some-pairs |
+| `hold_e_perp_l8` | 0.974 | +0.006 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.932 | -1.000 | +0.988 | +0.696 | 1 | N/A | works-on-some-pairs |
+| `pair_odd_sub_e` | 0.964 | +0.000 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.928 | -1.000 | N/A | +0.809 | 1 | N/A | works-on-some-pairs |
+| `faithful_sub_e` | 0.833 | +0.000 | 0.883 | 0.939 | 0.001 | 1.00 | 1.11 | +0.621 | +0.105 | N/A | +0.621 | N/A | N/A | works-on-some-pairs |
+| `semantic_kl_midpoint` | 0.410 | +0.227 | 0.366 | 0.390 | 0.406 | 0.33 | 0.26 | +0.901 | -0.960 | N/A | +0.901 | N/A | N/A | works-on-some-pairs |
+| `semantic_kl_poles` | 0.387 | +0.226 | 0.938 | 0.997 | 0.001 | 1.00 | 1.00 | +0.602 | +0.125 | N/A | +0.602 | N/A | N/A | works-on-some-pairs |
+| `semantic_kl_sub_e` | 0.104 | +0.000 | 0.889 | 0.945 | 0.001 | 1.00 | 1.09 | +0.522 | +0.209 | N/A | +0.522 | N/A | N/A | works-on-some-pairs |
+| `hold_e_perp_l1` | N/A | +0.694 | 0.323 | 0.344 | 0.415 | 0.00 | 0.27 | +0.955 | -1.000 | +0.821 | +0.936 | 0 | N/A | **fails** |
+| `hold_e_raw_l1` | N/A | +0.694 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +0.821 | +0.936 | 0 | N/A | **fails** |
+| `hold_e_raw_l8` | N/A | +0.154 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.932 | -1.000 | +0.988 | +0.696 | 1 | N/A | **fails** |
+| `hold_e_raw_synonym_l8` | N/A | +0.320 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +0.952 | +0.798 | 1 | N/A | **fails** |
+| `hub` | N/A | +1.388 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +0.584 | +1.000 | N/A | N/A | **fails** |
+| `leftover_hold_l1` | N/A | +0.529 | 0.323 | 0.344 | 0.415 | 0.00 | 0.27 | +0.955 | -1.000 | +0.884 | +0.885 | 0 | N/A | **fails** |
+| `leftover_hold_l8` | N/A | +0.504 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.932 | -1.000 | +0.893 | +0.822 | 1 | N/A | **fails** |
+| `project_rich_u` | N/A | +0.000 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +1.000 | +1.000 | N/A | 1.00 | **fails** |
+| `project_short_u` | N/A | +0.000 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | +0.781 | +1.000 | N/A | 0.00 | **fails** |
 
 ![leak vs on-sheet kept](lm-2d-scoreboard/scoreboard.png)
 
@@ -167,10 +171,6 @@ the pair table. Pair-odd cos and ±1 are **logged, never scored**.
   - divergent pair: continuation drifts off the pole's own
   - close pair: on-continuation
   - unused_e pair: on-continuation
-- `semantic_kl_poles` — semantic_kl onto real poles. on-sheet, but unused gender still moves the leak token. Fixture: sheet leftover + sheet gender.
-  - divergent pair — live `energy-lm-v18`: on-continuation (despite KL-small / hidden-far)
-  - close pair — live `gender-lm-v16`: no audible swing; because KL-small / hidden-far
-  - unused_e pair: on-continuation (despite KL-small / hidden-far)
 - `hold_e_perp_l8` — hold-ê ê_⊥û λ=8 (live v9). current leftover-ê default. Fixes unused-axis leak, not the sheet. Fixture: sheet leftover hold-ê + overlap ê_⊥û λ=8. (c+ distinct +0.696; loss 0.852)
   - divergent pair: continuation drifts off the pole's own
   - unused_e pair: on-continuation
@@ -180,22 +180,26 @@ the pair table. Pair-odd cos and ±1 are **logged, never scored**.
 - `faithful_sub_e` — faithful_sub_e (ê-cleaned real poles, hidden MSE). keeps c, drops ê_⊥. Hidden MSE onto a near-caption. Fixture: sheet leftover.
   - divergent pair: continuation drifts off the pole's own; because blend teacher + axis eaten by ê
   - unused_e pair: on-continuation
-- `semantic_kl_sub_e` — semantic_kl onto ê-cleaned poles. same target as faithful_sub_e; KL ignores the readout null space. Fixture: sheet leftover.
-  - divergent pair — live `energy-lm-v16`: alternates between the two songs; no audible swing; because blend teacher + axis eaten by ê + KL-small / hidden-far
-  - unused_e pair: on-continuation (despite KL-small / hidden-far)
 - `semantic_kl_midpoint` — semantic_kl onto midpoint. KL is not the fix. The target point is. Fixture: sheet leftover + sheet gender.
   - divergent pair: continuation drifts off the pole's own; because KL-small / hidden-far
   - close pair: no audible swing; because KL-small / hidden-far
   - unused_e pair: on-continuation (despite KL-small / hidden-far)
-- `project_short_u` — project short û. leak-0 by dropping everything ⊥ short û, including the singer and slider adjectives. Still a midpoint (c deleted); sheet inherited from pair-odd. Fixture: rich project_short + live gender always_project_hold.
+- `semantic_kl_poles` — semantic_kl onto real poles. on-sheet, but unused gender still moves the leak token. Fixture: sheet leftover + sheet gender.
+  - divergent pair — live `energy-lm-v18`: on-continuation (despite KL-small / hidden-far)
+  - close pair — live `gender-lm-v16`: no audible swing; because KL-small / hidden-far
+  - unused_e pair: on-continuation (despite KL-small / hidden-far)
+- `semantic_kl_sub_e` — semantic_kl onto ê-cleaned poles. same target as faithful_sub_e; KL ignores the readout null space. Fixture: sheet leftover.
+  - divergent pair — live `energy-lm-v16`: alternates between the two songs; no audible swing; because blend teacher + axis eaten by ê + KL-small / hidden-far
+  - unused_e pair: on-continuation (despite KL-small / hidden-far)
+- `hold_e_perp_l1` — hold-ê ê_⊥û λ=1. live-weak λ. Sheet still aims at h0 ± a. Fixture: overlap leftover ê_⊥û λ=1 + sheet hold λ=1. (loss 0.489)
+- `hold_e_raw_l1` — hold-ê raw λ=1. λ=1 is too soft on leftover ê. Teacher is still the midpoint. Fixture: overlap leftover raw + midpoint sheet. (c+ distinct +0.936; loss 0.489)
 - `hold_e_raw_l8` — hold-ê raw λ=8 (leftover ê). on leftover ê, raw ≡ ê_⊥û. Leak can look small; sheet is still the midpoint. Fixture: overlap leftover raw λ=8 + hold-ê sheet. (c+ distinct +0.696; loss 0.852)
 - `hold_e_raw_synonym_l8` — hold-ê raw λ=8 (synonym ê). ê restates the poles. Raw hold punches the slider. Fixture: overlap synonym raw λ=8 + midpoint sheet. (c+ distinct +0.798; loss 1.270)
-- `hold_e_raw_l1` — hold-ê raw λ=1. λ=1 is too soft on leftover ê. Teacher is still the midpoint. Fixture: overlap leftover raw + midpoint sheet. (c+ distinct +0.936; loss 0.489)
-- `hold_e_perp_l1` — hold-ê ê_⊥û λ=1. live-weak λ. Sheet still aims at h0 ± a. Fixture: overlap leftover ê_⊥û λ=1 + sheet hold λ=1. (loss 0.489)
 - `hub` — hub (published floor + anchor). same odd teacher as pair-odd; even blend-back does not take ê out of a. Sheet inherited from the midpoint. Fixture: live energy/gender + pair-odd sheet.
-- `project_rich_u` — project rich û (oracle intended span). oracle û = span{short, slider adjectives}. Still a midpoint in the intended plane, so c is dropped; sheet inherited from pair-odd. Fixture: rich project_rich.
-- `leftover_hold_l8` — energy-like leftover hold-ê λ=8 (high-D). λ=8 barely moves leftover leak vs λ=1. Sheet still the midpoint. Fixture: high-D leftover λ=8 + sheet hold-ê. (content-cos +0.893; c+ distinct +0.822; loss 0.120)
 - `leftover_hold_l1` — energy-like leftover hold-ê λ=1 (high-D). one leftover caption pair cannot name the whole unused remainder. Fixture: high-D leftover λ=1 + sheet hold λ=1. (content-cos +0.884; c+ distinct +0.885; loss 0.099)
+- `leftover_hold_l8` — energy-like leftover hold-ê λ=8 (high-D). λ=8 barely moves leftover leak vs λ=1. Sheet still the midpoint. Fixture: high-D leftover λ=8 + sheet hold-ê. (content-cos +0.893; c+ distinct +0.822; loss 0.120)
+- `project_rich_u` — project rich û (oracle intended span). oracle û = span{short, slider adjectives}. Still a midpoint in the intended plane, so c is dropped; sheet inherited from pair-odd. Fixture: rich project_rich.
+- `project_short_u` — project short û. leak-0 by dropping everything ⊥ short û, including the singer and slider adjectives. Still a midpoint (c deleted); sheet inherited from pair-odd. Fixture: rich project_short + live gender always_project_hold.
 
 ## The next live card the board points at
 

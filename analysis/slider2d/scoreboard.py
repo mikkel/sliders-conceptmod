@@ -96,6 +96,9 @@ CELL_ORDER = (
     "sheet_leftover",
     "sheet_gender",
 )
+# The live exam pairs the sortable number is allowed to see. unused_e
+# and the #22 sheet cells are other questions and stay out of it.
+EXAM_SCORE_PAIRS = ("exam_divergent", "exam_close")
 CELL_LABEL = {
     "exam_divergent": "divergent pair (energy-v4)",
     "exam_close": "close pair (gender-v4)",
@@ -293,29 +296,43 @@ def passing_cells(cells: dict[str, bool | None]) -> list[str]:
     return [name for name in CELL_ORDER if cells.get(name) is True]
 
 
+def exam_score(
+    overlap: dict | None = None,
+    swing: dict | None = None,
+) -> float | None:
+    """One sortable number: ``min(overlap, swing)`` on the live exam pairs.
+
+    Only ``exam_divergent`` (energy-v4) and ``exam_close`` (gender-v4)
+    count. ``unused_e`` / the #22 sheet cells are other questions. A pair
+    the recipe has no reading on is skipped, not a free 1.0. No live-pair
+    reading at all is ``None`` (sort last). Pair-odd cos, ±1 collapse,
+    pole loss and ``p%`` / ``n%`` are not inputs.
+    """
+    scores: list[float] = []
+    for cell in EXAM_SCORE_PAIRS:
+        for bag in (overlap, swing):
+            value = (bag or {}).get(cell)
+            if value is not None:
+                scores.append(float(value))
+    if not scores:
+        return None
+    return min(scores)
+
+
 def sort_rows(rows: list[dict]) -> list[dict]:
-    """Verdict, then how many cells fail, then leak, then on-sheet."""
+    """``exam_score`` descending, nulls last. Verdict stays a label."""
 
     def key(row: dict) -> tuple:
-        cells = row.get("cells", {})
-        leak = row.get("leftover_leak")
-        sheet = row.get("on_sheet")
-        leak_key = float(leak) if _finite(leak) else 1e9
-        sheet_key = -float(sheet) if _finite(sheet) else 1e9
-        exam_failed = len([c for c in failing_cells(cells) if c.startswith("exam_")])
-        exam_passed = -len([c for c in passing_cells(cells) if c.startswith("exam_")])
-        overlaps = [v for v in (row.get("exam_overlap") or {}).values() if v is not None]
-        worst = -min(overlaps) if overlaps else 0.0
-        read = -len([v for v in cells.values() if v is not None])
+        score = row.get("exam_score")
+        if score is None and (
+            row.get("exam_overlap") is not None or row.get("exam_swing") is not None
+        ):
+            score = exam_score(row.get("exam_overlap"), row.get("exam_swing"))
+        has = _finite(score)
         return (
-            VERDICT_ORDER[row["compiled"]],
-            exam_failed,
-            exam_passed,
-            worst,
-            read,
-            len(failing_cells(cells)),
-            leak_key,
-            sheet_key,
+            0 if has else 1,
+            -float(score) if has else 0.0,
+            VERDICT_ORDER.get(row.get("compiled"), 9),
             row["id"],
         )
 
@@ -470,6 +487,9 @@ def _row(
     cells["sheet_leftover"] = leftover_pass
     cells["sheet_gender"] = gender_pass if gender else None
     exam_rows = found["rows"]
+    exam_overlap = {key: row["roll_overlap"] for key, row in exam_rows.items()}
+    exam_swing = {key: row["roll_swing_kept"] for key, row in exam_rows.items()}
+    score = exam_score(exam_overlap, exam_swing)
     verdict = compiled_verdict(
         cells=cells,
         pair_odd_cos=pair_odd_cos,
@@ -494,6 +514,7 @@ def _row(
         "id": recipe_id,
         "label": label,
         "compiled": verdict,
+        "exam_score": score,
         "cells": cells,
         "cells_failed": failing_cells(cells),
         "cells_passed": passing_cells(cells),
@@ -504,10 +525,8 @@ def _row(
         "exam_near_gate": {
             key: row["near_gate"] for key, row in exam_rows.items() if row.get("near_gate")
         },
-        "exam_overlap": {
-            key: row["roll_overlap"] for key, row in exam_rows.items()
-        },
-        "exam_swing": {key: row["roll_swing_kept"] for key, row in exam_rows.items()},
+        "exam_overlap": exam_overlap,
+        "exam_swing": exam_swing,
         "exam_flags": {
             key: "KL-small / hidden-far"
             for key, row in exam_rows.items()
@@ -1049,11 +1068,18 @@ def gates_blob() -> dict:
             f"off-sheet mass ≤ {COMPILED_GARBLE_MAX}, argmax-on-sheet = "
             f"{COMPILED_ARGMAX_LOCK:g} and concept swing kept ≥ "
             f"{COMPILED_SWING_FLOOR}. Pair-odd cos, ±1 collapse, the pole loss "
-            "and p%/n% are logged and never scored. works-on-some-pairs means "
-            "the recipe passes on at least one pair and fails on another — the "
-            "verdict the 2026-08-25 live exam forces, because the same recipe is "
-            "the energy win and the gender garble."
+            "and p%/n% are logged and never scored. The sortable number is "
+            "exam_score = min(overlap, swing) over the live exam pairs that "
+            "row is read on (divergent / close). unused_e and the sheet cells "
+            "are other questions and are not folded in. A pair with no reading "
+            "is skipped; a recipe with no live-pair reading is null and sorts "
+            "last. works-on-some-pairs means the recipe passes on at least one "
+            "pair and fails on another — the verdict the 2026-08-25 live exam "
+            "forces, because the same recipe is the energy win and the gender "
+            "garble."
         ),
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": list(EXAM_SCORE_PAIRS),
     }
 
 
