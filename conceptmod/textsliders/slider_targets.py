@@ -11,11 +11,15 @@ Formulas are copied from:
   plus the leak fix. Default ``--lm_target v9`` is **full pair-odd**
   ``a = ½(h+−h−)``, ``t± = h0 ± a``, κ = 0, and a hold along a declared
   leak axis ``ê`` (YAML ``leak_positive`` / ``leak_negative``):
-  penalize ``(h(±1)−h0) · ê``. Short ``slider_positive`` is a name /
-  probe, not the teacher — do not replace ``a`` with ``(a·û)û``.
-  If no ``ê`` is declared (clean pair, or ``attributes`` already pin
-  the unused axis), hold is 0. ``--lm_target v9_project`` is the old
-  slider-level project+hold onto û; ``v9_always`` never gates.
+  penalize ``(h(±1)−h0) · ê_⊥`` with ``ê_⊥ = ê − (ê·û)û`` when a
+  slider direction is declared. Opposite-energy leak captions
+  (energy-v4 slammed/168/pop-punk vs airy/52/lullaby) overlap the
+  slider and the pair-odd; holding raw ê punches the slider itself.
+  Short ``slider_positive`` is a name / probe, not the teacher — do
+  not replace ``a`` with ``(a·û)û``. If no ``ê`` is declared (clean
+  pair, or ``attributes`` already pin the unused axis), hold is 0.
+  ``--lm_target v9_project`` is the old slider-level project+hold
+  onto û; ``v9_always`` never gates.
 - Encoder MSE in ``train_encoder_music3.py``
 
 No Hub, no GPU, no model weights.
@@ -36,7 +40,9 @@ SLIDER_ALIGN_MIN = 0.50
 
 # Soft hold along ê fights the full-odd teacher. λ=1 leaves energy leak
 # ~0.69 (odd·û ≈ 0.58 leftover). λ=8 is the first value that lands leak
-# ≤ 0.20 on that cell; +/− same-dir stays ~0 (live-good band ≲ 6%).
+# ≤ 0.20 on unused-ê; +/− same-dir stays ~0 (live-good band ≲ 6%).
+# λ=8 is *not* safe on a raw ê that overlaps the slider — hold then
+# punches û. The live path orthogonalizes ê to û first.
 LEAK_HOLD_WEIGHT = 8.0
 SAME_DIR_MAX = 0.06
 
@@ -394,6 +400,47 @@ def lm_ortho_hold(
         return delta - (delta @ unit) * unit
 
     return 0.5 * (_ortho(pred_plus).pow(2).mean() + _ortho(pred_minus).pow(2).mean())
+
+
+HOLD_DIR_EPS = 1e-6
+
+
+def lm_hold_dir(
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    odd_dir: torch.Tensor | None = None,
+    mode: str = "raw",
+) -> torch.Tensor | None:
+    """Direction the hold actually penalizes.
+
+    ``raw``: declared ê.
+    ``slider``: ê_⊥ = ê − (ê·û)û. Hold cannot punch the slider name.
+    ``odd``: ê_⊥ = ê − (ê·â)â. Hold cannot punch the pair-odd teacher.
+    Near-zero leftover returns ``None`` (hold is off). Missing ``slider_dir``
+    / ``odd_dir`` for that mode falls back to raw ê — do not invent an axis.
+    """
+    kind = str(mode).strip().lower()
+    axis = leak_dir.flatten()
+    if kind == "raw":
+        out = axis
+    elif kind == "slider":
+        if slider_dir is None:
+            out = axis
+        else:
+            unit = lm_unit(slider_dir)
+            out = axis - (axis @ unit) * unit
+    elif kind in ("odd", "pair_odd", "teacher"):
+        if odd_dir is None:
+            out = axis
+        else:
+            unit = lm_unit(odd_dir)
+            out = axis - (axis @ unit) * unit
+    else:
+        raise ValueError(f"hold dir mode must be raw/slider/odd, got {mode!r}")
+    if float(out.norm()) <= HOLD_DIR_EPS:
+        return None
+    return out.reshape_as(leak_dir) if out.numel() == leak_dir.numel() else out
 
 
 def lm_axis_hold(

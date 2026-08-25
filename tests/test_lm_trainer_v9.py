@@ -20,6 +20,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_anchor_targets,
     lm_axis_hold,
     lm_hidden_targets,
+    lm_hold_dir,
     lm_ortho_hold,
     lm_project_odd_axis,
     lm_slider_loss,
@@ -163,6 +164,60 @@ def test_live_v9_loss_is_odd_plus_axis_hold():
         pred_plus, pred_minus, tgt_plus, tgt_minus, hold=hold, hold_weight=LEAK_HOLD_WEIGHT
     )
     assert float(got) == pytest.approx(float(expected), abs=1e-6)
+    # Declared û that is already ⊥ ê does not change the hold.
+    got_u = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        leak_dir=leak,
+        slider_dir=E_SLIDER,
+        hold_weight=LEAK_HOLD_WEIGHT,
+    )
+    assert float(got_u) == pytest.approx(float(expected), abs=1e-6)
+
+
+def test_v9_hold_drops_slider_component_of_e():
+    """ê = û is a synonym of the slider; hold must not punch it."""
+    pos, neg, neu = _ungated_pair()
+    tgt_plus, tgt_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="v9")
+    pred_plus = neu + torch.tensor([0.8, 0.4])
+    pred_minus = neu + torch.tensor([-0.7, -0.3])
+    no_hold = lm_train_loss(
+        pred_plus, pred_minus, tgt_plus, tgt_minus, neu=neu, hold_weight=0.0
+    )
+    punched = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        leak_dir=E_SLIDER,
+        slider_dir=E_SLIDER,
+        hold_weight=LEAK_HOLD_WEIGHT,
+    )
+    assert lm_hold_dir(E_SLIDER, slider_dir=E_SLIDER, mode="slider") is None
+    assert float(punched) == pytest.approx(float(no_hold), abs=1e-6)
+    leftover = torch.tensor([0.6, 0.8])
+    held = lm_hold_dir(leftover, slider_dir=E_SLIDER, mode="slider")
+    assert held is not None
+    assert abs(float(held @ E_SLIDER)) < 1e-6
+    mixed = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        leak_dir=leftover,
+        slider_dir=E_SLIDER,
+        hold_weight=LEAK_HOLD_WEIGHT,
+    )
+    expected_hold = lm_axis_hold(pred_plus, pred_minus, neu, held)
+    expected = lm_slider_loss(
+        pred_plus, pred_minus, tgt_plus, tgt_minus, hold=expected_hold, hold_weight=LEAK_HOLD_WEIGHT
+    )
+    assert float(mixed) == pytest.approx(float(expected), abs=1e-6)
 
 
 def test_v9_project_loss_is_projected_odd_plus_ortho_hold():

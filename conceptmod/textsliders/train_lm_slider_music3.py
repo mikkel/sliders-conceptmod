@@ -63,6 +63,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_anchor_kappa,
     lm_anchor_targets,
     lm_axis_hold,
+    lm_hold_dir,
     lm_hidden_targets,
     lm_odd_align,
     lm_ortho_hold,
@@ -281,7 +282,8 @@ def lm_train_loss(
 ) -> torch.Tensor:
     """Live pole loss: ``lm_slider_loss`` plus optional hold.
 
-    Default v9 holds a declared leak axis ``ê`` (``lm_axis_hold``).
+    Default v9 holds leftover unused ``ê_⊥ = ê − (ê·û)û`` (``lm_axis_hold``).
+    Raw ê that overlaps the slider is not held — that punches û.
     The project path holds the residual orthogonal to ``slider_dir``.
     The live graph has no hold embedding either way.
     """
@@ -290,7 +292,9 @@ def lm_train_loss(
         if neu is None:
             raise ValueError("hold_weight>0 requires neu")
         if leak_dir is not None:
-            hold = lm_axis_hold(pred_plus, pred_minus, neu, leak_dir)
+            hold_axis = lm_hold_dir(leak_dir, slider_dir=slider_dir, mode="slider")
+            if hold_axis is not None:
+                hold = lm_axis_hold(pred_plus, pred_minus, neu, hold_axis)
         elif slider_dir is not None:
             hold = lm_ortho_hold(pred_plus, pred_minus, neu, slider_dir)
         else:
@@ -591,7 +595,8 @@ def train(args: argparse.Namespace) -> Path:
         leak_dir = leak_pos_h - leak_neg_h
         print(
             f"declared leak axis ê: {leak_captions[0]!r} / {leak_captions[1]!r} "
-            f"||ê||={leak_dir.norm().item():.3f} (hold (h(±1)−h0)·ê; teacher stays pair-odd)"
+            f"||ê||={leak_dir.norm().item():.3f} "
+            f"(hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd)"
         )
     elif recipe == "v9":
         print("note: no leak axis declared — v9 hold is off (teacher is full pair-odd)")
@@ -997,7 +1002,7 @@ def parse_args(argv=None):
         default="v9",
         choices=LM_RECIPES,
         help="live target recipe (default v9 = full pair-odd + hold-on-ê). v9: "
-        "--symmetric polarity, t± = h0 ± a, κ=0; hold (h(±1)−h0)·ê when "
+        "--symmetric polarity, t± = h0 ± a, κ=0; hold (h(±1)−h0)·ê_⊥û when "
         "leak_positive/leak_negative is declared. Short slider_positive is "
         "not the teacher. v9_project: old slider-level |odd·û| gate. "
         "v9_always: old always-project. hub: published leakage_floor "
