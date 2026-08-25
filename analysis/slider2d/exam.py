@@ -1636,7 +1636,10 @@ def visible_sweep(
     At 0.02 almost the whole axis is delivery detail the scored token
     cannot read and semantic KL has no gradient on it. At 0.99 the axis is
     the token. Hidden MSE runs alongside because it does not care where the
-    axis lives.
+    axis lives, and ``dual_band`` runs alongside both: it is the same KL
+    with the blind band added back, so if the blind band is what the close
+    pair was missing it should track MSE across the whole sweep rather than
+    only at the readable end.
     """
     out = []
     base = close_field()
@@ -1661,6 +1664,14 @@ def visible_sweep(
             steps=steps,
             seed=seed,
         )
+        dual = score_exam(
+            "dual_band_poles",
+            field,
+            pole_mode="dual_band",
+            teacher="faithful",
+            steps=steps,
+            seed=seed,
+        )
         out.append(
             {
                 "visible_share": field.visible_share(),
@@ -1676,9 +1687,106 @@ def visible_sweep(
                 "mse_match": mse["roll_match"],
                 "mse_swing": mse["roll_swing_kept"],
                 "mse_pass": mse["pass"],
+                "dual_invisible_kept": dual["invisible_kept"],
+                "dual_match": dual["roll_match"],
+                "dual_swing": dual["roll_swing_kept"],
+                "dual_pass": dual["pass"],
             }
         )
     return out
+
+
+def factorial_table(*, steps: int = 400, seed: int = 0) -> list[dict]:
+    """The 2×2 the hypothesis reduces to, on both live pairs at once.
+
+    Rows: is the target a real caption, and does the loss have a gradient on
+    the band the readout cannot see. Columns: the divergent pair (energy-v4)
+    and the close pair (gender-v4). ``exam_score`` is the board's number,
+    ``min(overlap, swing)``, on each.
+
+    The point of running it as a factorial rather than as four opinions is
+    that each half of the hypothesis is only necessary if turning it off
+    breaks a pair no other row breaks. ``dual_band`` on the midpoint is the
+    cell that decides "caption" is load-bearing; ``semantic_kl`` on the
+    poles is the cell that decides "blind band" is.
+    """
+    arms = (
+        ("hidden", "faithful", "caption", True),
+        ("semantic_kl", "faithful", "caption", False),
+        ("dual_band", "faithful", "caption", True),
+        ("hidden", "pair_odd", "midpoint", True),
+        ("semantic_kl", "pair_odd", "midpoint", False),
+        ("dual_band", "pair_odd", "midpoint", True),
+    )
+    out = []
+    for pole_mode, teacher, target_kind, pins_blind in arms:
+        row = {
+            "pole_mode": pole_mode,
+            "teacher": teacher,
+            "target": target_kind,
+            "pins_blind_band": pins_blind,
+        }
+        worst = None
+        for cell, ctor in (("divergent", divergent_field), ("close", close_field)):
+            field = ctor(seed=seed)
+            scored = score_exam(
+                f"{pole_mode}/{teacher}",
+                field,
+                pole_mode=pole_mode,
+                teacher=teacher,
+                steps=steps,
+                seed=seed,
+            )
+            score = min(scored["roll_overlap"], scored["roll_swing_kept"])
+            row[f"{cell}_score"] = score
+            row[f"{cell}_pass"] = scored["pass"]
+            row[f"{cell}_invisible_kept"] = scored["invisible_kept"]
+            worst = score if worst is None else min(worst, score)
+        row["exam_score"] = worst
+        row["both"] = bool(row["divergent_pass"] and row["close_pass"])
+        out.append(row)
+    return out
+
+
+def seed_spread(
+    names: tuple[str, ...] = ("faithful_raw", "faithful_guard_e", "dual_band_poles"),
+    seeds: tuple[int, ...] = (0, 1, 2, 3),
+    *,
+    steps: int = 400,
+) -> list[dict]:
+    """``exam_score`` per seed, so a 1.000 is not read as a sharp number.
+
+    The rollout is sampled, so the top of the board is a band and not a
+    point: the recipe that prints 1.000 at seed 0 prints slightly less at
+    another seed. What is seed-robust is the *verdict*, which is what the
+    board's gate reads.
+    """
+    out = []
+    for name in names:
+        row: dict = {"recipe": name, "scores": [], "passes": []}
+        for seed in seeds:
+            worst = None
+            passed = True
+            for cell in EXAM_SCORE_CELLS:
+                found = next(
+                    r
+                    for r in exam_cell(cell, steps=steps, seed=seed)
+                    if r["name"] == name
+                )
+                score = min(found["roll_overlap"], found["roll_swing_kept"])
+                worst = score if worst is None else min(worst, score)
+                passed = passed and bool(found["pass"])
+            row["scores"].append(worst)
+            row["passes"].append(passed)
+        row["min"] = min(row["scores"])
+        row["max"] = max(row["scores"])
+        row["all_pass"] = all(row["passes"])
+        out.append(row)
+    return out
+
+
+# The two pairs the board's sortable number is allowed to see.
+EXAM_SCORE_CELLS = ("divergent", "close")
 
 
 def first_below(

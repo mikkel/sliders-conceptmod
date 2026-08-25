@@ -275,6 +275,85 @@ def test_exam_readings_are_never_invented_for_a_recipe_the_cell_cannot_express()
     assert by_id()["project_rich_u"]["cells"]["exam_close"] is None
 
 
+# -- the two new rows ----------------------------------------------------
+
+
+def test_the_guarded_e_row_works_on_every_pair_with_no_data_fix():
+    """The new top-of-board row: 1.000 on both live pairs and no leak left."""
+    row = by_id()["faithful_guard_e"]
+    assert row["exam_score"] == pytest.approx(1.0, abs=1e-6)
+    for cell in CELL_ORDER:
+        assert row["cells"][cell] is True, cell
+    assert row["compiled"] == WORKS
+    assert failing_cells(row["cells"]) == []
+    assert abs(row["leftover_leak"]) <= COMPILED_LEAK_LOCK
+    # It reaches that without the caption rewrite ``faithful_attrs`` needs,
+    # and it fixes the one cell ``faithful_raw`` and ``hidden_beta1`` fail.
+    for baseline in ("faithful_raw", "hidden_beta1"):
+        other = by_id()[baseline]
+        assert other["exam_score"] == pytest.approx(1.0, abs=1e-6)
+        assert other["cells"]["sheet_leftover"] is False
+        assert abs(other["leftover_leak"]) > COMPILED_LEAK_LOCK
+        assert other["compiled"] == WORKS_SOME
+    # ``faithful_attrs`` reaches the same place by rewriting the captions —
+    # its leak column comes from a pinned-attribute field, not from a rule
+    # the trainer applies to the yaml it was given.
+    assert "pinned in the captions" in by_id()["faithful_attrs"]["notes"]
+    assert "lm_blend_guard" in row["notes"]
+
+
+def test_the_dual_band_rows_are_on_the_board_and_beat_their_kl_parent():
+    dual = by_id()["dual_band_poles"]
+    guarded = by_id()["dual_band_guard_e"]
+    kl = by_id()["semantic_kl_poles"]
+    for row in (dual, guarded):
+        assert row["cells"]["exam_divergent"] is True
+        assert row["cells"]["exam_close"] is True
+        assert row["exam_score"] > kl["exam_score"]
+    # Same target, one added term: the close pair flips.
+    assert kl["cells"]["exam_close"] is False
+    assert dual["cells"]["exam_close"] is True
+    # The loss alone does not fix the leak the target carries; the guard does.
+    assert dual["cells"]["sheet_leftover"] is False
+    assert guarded["cells"]["sheet_leftover"] is True
+    assert guarded["compiled"] == WORKS
+    order = [r["id"] for r in board()]
+    assert order.index("dual_band_poles") < order.index("semantic_kl_poles")
+    assert order.index("dual_band_guard_e") < order.index("semantic_kl_poles")
+
+
+def test_the_control_row_keeps_the_new_loss_honest():
+    """The new loss on the old target is on the board and still fails."""
+    control = by_id()["dual_band_midpoint"]
+    assert control["cells"]["exam_divergent"] is False
+    assert control["compiled"] != WORKS
+    order = [r["id"] for r in board()]
+    assert order.index("dual_band_poles") < order.index("dual_band_midpoint")
+
+
+def test_the_new_rows_are_not_aliases_of_an_existing_one():
+    """They are scored on their own fits, not inherited from a 1.000 row."""
+    for name in (
+        "faithful_guard_e",
+        "dual_band_poles",
+        "dual_band_guard_e",
+        "dual_band_midpoint",
+    ):
+        assert name not in EXAM_ALIAS
+        row = by_id()[name]
+        assert row["predicts"] == {}
+        assert row["leftover_leak"] is not None
+        assert row["on_sheet_kept"] is not None
+    # The guarded row differs from ``faithful_raw`` where the guard fires.
+    assert by_id()["faithful_guard_e"]["leftover_leak"] != pytest.approx(
+        by_id()["faithful_raw"]["leftover_leak"], abs=0.05
+    )
+    # And the dual-band row differs from its KL parent on the close pair.
+    assert by_id()["dual_band_poles"]["exam_swing"]["exam_close"] > 2 * (
+        by_id()["semantic_kl_poles"]["exam_swing"]["exam_close"]
+    )
+
+
 # -- the sheet cell still says what it said ------------------------------
 
 

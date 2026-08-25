@@ -27,8 +27,11 @@ from analysis.slider2d.exam import (
     exam_cell,
     exam_table,
     exam_verdicts,
+    factorial_table,
     first_above,
     first_below,
+    guard_is_uniform,
+    guard_table,
     hold_direction,
     live_exam_rows,
     near_gate,
@@ -41,8 +44,14 @@ from analysis.slider2d.exam import (
     unused_e_field,
     visible_sweep,
 )
-from analysis.slider2d.sheet import leaky_cell
-from conceptmod.textsliders.slider_targets import lm_faithful_sub_e, lm_unit
+from analysis.slider2d.sheet import gender_cell, leaky_cell
+from conceptmod.textsliders.slider_targets import (
+    lm_blend_guard,
+    lm_blind_projector,
+    lm_faithful_guard_e,
+    lm_faithful_sub_e,
+    lm_unit,
+)
 from conceptmod.textsliders.train_lm_slider_music3 import parse_args
 
 
@@ -367,6 +376,139 @@ def test_the_rollout_averages_leak_away_which_is_why_the_sheet_scores_it():
     assert "leak" not in unused["axis"]
 
 
+# -- the two new techniques ----------------------------------------------
+
+
+def test_the_guard_decides_e_from_the_captions_alone_and_agrees_per_row():
+    rows = guard_table()
+    assert guard_is_uniform(rows) is True
+    by_cell = {}
+    for row in rows:
+        by_cell.setdefault(row["cell"], []).append(row)
+    # energy-v4: ê restates the axis, the ê-cleaned target drifts nearer the
+    # midpoint than the caption, and the guard keeps the caption.
+    for row in by_cell["divergent"]:
+        assert row["admits"] is False
+        assert row["to_pole"] > row["to_mid"]
+        assert row["teacher_used"] == "faithful"
+    # A real leftover: the subtraction is taken and costs little axis.
+    for row in by_cell["unused_e"]:
+        assert row["admits"] is True
+        assert row["to_pole"] < row["to_mid"]
+        assert row["axis_eaten"] < 0.15
+        assert row["teacher_used"] == "faithful_sub_e"
+    # gender-v4 declares no ê, so there is nothing to decide.
+    for row in by_cell["close"]:
+        assert row["declared_e"] is False
+        assert row["admits"] is None
+        assert row["teacher_used"] == "faithful"
+
+
+def test_faithful_guard_e_tops_both_live_pairs_and_keeps_the_leak_fix():
+    for name in CELLS:
+        row = cell(name)[f"faithful_guard_e"]
+        assert row["pass"] is True, f"{name}: {row['reason']}"
+    for pair in ("divergent", "close"):
+        row = cell(pair)["faithful_guard_e"]
+        assert min(row["roll_overlap"], row["roll_swing_kept"]) == pytest.approx(
+            1.0, abs=1e-6
+        )
+    # On a divergent pair the guard refuses, so the fit is the one the raw
+    # caption teacher makes — that is what "safe on both pair types" means,
+    # and it is the difference from ``faithful_sub_e``, which fails here.
+    guarded = cell("divergent")["faithful_guard_e"]
+    assert guarded["roll_swing_kept"] == pytest.approx(
+        cell("divergent")["faithful_raw"]["roll_swing_kept"], abs=1e-6
+    )
+    assert cell("divergent")["faithful_sub_e"]["pass"] is False
+    # On the leftover cell it is the ê-cleaned fit, so the leak the sheet
+    # charges ``faithful`` for is gone with no caption rewritten.
+    sheet = {row["name"]: row for row in leaky_cell(steps=STEPS)}
+    assert abs(sheet["v6_faithful"]["leak_tok"]) > 0.2
+    assert abs(sheet["faithful_guard_e"]["leak_tok"]) < 0.01
+    assert sheet["faithful_guard_e"]["pass"] is True
+    assert sheet["v6_faithful"]["pass"] is False
+    # And on a clean pair it is the caption teacher, unchanged.
+    clean = {row["name"]: row for row in gender_cell(steps=STEPS)}
+    assert clean["faithful_guard_e"]["pass"] is True
+    assert clean["faithful_guard_e"]["on_sheet_kept"] == pytest.approx(
+        clean["v6_faithful"]["on_sheet_kept"], abs=1e-3
+    )
+
+
+def test_dual_band_makes_the_close_pair_arrive_without_leaving_the_kl():
+    """What the live gender-v16 garble was missing, as one added term."""
+    close = cell("close")
+    kl = close["semantic_kl_poles"]
+    dual = close["dual_band_poles"]
+    assert kl["pass"] is False and dual["pass"] is True
+    assert kl["invisible_kept"] == pytest.approx(0.0, abs=1e-3)
+    assert dual["invisible_kept"] == pytest.approx(1.0, abs=1e-2)
+    assert kl["kl_small_hidden_far"] is True
+    assert dual["kl_small_hidden_far"] is False
+    assert dual["roll_swing_kept"] > 2 * kl["roll_swing_kept"]
+    # It does not cost the divergent pair anything: that one was already a
+    # live pass under plain KL.
+    assert cell("divergent")["dual_band_poles"]["pass"] is True
+    assert cell("divergent")["semantic_kl_poles"]["pass"] is True
+
+
+def test_the_new_loss_needs_a_caption_target_and_says_so():
+    """The control. Pinning the blind band does not rescue the midpoint."""
+    for pair in ("divergent", "close"):
+        row = cell(pair)["dual_band_midpoint"]
+        assert row["invisible_kept"] == pytest.approx(1.0, abs=1e-2)
+        assert row["is_caption"] is False
+    assert cell("divergent")["dual_band_midpoint"]["pass"] is False
+    assert cell("divergent")["dual_band_poles"]["pass"] is True
+
+
+def test_the_factorial_shows_both_halves_are_necessary():
+    rows = {(r["target"], r["pole_mode"]): r for r in factorial_table(steps=200)}
+    caption_kl = rows[("caption", "semantic_kl")]
+    caption_dual = rows[("caption", "dual_band")]
+    caption_mse = rows[("caption", "hidden")]
+    midpoint_dual = rows[("midpoint", "dual_band")]
+    # Blind band off, caption on: the close pair does not arrive.
+    assert caption_kl["close_pass"] is False
+    assert caption_kl["divergent_pass"] is True
+    # Blind band on, caption off: the divergent pair walks off its own words.
+    assert midpoint_dual["divergent_pass"] is False
+    # Both on: both pairs, by two different losses.
+    assert caption_dual["both"] is True
+    assert caption_mse["both"] is True
+    assert caption_dual["exam_score"] > caption_kl["exam_score"]
+    assert caption_dual["exam_score"] > midpoint_dual["exam_score"]
+
+
+def test_the_exam_readout_really_has_a_band_the_kl_cannot_see():
+    """Otherwise ``dual_band`` would be ``semantic_kl`` with extra words."""
+    for name in CELLS:
+        field = CELLS[name]()
+        blind = lm_blind_projector(field.readout().weight)
+        assert blind is not None, name
+        assert float(blind.trace()) == pytest.approx(1.0, abs=1e-3)
+        delivery = field.delivery_dir()
+        assert torch.allclose(blind @ delivery, delivery, atol=1e-5)
+
+
+def test_the_guard_is_the_live_function_and_not_a_second_rule():
+    divergent = divergent_field()
+    pos, neg, neu = divergent.poles(0)
+    e = divergent.declared_e()
+    from analysis.slider2d.exam import teacher_points
+
+    got = teacher_points(divergent, 0, teacher="faithful_guard_e", leak_dir=e)
+    want = lm_faithful_guard_e(pos, neg, neu, e, slider_dir=divergent.short_u())
+    assert torch.allclose(got[0], want[0]) and torch.allclose(got[1], want[1])
+    geom = target_geometry(divergent, teacher="faithful_sub_e", leak_dir=e)
+    guard = lm_blend_guard(
+        *lm_faithful_sub_e(pos, neg, neu, e, slider_dir=divergent.short_u()), pos, neg
+    )
+    assert geom["guard_admits"] is bool(guard["admissible"])
+    assert geom["guard_admits"] is False
+
+
 # -- the sweeps ----------------------------------------------------------
 
 
@@ -390,6 +532,21 @@ def test_the_kl_loss_is_solved_across_the_whole_visible_sweep():
     reach = first_above(sweep, "kl_swing", EXAM_ROLL_SWING, "visible_share")
     assert reach is not None
     assert reach > close_field().visible_share()
+
+
+def test_dual_band_holds_the_swing_where_the_kl_loses_it():
+    """The sweep is the mechanism claim: the blind band is what was missing."""
+    sweep = visible_sweep(steps=150)
+    assert all(r["dual_invisible_kept"] == pytest.approx(1.0, abs=1e-2) for r in sweep)
+    assert all(r["dual_swing"] >= EXAM_ROLL_SWING for r in sweep)
+    assert all(r["dual_pass"] for r in sweep)
+    # At the invisible end the KL has lost the axis and the dual band has not.
+    assert sweep[0]["kl_swing"] < EXAM_ROLL_SWING
+    assert sweep[0]["dual_swing"] > 2 * sweep[0]["kl_swing"]
+    # At the readable end they agree, because there is nothing blind left to
+    # add. A recipe that only differed at one end of this sweep would be a
+    # coincidence rather than a mechanism.
+    assert sweep[-1]["dual_swing"] == pytest.approx(sweep[-1]["kl_swing"], abs=0.1)
 
 
 # -- guardrails ----------------------------------------------------------
