@@ -278,10 +278,10 @@ So the campaign's best log and the off-sheet failure are the same fit.
   flip point at common share 0.40 is a property of
   this readout, not a measured live threshold — the falsifiable
   prediction is the *ordering*, not the number.
-- **Autoregressive sampling.** One next-token policy at the
-  audio-start position, never a rollout. Garble that only appears
-  after error accumulates over a hundred frames is invisible here,
-  and so is anything the flow transformer does downstream.
+- **Autoregressive sampling on *this* leftover cell.** The unused-
+  gender sheet is still one token. The live exam cells in
+  `analysis/slider2d/exam.py` add a teacher-forced step-1 and
+  `kl_small_hidden_far`. See [lm-2d-scoreboard.md](lm-2d-scoreboard.md).
 - **Semantic-code geometry.** Live the readout is the semantic band of
   `lm_head`, whose rows are not a hand-chosen basis. Whether real
   semantic-code rows anti-align with the shared caption component the
@@ -296,16 +296,13 @@ So the campaign's best log and the off-sheet failure are the same fit.
 
 `--pole_mode semantic_kl` and `--lm_target faithful_sub_e` are now
 live flags. The default is still `--lm_target v9` and
-`--pole_mode hidden` (`lm_slider_loss`, hidden MSE). The v16 card is
-gender: `--lm_target faithful --pole_mode semantic_kl` (no leak_*);
-leaky: `--lm_target faithful_sub_e --pole_mode semantic_kl` (leftover
-ê from YAML, hold 0). That is the wiring the fixture asked for —
-ê-cleaned *real pole* hiddens, and the semantic band of `lm_head`
-via `lm_semantic_pole_loss` / `lm_semantic_kl` /
-`lm_next_token_logits` — not "KL instead of MSE" onto the midpoint.
-`pair_odd_sub_e` stays the midpoint-minus-ê teacher. Do not retune
-the pair-odd early-stop gates to KL; `--no-early_stop` is the
-train-card choice.
+`--pole_mode hidden`. The leftover unused-gender cell on this page
+is **not** the energy stand-in. Live 2026-08-25: energy-v16
+(`semantic_kl` + `faithful_sub_e` on two tracks) garbled;
+energy-v18 (`semantic_kl` + `faithful` on those poles) sang;
+gender-v16 (the energy-v18 recipe on a close pair) garbled.
+The compiled board that ranks those three is
+[lm-2d-scoreboard.md](lm-2d-scoreboard.md).
 
 The cheapest next measurement needs no training and no new code path:
 encode the v4 pole and neutral captions with
@@ -327,12 +324,15 @@ as much as the caption and the midpoint do here.
   short-û-is-a-probe split. The student here borrows its `bend`.
 - [lm-live-cells.md](lm-live-cells.md) — the live gender / energy
   policy tables these two fields are shaped after.
+- [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — compiled exam board
+  (divergent two-track + close-pair rollout).
 
 ## How to run
 
 ```bash
 PYTHONPATH=. python analysis/slider2d/run_lm_sheet.py --out docs/lm-sheet-goodhart
-PYTHONPATH=. pytest tests/test_lm_sheet_goodhart.py -q
+PYTHONPATH=. python analysis/slider2d/run_lm_scoreboard.py --out docs/lm-2d-scoreboard
+PYTHONPATH=. pytest tests/test_lm_sheet_goodhart.py tests/test_lm_sheet_exam.py tests/test_lm_2d_scoreboard.py -q
 ```
 
 Seed `0`, `400` Adam steps, 3 prompt rows, 8 hidden dims, 9 tokens, nucleus `p = 0.9`.

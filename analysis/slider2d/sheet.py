@@ -121,6 +121,11 @@ ARGMAX_LOCK = 1.0
 # "Looks locked" in the live log's own terms.
 LOCK_LOOK_C_PLUS = 0.90
 LOCK_LOOK_COLLAPSE = -0.85
+# Live gender-v16: KL 0.0091 with p% / n% still 0.52 / 0.78. One-token
+# KL can look done while the hidden residual stays a large fraction of
+# the pole. Pair-odd cos is not this flag.
+KL_SMALL = 0.15
+HIDDEN_FAR = 0.40
 
 
 def common_share(probe_cos: float) -> float:
@@ -402,17 +407,19 @@ def sheets(field: SheetField, readout: Readout | None = None) -> list[Sheet]:
     return [row_sheet(field, head, r) for r in range(int(field.rows))]
 
 
-def corpus(book: list[Sheet]) -> frozenset[int]:
+def corpus(book: list[Sheet], *, include_written: bool = True) -> frozenset[int]:
     """Every token some real caption of this song supports.
 
     Union over rows and both signs, plus every written lyric. Anything
     outside is a word the song has no sheet for — the off-sheet region.
     Taking the union rather than one pole's nucleus keeps the off-sheet set
     from depending on argsort ties between the two poles' own words.
+    A continuation sheet can drop the written lyric: that token is the
+    first-token caption, not the verse the next step has to sing.
     """
     out: frozenset[int] = frozenset()
     for sheet in book:
-        out = out | sheet.anywhere()
+        out = out | (sheet.anywhere() if include_written else (sheet.plus | sheet.minus))
     return out
 
 
@@ -445,6 +452,9 @@ def hidden_sheet_report(
     *,
     readout: Readout | None = None,
     sheet_list: list[Sheet] | None = None,
+    concept_tokens: tuple[str, ...] | None = None,
+    leak_tokens: tuple[str, ...] | None = None,
+    include_written: bool = True,
 ) -> dict:
     """Sheet columns for a set of per-row ±1 hidden states.
 
@@ -454,10 +464,16 @@ def hidden_sheet_report(
     head = readout if readout is not None else field.readout()
     book = sheet_list if sheet_list is not None else sheets(field, head)
     off_sheet = frozenset(
-        i for i in range(len(head.tokens)) if i not in corpus(book)
+        i
+        for i in range(len(head.tokens))
+        if i not in corpus(book, include_written=include_written)
     )
-    slam, hush = (head.index(t) for t in CONCEPT_TOKENS)
-    male, female = (head.index(t) for t in LEAK_TOKENS)
+    plus_tok, minus_tok = concept_tokens if concept_tokens is not None else CONCEPT_TOKENS
+    leak_plus, leak_minus = leak_tokens if leak_tokens is not None else LEAK_TOKENS
+    slam, hush = head.index(plus_tok), head.index(minus_tok)
+    has_leak = leak_plus in head.tokens and leak_minus in head.tokens
+    male = head.index(leak_plus) if has_leak else None
+    female = head.index(leak_minus) if has_leak else None
     acc: dict[str, list[float]] = {}
     concept_swing: list[float] = []
     leak_swing: list[float] = []
@@ -481,12 +497,13 @@ def hidden_sheet_report(
                 (p_plus[slam] - p_plus[hush]) - (p_minus[slam] - p_minus[hush])
             )
         )
-        leak_swing.append(
-            0.5
-            * float(
-                (p_plus[male] - p_plus[female]) - (p_minus[male] - p_minus[female])
+        if has_leak:
+            leak_swing.append(
+                0.5
+                * float(
+                    (p_plus[male] - p_plus[female]) - (p_minus[male] - p_minus[female])
+                )
             )
-        )
         pos, neg, _neu = field.poles(row)
         kl_rows.append(
             0.5
@@ -497,8 +514,12 @@ def hidden_sheet_report(
     out: dict = {key: sum(vals) / len(vals) for key, vals in acc.items()}
     out["says"] = ",".join(said)
     out["concept_swing"] = sum(concept_swing) / len(concept_swing)
-    out["leak_swing"] = sum(leak_swing) / len(leak_swing)
-    out["leak_tok"] = out["leak_swing"] / (abs(out["concept_swing"]) + 1e-8)
+    if leak_swing:
+        out["leak_swing"] = sum(leak_swing) / len(leak_swing)
+        out["leak_tok"] = out["leak_swing"] / (abs(out["concept_swing"]) + 1e-8)
+    else:
+        out["leak_swing"] = 0.0
+        out["leak_tok"] = 0.0
     out["kl_pole"] = sum(kl_rows) / len(kl_rows)
     return out
 
@@ -798,6 +819,21 @@ def score_sheet(
     ceiling = teacher_swings(field, head)
     held = hold_direction(field, leak_dir)
     on_u = float(d_plus @ field.short_u())
+    pperc_rows: list[float] = []
+    for r in range(int(field.rows)):
+        t_plus, t_minus = teacher_points(
+            field, r, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+        )
+        neu_r = field.poles(r)[2]
+        pred_plus = neu_r + d_plus
+        pred_minus = neu_r + d_minus
+        pperc_rows.append(
+            float((pred_plus - t_plus).norm() / (t_plus - neu_r).norm().clamp_min(1e-8))
+        )
+        pperc_rows.append(
+            float((pred_minus - t_minus).norm() / (t_minus - neu_r).norm().clamp_min(1e-8))
+        )
+    pperc = sum(pperc_rows) / len(pperc_rows)
     row.update(
         {
             "name": name,
@@ -822,6 +858,12 @@ def score_sheet(
             "teacher_on_sheet": ceiling["on_sheet"],
             "teacher_garble": ceiling["garble"],
             "teacher_leak_tok": ceiling["leak_tok"],
+            # Live p% / n% : ||pred − tgt|| / ||tgt − neu||. KL-small
+            # while this stays high is the gender-v16 signature.
+            "pperc": pperc,
+            "kl_small_hidden_far": bool(
+                row["kl_pole"] <= KL_SMALL and pperc >= HIDDEN_FAR
+            ),
         }
     )
     row["axis"] = sheet_verdicts(row)

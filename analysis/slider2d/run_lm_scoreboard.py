@@ -17,9 +17,11 @@ _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+from analysis.slider2d.exam import live_exam_rows
 from analysis.slider2d.scoreboard import (
     FAILS,
     WORKS,
+    WORKS_ENERGY_ONLY,
     WORKS_GENDER_ONLY,
     collect_scoreboard,
     floatable_row,
@@ -40,50 +42,75 @@ def _fmt(value, spec: str, empty: str = "N/A") -> str:
 def _verdict_md(verdict: str) -> str:
     if verdict == WORKS:
         return "**works**"
+    if verdict == WORKS_ENERGY_ONLY:
+        return "works-on-energy-only"
     if verdict == WORKS_GENDER_ONLY:
         return "works-on-gender-only"
     return "**fails**"
 
 
+def _exam_mark(row: dict) -> str:
+    lives = row.get("exam") or row.get("live_runs") or []
+    return ", ".join(lives) if lives else ""
+
+
 TABLE_HEADER = (
-    "| recipe | leftover leak | on-sheet | kept | off-sheet | argmax | "
-    "swing | pair-odd cos *(log)* | ±1 *(log)* | intended cos | "
-    "c+ | perc | rich-kept | compiled |\n"
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    "| recipe | live exam | unused-gender leak *(log)* | divergent kept | "
+    "off-sheet | close rollout | pperc | KL-small / hidden-far | "
+    "pair-odd cos *(log)* | compiled |\n"
+    "|---|---|---:|---:|---:|---:|---:|---|---:|---|"
 )
 
 
 def _table_md(row: dict) -> str:
+    far = row.get("kl_small_hidden_far")
+    far_s = "yes" if far else ("no" if far is False else "N/A")
     return (
-        f"| `{row['id']}` | {_fmt(row['leftover_leak'], '+.3f')} | "
-        f"{_fmt(row['on_sheet'], '.3f')} | {_fmt(row['on_sheet_kept'], '.3f')} | "
-        f"{_fmt(row['off_sheet'], '.3f')} | {_fmt(row['argmax_on_sheet'], '.2f')} | "
-        f"{_fmt(row['swing_kept'], '.2f')} | {_fmt(row['pair_odd_cos'], '+.3f')} | "
-        f"{_fmt(row['collapse'], '+.3f')} | {_fmt(row['intended_cos'], '+.3f')} | "
-        f"{_fmt(row['trainer_c_plus'], '+.3f')} | {_fmt(row['perc'], '.0f')} | "
-        f"{_fmt(row['rich_kept'], '.2f')} | {_verdict_md(row['compiled'])} |"
+        f"| `{row['id']}` | {_exam_mark(row) or '—'} | "
+        f"{_fmt(row['leftover_leak'], '+.3f')} | "
+        f"{_fmt(row['on_sheet_kept'], '.3f')} | {_fmt(row['off_sheet'], '.3f')} | "
+        f"{_fmt(row.get('close_rollout_kept'), '.3f')} | "
+        f"{_fmt(row.get('pperc'), '.2f')} | {far_s} | "
+        f"{_fmt(row['pair_odd_cos'], '+.3f')} | {_verdict_md(row['compiled'])} |"
     )
 
 
+EXAM_HEADER = (
+    "| live run | recipe | cell | predicted | listen | match |\n"
+    "|---|---|---|---|---|---|"
+)
+
+
 def plot_scoreboard(rows: list[dict], path: Path) -> None:
-    fig, ax = plt.subplots(figsize=(8.4, 5.2))
+    fig, ax = plt.subplots(figsize=(8.6, 5.4))
     colors = {
         WORKS: "#1e8449",
+        WORKS_ENERGY_ONLY: "#1a5276",
         WORKS_GENDER_ONLY: "#b9770e",
         FAILS: "#c0392b",
     }
     for verdict, color in colors.items():
         pts = [r for r in rows if r["compiled"] == verdict]
-        xs = [0.0 if r["leftover_leak"] is None else r["leftover_leak"] for r in pts]
-        ys = [0.0 if r["on_sheet_kept"] is None else r["on_sheet_kept"] for r in pts]
-        ax.scatter(xs, ys, c=color, s=42, label=verdict, zorder=3)
+        xs = [0.0 if r["on_sheet_kept"] is None else r["on_sheet_kept"] for r in pts]
+        ys = [
+            0.0 if r.get("close_rollout_kept") is None else r["close_rollout_kept"]
+            for r in pts
+        ]
+        ax.scatter(xs, ys, c=color, s=48, label=verdict, zorder=3)
         for row, x, y in zip(pts, xs, ys):
-            ax.annotate(row["id"], (x, y), fontsize=6.4, xytext=(4, 3), textcoords="offset points")
-    ax.axvline(0.20, color="#7f8c8d", ls=":", lw=0.9)
+            mark = "*" if row.get("exam") else ""
+            ax.annotate(
+                f"{row['id']}{mark}",
+                (x, y),
+                fontsize=6.4,
+                xytext=(4, 3),
+                textcoords="offset points",
+            )
+    ax.axvline(0.90, color="#7f8c8d", ls=":", lw=0.9)
     ax.axhline(0.90, color="#7f8c8d", ls=":", lw=0.9)
-    ax.set_xlabel("leftover leak  (unused mix / BPM / gender)")
-    ax.set_ylabel("on-sheet kept  (N/A plotted at 0)")
-    ax.set_title("compiled gate: leak small and, when a sheet exists, stay on it")
+    ax.set_xlabel("divergent two-track on-sheet kept  (energy stand-in)")
+    ax.set_ylabel("close-pair rollout kept  (gender stand-in)")
+    ax.set_title("compiled exam gate: two-track sheet and close-pair rollout")
     ax.grid(alpha=0.25)
     ax.legend(fontsize=8)
     fig.tight_layout()
@@ -94,81 +121,110 @@ def plot_scoreboard(rows: list[dict], path: Path) -> None:
 def write_report(rows: list[dict], blob: dict, path: Path) -> None:
     gates = blob["gates"]
     winners = [r for r in rows if r["compiled"] == WORKS]
+    energy_only = [r for r in rows if r["compiled"] == WORKS_ENERGY_ONLY]
     gender_only = [r for r in rows if r["compiled"] == WORKS_GENDER_ONLY]
     fails = [r for r in rows if r["compiled"] == FAILS]
+    exam = blob.get("exam") or []
     lines = [
         "# 2-D / high-D / sheet scoreboard",
         "",
         "Generated by `analysis/slider2d/run_lm_scoreboard.py`. CPU only, no Hub,",
         "no GPU, no Music 3 weights. Does not change the live trainer default.",
         "",
-        "Every other cell in this repo scores one question. This page joins",
-        "those real fixture numbers into **one table** and applies one gate.",
-        "It does not invent a loss.",
+        "This is the #23 compiled board, updated in place against the",
+        "2026-08-25 Music 3 listens. The leftover unused-gender sheet is",
+        "still a column. It is no longer the energy stand-in.",
         "",
         "## The compiled gate",
         "",
         gates["prose"],
         "",
-        f"- leftover leak lock: `{gates['leak_lock']}`",
-        f"- on-sheet kept: `≥ {gates['sheet_lock']}`",
-        f"- off-sheet mass: `≤ {gates['garble_max']}`",
-        f"- argmax-on-sheet: `{gates['argmax_lock']:g}`",
-        f"- concept swing kept: `≥ {gates['swing_floor']}`",
+        f"- divergent on-sheet kept: `≥ {gates['sheet_lock']}`",
+        f"- off-sheet / blend mass: `≤ {gates['garble_max']}`",
+        f"- close-pair rollout kept: `≥ {gates['sheet_lock']}`",
+        f"- unused-gender leftover scored as energy: `False`",
         f"- pair-odd cos scored: `{gates['pair_odd_cos_scored']}`",
         f"- ±1 collapse scored: `{gates['collapse_scored']}`",
         "",
-        "A missing sheet column is N/A, not a free pass for a midpoint",
-        "teacher: those rows inherit the leftover sheet of `t± = h0 ± a`",
-        "because deleting `c` is a fact about the target point, not the",
-        "hidden width. High pair-odd cos cannot move a row up the table.",
+        "## Live exam (2026-08-25, mikkel main f8d71a8 / #24)",
+        "",
+        "Three listens. The board has to rank the matching fixture rows",
+        "the same way the ear did. Starred rows in the plot are these.",
+        "",
+        EXAM_HEADER,
+    ]
+    for row in exam:
+        match = "yes" if row.get("listen_match") else "NO"
+        lines.append(
+            f"| **{row['live']}** | `{row['scoreboard_id']}` "
+            f"(`{row['pole_mode']}` + `{row['teacher']}`) | {row['cell']} | "
+            f"**{row['predicted']}** | {row['listen']} | {match} |"
+        )
+    lines += [
+        "",
+        "Why those three land that way:",
+        "",
+        "- **energy-v16 / `faithful_sub_e` on two tracks.** Leftover ê is",
+        "  `Pop-punk mix, BPM 168` / `Ambient lullaby mix, BPM 52` — most",
+        "  of `pos−neg`. `mid ± â` with `mid = ½(h++h−)` is a third song.",
+        "  The student aims at the blend and sings off-caption.",
+        "- **energy-v18 / `faithful` on the same pair.** The poles *are*",
+        "  the genre/BPM ride. One-token KL has a huge first-token gap to",
+        "  match, so the student actually moves. Unused-gender leak inside",
+        "  a same-song pair is a different cell; it does not fail this one.",
+        "- **gender-v16 / the same KL recipe on a close pair.** First-token",
+        "  policies already nearly match (same song). KL looks done at",
+        "  p% 0.5–0.7 / loss ~0.01 while the hidden residual stays large.",
+        "  Teacher-forced step-1 still needs that residual and garbles.",
+        "  A cheap metric already sees it: `kl_small_hidden_far`",
+        "  (`kl_pole` ≤ 0.15 and live `pperc` ≥ 0.40).",
         "",
         "## Short verdict",
         "",
     ]
     if winners:
         names = ", ".join(f"`{r['id']}`" for r in winners)
-        cleaned = [r["id"] for r in winners if r["id"] in ("faithful_sub_e", "semantic_kl_sub_e")]
-        data_fix = [r["id"] for r in winners if r["id"] == "faithful_attrs"]
-        bits = [f"**Works, in order:** {names}."]
-        bits.append("Leftover leak is 0 and the caption sheet stays intact.")
-        if data_fix:
-            bits.append(
-                "`faithful_attrs` is the data fix: unused gender/BPM are pinned "
-                "in the captions, so leftover ê is not in the text."
-            )
-        if cleaned:
-            shown = " and ".join(f"`{n}`" for n in cleaned)
-            bits.append(
-                f"{shown} share the target (ê-cleaned real poles), not the loss."
-            )
-        lines.append(" ".join(bits))
+        lines.append(
+            f"**Works, in order:** {names}. Hidden MSE onto the *raw* poles "
+            "passes both exam cells. That is the untrained gender card "
+            "(`--lm_target faithful --pole_mode hidden`)."
+        )
     else:
-        lines.append("No recipe passed the compiled gate.")
+        lines.append("No recipe passed both exam cells.")
+    if energy_only:
+        names = ", ".join(f"`{r['id']}`" for r in energy_only)
+        lines.append(
+            f"**Works on energy only:** {names}. Divergent two-track sheet "
+            "holds (energy-v18 listen). Close-pair rollout does not "
+            "(gender-v16 listen)."
+        )
     if gender_only:
         names = ", ".join(f"`{r['id']}`" for r in gender_only)
         lines.append(
-            f"**Works on gender only:** {names}. On-sheet on a clean pair; "
-            "unused ê still rides along on leftover captions."
+            f"**Works on gender only:** {names}. Close pair sings; the "
+            "two-track cell does not."
         )
     lines += [
         "",
-        f"**Fails:** {len(fails)} recipes, including the live midpoint "
-        "(`pair_odd_midpoint` / `--lm_target v9`), `#20` "
-        "`pair_odd_sub_e` (leak 0, off-sheet), hub, hold-ê, and short-û "
-        "project. A perfect pair-odd lock is the failure mode.",
+        f"**Fails:** {len(fails)} recipes, including `faithful_sub_e` / "
+        "`semantic_kl_sub_e` on two tracks (energy-v16), the live midpoint "
+        "(`pair_odd_midpoint` / `--lm_target v9`), `#20` `pair_odd_sub_e`, "
+        "hub, and hold-ê. A perfect pair-odd lock is still the failure mode. "
+        "ê-cleaning a divergent pair is now a failure mode too.",
         "",
         "## Table",
         "",
-        "Sorted by compiled verdict, then leftover leak, then on-sheet mass.",
-        "Pair-odd cos and ±1 are **logged, never scored**.",
+        "Sorted by compiled verdict, then unused-gender leak, then divergent",
+        "on-sheet. Pair-odd cos, unused-gender leak, and ±1 are **logged,",
+        "never scored** as the energy stand-in. Exam rows are named in the",
+        "live-exam column.",
         "",
         TABLE_HEADER,
     ]
     lines += [_table_md(r) for r in rows]
     lines += [
         "",
-        "![leak vs on-sheet kept](lm-2d-scoreboard/scoreboard.png)",
+        "![divergent sheet vs close rollout](lm-2d-scoreboard/scoreboard.png)",
         "",
         "## What each row is",
         "",
@@ -190,32 +246,48 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         )
     lines += [
         "",
+        "## Why #23 ranked the exam backwards",
+        "",
+        "#23 scored leftover unused gender inside a *same-song* pair. On",
+        "that cell `faithful_sub_e` / `semantic_kl_sub_e` look perfect",
+        "(ê is unused, removing it keeps `c`) and `semantic_kl_poles`",
+        "fails for `leak_tok` (gender riding along). Live energy-v4 is the",
+        "other geometry: ê *is* the two tracks, so ê-cleaning *is* the",
+        "blend teacher, and genre/BPM movement is the slider.",
+        "",
+        "The leftover unused-gender cell is still computed. It is not the",
+        "energy stand-in and it cannot promote a row.",
+        "",
         "## Why pair-odd cos is not in the score",
         "",
-        "On the leftover sheet, `v9_hidden` prints `cos(d+, a) = +1.000`",
-        "and `cos(d+, d−) = −1.000` while keeping about a third of the",
-        "caption's on-sheet mass. `faithful_sub_e` and",
-        "`semantic_kl_sub_e` print worse pair-odd numbers and pass.",
-        "`pair_odd_sub_e` drives leftover leak to 0 and stays off-sheet.",
-        "The compiled sort therefore cannot use that cosine.",
+        "A perfect `cos(d+, a)` / `cos(d+, d−)` is the midpoint recipe that",
+        "garbled live (v15 / v9). Pair-odd lock is logged, never scored.",
+        "",
+        "## Next live card",
+        "",
+        "If the board's overall winners have not been trained on gender-v4,",
+        "train **gender `--lm_target faithful --pole_mode hidden`** (hold 0,",
+        "no leak_*). That is `faithful_raw` / `hidden_beta1` here: hidden",
+        "MSE pins the continuation dim that one-token KL leaves behind.",
+        "Do not change the trainer default (`v9` / `hidden`). Do not rewrite",
+        "energy-v4 yamls. energy-v18 already showed `semantic_kl` +",
+        "`faithful` listens on the divergent pair.",
         "",
         "## Related cells",
         "",
-        "- [lm-sheet-goodhart.md](lm-sheet-goodhart.md) — the sheet readout",
-        "  and the four locked recipes.",
+        "- [lm-sheet-goodhart.md](lm-sheet-goodhart.md) — one-token sheet",
+        "  and the leftover unused-gender cell.",
         "- [lm-live-cells.md](lm-live-cells.md) — gender-like vs energy-like",
         "  hidden leak.",
         "- [lm-highd-leftover.md](lm-highd-leftover.md) — leftover ê, λ·D/2,",
         "  trainer c+.",
-        "- [lm-rich-2d.md](lm-rich-2d.md) — project short û vs rich û.",
         "- [lm-faithful-2d.md](lm-faithful-2d.md) — raw poles vs attributes.",
-        "- [lm-hold-overlap.md](lm-hold-overlap.md) — hold-ê raw vs ê_⊥û.",
         "",
         "## How to run",
         "",
         "```bash",
         "PYTHONPATH=. python analysis/slider2d/run_lm_scoreboard.py --out docs/lm-2d-scoreboard",
-        "PYTHONPATH=. pytest tests/test_lm_2d_scoreboard.py -q",
+        "PYTHONPATH=. pytest tests/test_lm_2d_scoreboard.py tests/test_lm_sheet_exam.py tests/test_lm_sheet_goodhart.py -q",
         "```",
         "",
         "CPU only. No Hub, no GPU, no Music 3 weights.",
@@ -241,12 +313,14 @@ def main(argv: list[str] | None = None) -> int:
         sheet_steps=args.sheet_steps, other_steps=args.other_steps, seed=args.seed
     )
     rows = sort_rows(rows)
+    exam = live_exam_rows(steps=args.sheet_steps, seed=args.seed)
     blob = {
         "sheet_steps": args.sheet_steps,
         "other_steps": args.other_steps,
         "seed": args.seed,
         "gates": gates_blob(),
         "rows": [floatable_row(r) for r in rows],
+        "exam": exam,
         "live_default_unchanged": True,
     }
     (out / "metrics.json").write_text(json.dumps(blob, indent=2) + "\n", encoding="utf-8")
