@@ -117,5 +117,6 @@ sits partly off û, and trainer c+ has a ceiling below gender's 0.97:
 Both cells also score a high `cos_intended` as success, and neither
 can ask whether the teacher point is a caption the LM would ever
 produce. The pair-odd midpoint is not, and that is what garbles the
-lyric: [lm-sheet-goodhart.md](lm-sheet-goodhart.md).
+lyric: [lm-sheet-goodhart.md](lm-sheet-goodhart.md). The compiled
+join of leak + sheet is [lm-2d-scoreboard.md](lm-2d-scoreboard.md).
 

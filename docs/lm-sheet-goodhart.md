@@ -316,6 +316,8 @@ as much as the caption and the midpoint do here.
 
 ## Related cells
 
+- [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — one compiled table of
+  every scored 2-D / high-D / sheet recipe, with this cell's gate.
 - [lm-v9-2d.md](lm-v9-2d.md) — the pair-odd teacher and hold-ê on the
   orthonormal 2-D field, where a perfect lock is the success metric.
 - [lm-faithful-2d.md](lm-faithful-2d.md) — why raw-pole MSE (v6) was
