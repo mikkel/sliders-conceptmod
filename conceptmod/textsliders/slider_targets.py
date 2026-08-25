@@ -621,6 +621,113 @@ def lm_semantic_kl(pred_logits: torch.Tensor, tgt_logits: torch.Tensor) -> torch
     )
 
 
+NULL_PIN_WEIGHT = 1.0
+
+
+def lm_readout_null_pin(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    readout: torch.Tensor,
+) -> torch.Tensor:
+    """Mean-squared residual in the kernel of a next-token readout.
+
+    ``readout`` is ``[V, D]``. Semantic KL is a function of
+    ``readout @ hidden``, so it has exactly zero gradient on
+    ``ker(readout)``. That kernel is where a close pair hides its axis
+    (delivery / vocal detail the semantic band does not read at
+    ``<|audio_start|>``). This term pins that block to the teacher
+    hidden without also forcing the visible coords to match in MSE —
+    those stay on the KL.
+    """
+    if readout.ndim != 2:
+        raise ValueError(f"readout must be [V, D], got {tuple(readout.shape)}")
+    delta = (pred - tgt).reshape(-1)
+    # Orthogonal projection of ``delta`` onto range(Wᵀ) = the row space.
+    # ``lstsq(Wᵀ, δ)`` is the min-‖c‖ fit; Wᵀc is then the visible part.
+    visible = readout.transpose(-1, -2) @ torch.linalg.lstsq(
+        readout.transpose(-1, -2), delta
+    ).solution
+    return (delta - visible).pow(2).mean()
+
+
+def lm_hybrid_kl_null_loss(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    readout: torch.Tensor,
+    *,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+    pin_weight: float = NULL_PIN_WEIGHT,
+) -> torch.Tensor:
+    """Semantic KL on the readout plus MSE on the part it cannot see.
+
+    Not hidden MSE (that pins the visible coords too) and not bare
+    semantic KL (that leaves the close-pair axis at 0). One recipe for
+    a divergent pair, where the scored token already sees the tracks,
+    and a close pair, where it does not.
+    """
+    pole = lm_semantic_pole_loss(
+        lm_next_token_logits(pred_plus, readout),
+        lm_next_token_logits(pred_minus, readout),
+        lm_next_token_logits(tgt_plus, readout),
+        lm_next_token_logits(tgt_minus, readout),
+        hold=hold,
+        hold_weight=hold_weight,
+    )
+    pin = 0.5 * (
+        lm_readout_null_pin(pred_plus, tgt_plus, readout)
+        + lm_readout_null_pin(pred_minus, tgt_minus, readout)
+    )
+    return pole + float(pin_weight) * pin
+
+
+def lm_unrolled_semantic_pole_loss(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    readout: torch.Tensor,
+    transition: torch.Tensor,
+    *,
+    unroll_steps: int = 1,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+) -> torch.Tensor:
+    """Semantic KL at token 0 and after each residual-mix step.
+
+    ``transition`` is the frozen mix that carries readout-invisible
+    content into the scored band (the pair-exam ``A = I + mix·(û⊗d̂)``).
+    One-token KL has no gradient on that content; after the mix it
+    does, so a close pair's delivery axis becomes a real teaching
+    signal without a hidden MSE term.
+    """
+    if int(unroll_steps) < 0:
+        raise ValueError(f"unroll_steps must be ≥ 0, got {unroll_steps!r}")
+    p_plus, p_minus = pred_plus, pred_minus
+    t_plus, t_minus = tgt_plus, tgt_minus
+    total = None
+    for k in range(int(unroll_steps) + 1):
+        if k > 0:
+            p_plus = transition @ p_plus
+            p_minus = transition @ p_minus
+            t_plus = transition @ t_plus
+            t_minus = transition @ t_minus
+        term = lm_semantic_pole_loss(
+            lm_next_token_logits(p_plus, readout),
+            lm_next_token_logits(p_minus, readout),
+            lm_next_token_logits(t_plus, readout),
+            lm_next_token_logits(t_minus, readout),
+        )
+        total = term if total is None else total + term
+    pole = total / float(int(unroll_steps) + 1)
+    hold_w = float(hold_weight)
+    if hold_w > 0.0 and hold is not None:
+        pole = pole + hold_w * hold
+    return pole
+
+
 def lm_semantic_pole_loss(
     pred_plus_logits: torch.Tensor,
     pred_minus_logits: torch.Tensor,

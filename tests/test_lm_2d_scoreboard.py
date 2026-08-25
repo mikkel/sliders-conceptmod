@@ -337,3 +337,25 @@ def test_the_live_default_is_still_v9_on_hidden_mse():
     assert args.common_beta == 0.0
     assert "v9" in LM_RECIPES
     assert "semantic_kl" in POLE_MODES
+    assert "semantic_kl_pin" in POLE_MODES
+    pin = parse_args(
+        ["--prompts", "x.yaml", "--lm_target", "faithful", "--pole_mode", "semantic_kl_pin"]
+    )
+    assert pin.lm_target == "faithful"
+    assert pin.pole_mode == "semantic_kl_pin"
+    assert pin.null_pin_weight == 1.0
+
+
+def test_the_new_caption_plus_pin_recipes_top_exam_score():
+    """Not a rename of faithful_raw: different loss, same exam_score band."""
+    ids = by_id()
+    for name in ("semantic_kl_pin", "unrolled_kl"):
+        row = ids[name]
+        assert row["exam_score"] is not None
+        assert row["exam_score"] >= 0.95
+        assert row["cells"]["exam_divergent"] is True
+        assert row["cells"]["exam_close"] is True
+        assert row["predicts"] == {}
+    order = [r["id"] for r in board()]
+    assert order.index("semantic_kl_pin") < order.index("semantic_kl_poles")
+    assert order.index("unrolled_kl") < order.index("semantic_kl_poles")
