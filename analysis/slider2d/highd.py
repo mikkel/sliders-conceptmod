@@ -68,8 +68,9 @@ LIVE_GENDER_LOSS = 0.009
 # Same-loudness rewrite of the leak captions: loss 278 by step 13.
 LIVE_SPIKE_LOSS = 278.0
 
-# ±1 response asymmetry implied by the two live collapse logs.
-BEND_GENDER = 0.18
+# ±1 response asymmetry implied by the two live collapse logs:
+# bend = √((1+collapse)/(1−collapse)) for a pure rotation.
+BEND_GENDER = 0.16
 BEND_ENERGY = 1.20
 
 # Live-like split of the pair-odd: 37% on the short caption axis, the
@@ -80,7 +81,7 @@ DEFAULT_DIM = 8
 
 HOLD_LAMBDAS = (0.0, 0.3, 1.0, 8.0)
 DIM_GRID = (2, 4, 8, 16, 64, 1024)
-BEND_GRID = (0.0, 0.18, 0.5, 1.0, 1.2, 1.5)
+BEND_GRID = (0.0, BEND_GENDER, 0.5, 1.0, BEND_ENERGY, 1.5)
 COVER_GRID = (0.0, 0.25, 0.5, 0.75, 0.9, 1.0)
 
 SLIDER_LOCK = 0.90
@@ -174,6 +175,7 @@ class HighDLeakField:
     leftover: float = DEFAULT_LEFTOVER
     scale: float = CONCEPT_SCALE
     bend: float = 0.0
+    bend_parallel: float = 0.0
     seed: int = 0
 
     def __post_init__(self) -> None:
@@ -351,14 +353,19 @@ class BendResidual:
     """``δ(s) = s·w + bend·G w`` — a stack whose ±1 replies are not mirrors.
 
     ``bend = 0`` is every existing 2-D cell: exactly odd in the slider
-    scale, so ``cos(d+, d−) = −1`` by construction. ``free_even`` adds
-    the ``odd_even`` residual's free ``|s|·w_even`` term; the pole MSE
-    and the hold are both even in it, so it never leaves zero.
+    scale, so ``cos(d+, d−) = −1`` by construction. The even reply has
+    norm ``bend·||w||`` and ``parallel`` splits it between a gain
+    (``+1`` and ``−1`` pushing different distances along the same
+    direction) and a rotation (⊥ ``w``, taken from a fixed ``G``).
+    ``free_even`` adds the ``odd_even`` residual's free ``|s|·w_even``
+    term; the pole MSE and the hold are both even in it, so it never
+    leaves zero.
     """
 
     w: torch.Tensor
     gate: torch.Tensor
     bend: float = 0.0
+    parallel: float = 0.0
     w_even: torch.Tensor | None = None
 
     @classmethod
@@ -367,13 +374,21 @@ class BendResidual:
             torch.zeros(int(field.dim), requires_grad=True),
             field.gate_matrix(),
             float(field.bend),
+            float(field.bend_parallel),
             torch.zeros(int(field.dim), requires_grad=True) if free_even else None,
         )
 
     def even(self) -> torch.Tensor:
         out = torch.zeros_like(self.w)
         if float(self.bend) != 0.0:
-            out = out + float(self.bend) * (self.gate @ self.w)
+            par = float(self.parallel)
+            norm = self.w.norm().clamp_min(1e-8)
+            along = self.w / norm
+            spun = self.gate @ self.w
+            across = spun - (spun @ along) * along
+            across = across / across.norm().clamp_min(1e-8)
+            direction = par * along + (1.0 - par * par) ** 0.5 * across
+            out = out + float(self.bend) * norm * direction
         if self.w_even is not None:
             out = out + self.w_even
         return out
@@ -392,6 +407,7 @@ class BendResidual:
             self.w.detach().clone(),
             self.gate,
             self.bend,
+            self.parallel,
             None if self.w_even is None else self.w_even.detach().clone(),
         )
 
@@ -493,13 +509,20 @@ def fit_metrics(
     d_plus = residual.delta(1.0)
     d_minus = residual.delta(-1.0)
     perc = float((d_plus - a).norm() / a.norm().clamp_min(1e-8))
+    perc_minus = float((d_minus + a).norm() / a.norm().clamp_min(1e-8))
+    norm_plus = float(d_plus.norm())
+    norm_minus = float(d_minus.norm())
     return {
         "loss": float(loss),
         "c_plus": cosine(d_plus, a),
         "c_minus": cosine(d_minus, -a),
         "collapse": cosine(d_plus, d_minus),
         "perc": perc,
-        "norm_plus": float(d_plus.norm()),
+        "perc_minus": perc_minus,
+        "norm_plus": norm_plus,
+        "norm_minus": norm_minus,
+        # Live logs pperc / nperc per pole; an even reply shows up here first.
+        "norm_ratio": norm_plus / max(norm_minus, 1e-8),
         "neutral_norm": float(neu.norm()),
     }
 
@@ -969,16 +992,139 @@ def polarity_grid(
 
 
 def bend_for_collapse(collapse: float) -> float:
-    """``bend`` implied by a logged ±1 cosine, for ``G w ⊥ w``.
+    """``bend`` implied by a logged ±1 cosine, for a pure rotation.
 
-    ``cos(d+, d−) = (b² − 1)/(b² + 1)`` → ``b = √((1+c)/(1−c))``. The
-    fitted ``w`` is only generically orthogonal to ``G w``, so this is
-    an estimate (within ~15% on the swept rows), not an identity.
+    With ``d± = ±w + b·||w||·q̂``, ``q̂ ⊥ w``:
+    ``cos(d+, d−) = (b² − 1)/(b² + 1)`` → ``b = √((1+c)/(1−c))``.
+    A gain share (``parallel > 0``) makes the same collapse need a
+    larger ``bend``, so this is a lower bound on the asymmetry.
     """
     c = float(collapse)
     if not -1.0 <= c < 1.0:
         raise ValueError(f"collapse must be in [-1, 1), got {collapse!r}")
     return ((1.0 + c) / (1.0 - c)) ** 0.5
+
+
+PARALLEL_GRID = (0.0, 0.2, 0.4, 0.5, 0.6, 0.65, 0.7, 0.8)
+ANALOGUE_BENDS = tuple(0.4 + 0.4 * i for i in range(14))
+
+
+def _bent_row(
+    name: str,
+    *,
+    bend: float,
+    parallel: float,
+    hold_weight: float = LEAK_HOLD_WEIGHT,
+    dim: int = DEFAULT_DIM,
+    steps: int = 400,
+    seed: int = 0,
+    e_label: str = "synonym ê",
+) -> dict:
+    field = energy_field(dim=int(dim))
+    field = HighDLeakField(
+        dim=field.dim,
+        align=field.align,
+        content=field.content,
+        leftover=field.leftover,
+        scale=field.scale,
+        bend=float(bend),
+        bend_parallel=float(parallel),
+        seed=field.seed,
+    )
+    row = score_highd(
+        name,
+        field,
+        leak_dir=synonym_e(field),
+        hold_weight=hold_weight,
+        e_label=e_label,
+        steps=steps,
+        seed=seed,
+    )
+    row["bend_parallel"] = float(parallel)
+    return row
+
+
+def calibrate_bend(
+    target_collapse: float,
+    *,
+    parallel: float = 0.0,
+    hold_weight: float = LEAK_HOLD_WEIGHT,
+    dim: int = DEFAULT_DIM,
+    steps: int = 400,
+    seed: int = 0,
+    tol: float = 1e-3,
+    max_iter: int = 32,
+) -> float:
+    """±1 asymmetry that reproduces a logged collapse on this cell.
+
+    Collapse is monotone in ``bend`` for a pure rotation
+    (``parallel = 0``), so bisect. Mixed gain / rotation is not
+    monotone — use ``live_v14_analogue``, which searches. The fixture
+    cannot derive the live value either way: it reads it off the log.
+    """
+    lo, hi = 0.0, 16.0
+
+    def collapse_at(bend: float) -> float:
+        return _bent_row(
+            "calibrate",
+            bend=bend,
+            parallel=parallel,
+            hold_weight=hold_weight,
+            dim=dim,
+            steps=steps,
+            seed=seed,
+        )["collapse"]
+
+    if collapse_at(hi) < float(target_collapse):
+        raise ValueError(f"collapse {target_collapse!r} is out of reach at bend ≤ {hi}")
+    for _ in range(int(max_iter)):
+        mid = 0.5 * (lo + hi)
+        if collapse_at(mid) < float(target_collapse):
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < tol:
+            break
+    return 0.5 * (lo + hi)
+
+
+def live_v14_analogue(
+    *,
+    parallels: Iterable[float] = PARALLEL_GRID,
+    bends: Iterable[float] = ANALOGUE_BENDS,
+    steps: int = 300,
+    seed: int = 0,
+) -> tuple[dict, list[dict]]:
+    """Closest analogue of the live energy-v14 log this field can make.
+
+    Searches the ±1 asymmetry — its size ``bend`` and its gain /
+    rotation split — for the cell whose ``(collapse, c+)`` is nearest
+    the live pair. Both live numbers are inputs: the fixture reads the
+    stack's asymmetry off the log, it does not predict it.
+    """
+    rows = []
+    for parallel in parallels:
+        for bend in bends:
+            row = _bent_row(
+                f"analogue_par{parallel:g}_b{bend:g}",
+                bend=float(bend),
+                parallel=float(parallel),
+                steps=steps,
+                seed=seed,
+                e_label=(
+                    f"synonym ê, ±1 asymmetry {bend:g} "
+                    f"({parallel:g} gain / {1.0 - float(parallel):g} rotation)"
+                ),
+            )
+            row["calibrated_bend"] = float(bend)
+            rows.append(row)
+
+    def miss(row: dict) -> float:
+        return (row["collapse"] - LIVE_COLLAPSE) ** 2 + (row["c_plus"] - LIVE_C_PLUS) ** 2
+
+    best = dict(min(rows, key=miss))
+    best["name"] = "energy_live_v14_analogue"
+    return best, rows
 
 
 def compact(row: dict) -> dict:

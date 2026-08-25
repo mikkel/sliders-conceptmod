@@ -15,13 +15,35 @@ default is untouched.
 
 **λ=8 is not a portable number, and it was never the knob.** `F.mse_loss` averages over the hidden width, `lm_axis_hold` does not, so the fit keeps `a_ê/(1 + λ·D/2)`. λ=8 on a 2-D cell is a stiffness of 8; on a D=1024 hidden state it is 4096. At that width λ ∈ {0.3, 1, 8} all land on the same residual (c+ 0.549 / 0.543 / 0.541, ceiling 0.541). Dropping to `--hold_weight 1` buys stiffness, not less leak.
 
-**Trainer c+ cannot stay at 0.97 if the hold works.** With `p = |â·ê̂_⊥|` the ceiling is `√(1−p²)`. Gender-like keeps no ê, so p=0 and c+ +0.985 — that is "I copied pair-odd", not "the slider locked". The energy synonym ê has p=0.84, so a working hold must print c+ +0.580. Live energy-v14 logged c+ 0.31 against a caption-axis gate of 0.37: that is the hold doing its job on a synonym ê, not the hold failing.
+**Trainer c+ cannot stay at 0.97 if the hold works.** With `p = |â·ê̂_⊥|` the ceiling is `√(1−p²)`. Gender-like keeps no ê, so p=0 and c+ +0.987 — that is "I copied pair-odd", not "the slider locked". The energy synonym ê has p=0.84, so a working hold must print c+ +0.580. Live energy-v14 logged c+ 0.31 against a caption-axis gate of 0.37: that is the hold doing its job on a synonym ê, not the hold failing.
 
 **What actually failed live is ê's wording.** The hold eats one direction. On the synonym ê that direction is 92% concept content, so cos to the short probe *rises* to +0.684 while cos to the concept falls to +0.144 and 54% of the leak survives. A 2-D field cannot show that split — there û and the concept are one axis (same cell in 2-D: cos û +0.988, cos concept +0.988, leak +0.155, **PASS**).
 
 **The ±1 break is not geometry.** With a symmetric pair-odd teacher and any residual linear in the slider scale, the pole MSE splits into `|w_odd − a|² + |w_even|²` and the hold splits the same way, so `w_even` never leaves 0 and `cos(d+, d−) = −1`. 45 cells with a *free* even parameter — D up to 64, λ up to 1024, tiny and messy ê_⊥ — all print collapse -1.000000. Live ±1 goes through the stack twice; SwiGLU gating makes those replies non-mirror. `bend` is that asymmetry, and collapse -0.95 → bend 0.16, collapse +0.18 → bend 1.20. Live energy-v14's `+0.18` says the even reply outgrew the odd reply — the LoRA left its linear regime. No ê and no λ in this fixture does that.
 
 **Recommendation.** Leftover-only ê is right on direction and is the canary for *that*: at λ=1 it is bipolar (-1.000), trainable (loss 0.099), keeps the concept (+0.884) and still leaves leak +0.529 — λ=8 barely moves it (+0.504), because the leftover a single caption pair does not name survives any λ. It is *not* a canary for the stiffness that broke ±1. `pair_odd_sub_e` on the same ê lands on the same residual (c+ +0.809 vs +0.822, leak +0.503 vs +0.504) with loss 0.000 and no stiffness at all: it is the hold's λ→∞ limit reached in one step. Ship leftover-only ê with `--hold_weight 1` to test the wording; then move the axis into the teacher (`pair_odd_sub_e`, subtracting **ê_⊥**, not raw ê) as the PR.
+
+## The live signature, side by side
+
+Two rows are calibrated, not predicted: gender-like takes the ±1
+asymmetry implied by its own collapse log (bend 0.16), and
+the energy analogue searches the asymmetry — size and gain / rotation
+split — nearest the live `(c+, ±1)` pair. Everything else in both rows
+is the geometry.
+
+| number | live gender-v14 | fixture | live energy-v14 | fixture analogue |
+|---|---:|---:|---:|---:|
+| caption-axis gate `\|odd·û\|/\|\|odd\|\|` | 1.00 (clean pair) | 1.00 | 0.37 | 0.37 |
+| trainer c+ | 0.97 | +0.987 | 0.31 | +0.375 |
+| collapse | -0.95 | -0.950 | +0.18 | +0.180 |
+| loss | 0.009 | 0.009 | not in the 0.02 band | 0.314 |
+| hold λ | 0 (no ê) | 0 | 8 | 8 |
+| ±1 asymmetry | — | 0.16 | — | 1.2 (0 gain / 1 rotation) |
+| ‖d+‖ / ‖d−‖ | — | 1.00 | — | 1.00 |
+
+The gender row lands all three of its live numbers. The energy search lands the collapse at bend 1.2 and gets c+ +0.375 against a logged 0.31, with the whole rest of the row — gate, λ, ê, D — untouched. Both live energy numbers are therefore consistent with one thing: an even reply 1.2× the odd reply, on top of a hold that is otherwise doing exactly what the closed form says.
+
+The search prefers a pure rotation (0 gain), which predicts the two poles move by the *same* amount: ‖d+‖/‖d−‖ = 1.00. That is checkable without a new run — the trainer already writes `pperc` and `nperc` per step in `<name>_train.jsonl`. A gain share raises c+ at the same collapse and splits the two poles (at bend 1.2, 0.6 gain: c+ +0.503, ‖d+‖/‖d−‖ 1.97), so if energy-v14's two poles moved by very different amounts the asymmetry is bigger than 1.2 and part of it is gain. Read those two columns before spending a run on ê.
 
 ## Field
 
@@ -36,14 +58,17 @@ a = 1.20 · unit(0.37 û + 0.62 concept + 0.69 leftover)
 ê = on_u · û + on_content · concept + on_leftover · leftover
 ê_⊥ = ê − (ê·û)û            what lm_axis_hold renormalizes and holds
 p  = |â · ê̂_⊥|              the share of the teacher the hold removes
-δ(s) = s·w + bend·G w       ±1 replies of a stack, G fixed orthogonal
+
+δ(s) = s·w + bend·(par·w + √(1−par²)·G w)      ±1 replies of a stack
+                            bend = size of the even reply, par = the
+                            gain share of it, G fixed orthogonal
 ```
 
 ## Live bullets, one row each
 
 | cell | ê | D | λ | λ·D/2 | bend | p | c+ | c+ pred | c+ ceil | cos û | cos concept | leak | leak kept | ±1 | perc% | loss | verdict |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `gender_like_no_e` | none (clean pair) | 8 | 0 | 0 | 0.18 | 0.00 | +0.985 | +1.000 | 1.00 | +0.985 | +0.985 | +0.174 | 0.00 | -0.950 | 19 | 0.011 | **PASS** |
+| `gender_like_no_e` | none (clean pair) | 8 | 0 | 0 | 0.16 | 0.00 | +0.987 | +1.000 | 1.00 | +0.987 | +0.987 | +0.160 | 0.00 | -0.950 | 16 | 0.009 | **PASS** |
 | `energy_2d_synonym_l8` | synonym ê on the 2-D field | 2 | 8 | 8 | 0 | 0.81 | +0.700 | +0.700 | 0.58 | +0.988 | +0.988 | +0.155 | 0.11 | -1.000 | 72 | 0.846 | **PASS** |
 | `energy_highd_pair_odd` | none (v9 with no leak pair) | 8 | 0 | 0 | 0 | 0.00 | +1.000 | +1.000 | 1.00 | +0.370 | +0.723 | +0.956 | 1.00 | -1.000 | 0 | 0.000 | **FAIL** |
 | `energy_highd_synonym_l8` | synonym ê | 8 | 8 | 32 | 0 | 0.84 | +0.580 | +0.580 | 0.54 | +0.684 | +0.144 | +4.774 | 0.54 | -1.000 | 82 | 0.247 | **FAIL** |
@@ -56,8 +81,8 @@ p  = |â · ê̂_⊥|              the share of the teacher the hold removes
 | `energy_highd_sub_e_synonym` | synonym ê_⊥ subtracted from a | 8 | 0 | 0 | 0 | 0.84 | +0.541 | +0.541 | 0.54 | +0.685 | +0.107 | +6.265 | 0.52 | -1.000 | 84 | 0.000 | **FAIL** |
 | `energy_highd_sub_e_leftover` | leftover-only ê_⊥ subtracted from a | 8 | 0 | 0 | 0 | 0.59 | +0.809 | +0.809 | 0.81 | +0.458 | +0.893 | +0.503 | 0.53 | -1.000 | 59 | 0.000 | **FAIL** |
 | `energy_highd_sub_raw_e_leftover` | leftover-only raw ê subtracted from a | 8 | 0 | 0 | 0 | 0.59 | +0.796 | +0.809 | 0.81 | +0.427 | +0.889 | +0.515 | 0.53 | -1.000 | 61 | 0.000 | **FAIL** |
-| `energy_bend_synonym_l8` | synonym ê, bend 1.2 | 8 | 8 | 32 | 1.2 | 0.84 | +0.010 | +0.580 | 0.54 | -0.209 | +0.025 | +39.214 | 0.19 | +0.310 | 101 | 0.316 | **FAIL** |
-| `energy_bend_leftover_l1` | leftover-only ê, bend 1.2 | 8 | 1 | 4 | 1.2 | 0.59 | +0.485 | +0.885 | 0.81 | +0.117 | +0.341 | +2.747 | 0.53 | +0.201 | 88 | 0.247 | **FAIL** |
+| `energy_bend_synonym_l8` | synonym ê, bend 1.2 | 8 | 8 | 32 | 1.2 | 0.84 | +0.284 | +0.580 | 0.54 | +0.376 | +0.059 | +15.376 | 0.43 | +0.180 | 96 | 0.319 | **FAIL** |
+| `energy_bend_leftover_l1` | leftover-only ê, bend 1.2 | 8 | 1 | 4 | 1.2 | 0.59 | +0.664 | +0.885 | 0.81 | +0.315 | +0.568 | +1.449 | 0.60 | +0.180 | 77 | 0.254 | **FAIL** |
 
 `p`, `c+ pred` and `perc` are closed form:
 
@@ -73,8 +98,8 @@ a geometry statement, not a training artifact.
 
 Two flags separate the confusions this table exists for:
 
-- `looks_like_v12` — c+ ≥ 0.90, i.e. the residual copied the pair-odd whole. True on `gender_like_no_e` (+0.985) and on `energy_highd_pair_odd` (+1.000, leak kept 1.00 — v12 / Hub are not leak-free). False on every working hold, including the 2-D **PASS** row (+0.700, perc 72%). A hold that leaves c+ at gender's 0.97 has not held anything.
-- `hold_explains_c_plus` — measured c+ is within 0.06 of the closed form. True for every linear row, false for both bend rows (`energy_bend_synonym_l8` +0.010 vs predicted +0.580). That is the discriminator: a low c+ inside the closed form is the hold working; a low c+ *below* it is the stack, not ê.
+- `looks_like_v12` — c+ ≥ 0.90, i.e. the residual copied the pair-odd whole. True on `gender_like_no_e` (+0.987) and on `energy_highd_pair_odd` (+1.000, leak kept 1.00 — v12 / Hub are not leak-free). False on every working hold, including the 2-D **PASS** row (+0.700, perc 72%). A hold that leaves c+ at gender's 0.97 has not held anything.
+- `hold_explains_c_plus` — measured c+ is within 0.06 of the closed form. True for every linear row, false for both bend rows (`energy_bend_synonym_l8` +0.284 vs predicted +0.580). That is the discriminator: a low c+ inside the closed form is the hold working; a low c+ *below* it is the stack, not ê.
 
 ## λ is not portable across hidden width
 
@@ -147,15 +172,15 @@ carry off that direction survives every λ.
 | bend | energy synonym ê λ=8: c+ / ±1 / cos concept | gender-like: c+ / ±1 / loss | implied bend from ±1 |
 |---:|---|---|---:|
 | 0 | +0.580 / -1.000 / +0.144 | +1.000 / -1.000 / 0.000 | 0.00 |
-| 0.18 | +0.539 / -0.983 / +0.129 | +0.985 / -0.950 / 0.011 | 0.16 |
-| 0.5 | +0.469 / -0.816 / +0.134 | +0.866 / -0.647 / 0.072 | 0.46 |
-| 1 | +0.148 / -0.000 / +0.061 | +0.515 / +0.000 / 0.180 | 1.00 |
-| 1.2 | +0.010 / +0.310 / +0.025 | +0.381 / +0.203 / 0.212 | 1.23 |
-| 1.5 | -0.119 / +0.586 / -0.012 | +0.218 / +0.427 / 0.249 | 1.58 |
+| 0.16 | +0.533 / -0.950 / +0.147 | +0.987 / -0.950 / 0.009 | 0.16 |
+| 0.5 | +0.467 / -0.600 / +0.126 | +0.894 / -0.600 / 0.072 | 0.50 |
+| 1 | +0.382 / -0.000 / +0.109 | +0.707 / +0.000 / 0.180 | 1.00 |
+| 1.2 | +0.284 / +0.180 / +0.059 | +0.640 / +0.180 / 0.212 | 1.20 |
+| 1.5 | +0.349 / +0.385 / +0.113 | +0.555 / +0.385 / 0.249 | 1.50 |
 
 ![collapse vs bend](lm-highd-leftover/polarity.png)
 
-`bend = 0.18` reproduces live gender-v14 on the clean pair: c+ +0.985 (live 0.97), ±1 -0.950 (live -0.95), loss 0.011 (live 0.009). `bend = 1.2` is what live energy-v14's ±1 +0.18 implies, and it costs the whole slider on this field (c+ +0.010, cos concept +0.025) regardless of ê. Polarity crosses zero exactly when the even reply matches the odd reply (bend = 1).
+`bend = 0.16` reproduces live gender-v14 on the clean pair: c+ +0.987 (live 0.97), ±1 -0.950 (live -0.95), loss 0.009 (live 0.009). `bend = 1.2` is what live energy-v14's ±1 +0.18 implies, and it costs the whole slider on this field (c+ +0.284, cos concept +0.059) regardless of ê. Polarity crosses zero exactly when the even reply matches the odd reply (bend = 1).
 
 Free-even geometry grid: 45 cells, max collapse -1.000000, max even norm 0.00e+00. Geometry cannot break ±1.
 
@@ -167,7 +192,7 @@ Free-even geometry grid: 45 cells, max collapse -1.000000, max even norm 0.00e+0
 - `energy_highd_medium_pin_l8` is the live rewrite: ê·û falls from +0.80 to +0.30 and every other number is unchanged (c+ +0.581 vs +0.580). Pinning "medium energy" on both leak captions does not move ê_⊥ while density and genre still read as the poles.
 - `energy_highd_sub_raw_e_leftover` subtracts raw ê instead of ê_⊥ and takes û with it (cos û +0.427 vs +0.458). `pair_odd_sub_e` has to subtract ê_⊥, the same axis the hold uses.
 - `energy_highd_sub_e_synonym` shows the teacher change is not a wording fix: on a synonym ê it lands where the λ=8 hold lands (cos concept +0.107 vs +0.144), only without the stiffness.
-- `gender_like_no_e` leak +0.174 is bend junk, not caption leak: those poles carry no leftover at all (leak kept 0.00). It is what a ±1 -0.950 reply costs off-axis.
+- `gender_like_no_e` leak +0.160 is bend junk, not caption leak: those poles carry no leftover at all (leak kept 0.00). It is what a ±1 -0.950 reply costs off-axis.
 
 ## What is now a cell, and what still is not
 

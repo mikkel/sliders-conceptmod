@@ -27,6 +27,7 @@ from analysis.slider2d.highd import (
     HighDLeakField,
     bend_for_collapse,
     bend_sweep,
+    calibrate_bend,
     cell_table,
     energy_2d_field,
     energy_field,
@@ -42,6 +43,7 @@ from analysis.slider2d.highd import (
     lambda_fit_sweep,
     leak_axis,
     leftover_only_e,
+    live_v14_analogue,
     match_sweep,
     medium_pin_e,
     polarity_grid,
@@ -371,6 +373,55 @@ def test_bend_crosses_zero_when_even_matches_odd():
             continue
         # Exact only for G w ⊥ w; the fitted w is only generically orthogonal.
         assert bend_for_collapse(row["collapse"]) == pytest.approx(bend, rel=0.15)
+
+
+def test_live_v14_analogue_lands_both_live_numbers():
+    best, grid = live_v14_analogue(steps=200, seed=0)
+    assert len(grid) >= 100
+    assert best["gate_align"] == pytest.approx(LIVE_GATE_ALIGN, abs=0.01)
+    assert best["used_hold"] == LEAK_HOLD_WEIGHT
+    assert best["collapse"] == pytest.approx(LIVE_COLLAPSE, abs=0.02)
+    assert best["c_plus"] == pytest.approx(LIVE_C_PLUS, abs=0.10)
+    assert best["loss"] > 0.02
+    # A pure rotation of the size the collapse log implies is the best fit.
+    assert best["bend_parallel"] <= 0.2
+    assert best["bend"] == pytest.approx(bend_for_collapse(LIVE_COLLAPSE), abs=0.3)
+    assert best["norm_ratio"] == pytest.approx(1.0, abs=0.25)
+    # The hold's closed form does not explain the row: that is the point.
+    assert best["hold_explains_c_plus"] is False
+
+
+def test_pure_rotation_bend_is_exact_and_gain_raises_c_plus():
+    bend = calibrate_bend(LIVE_COLLAPSE, parallel=0.0, steps=200, seed=0)
+    assert bend == pytest.approx(bend_for_collapse(LIVE_COLLAPSE), abs=0.02)
+    spin = score_highd(
+        "spin",
+        HighDLeakField(dim=8, align=LIVE_GATE_ALIGN, bend=bend, bend_parallel=0.0),
+        leak_dir=synonym_e(energy_field()),
+        hold_weight=LEAK_HOLD_WEIGHT,
+        steps=200,
+    )
+    gain = score_highd(
+        "gain",
+        HighDLeakField(dim=8, align=LIVE_GATE_ALIGN, bend=bend, bend_parallel=0.65),
+        leak_dir=synonym_e(energy_field()),
+        hold_weight=LEAK_HOLD_WEIGHT,
+        steps=200,
+    )
+    assert spin["norm_ratio"] == pytest.approx(1.0, abs=1e-3)
+    assert spin["collapse"] == pytest.approx(LIVE_COLLAPSE, abs=0.02)
+    # Same asymmetry size, but a gain share splits the poles and lifts c+.
+    assert gain["norm_ratio"] > 1.5
+    assert gain["c_plus"] > spin["c_plus"]
+    assert gain["collapse"] > spin["collapse"] - 0.05
+
+
+def test_pure_gain_keeps_poles_antipodal():
+    field = HighDLeakField(dim=8, align=LIVE_GATE_ALIGN, bend=0.5, bend_parallel=1.0)
+    row = score_highd("pull", field, steps=200)
+    assert row["norm_ratio"] > 1.5
+    assert row["collapse"] == pytest.approx(-1.0, abs=1e-3)
+    assert row["perc"] > 0.0
 
 
 def test_live_collapse_logs_imply_these_bends():

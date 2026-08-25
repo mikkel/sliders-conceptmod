@@ -32,6 +32,7 @@ from analysis.slider2d.highd import (
     LIVE_SPIKE_LOSS,
     bend_for_collapse,
     bend_sweep,
+    calibrate_bend,
     cell_table,
     compact,
     content_sweep,
@@ -40,6 +41,7 @@ from analysis.slider2d.highd import (
     lambda_dim_sweep,
     lambda_fit_sweep,
     leftover_only_e,
+    live_v14_analogue,
     match_sweep,
     polarity_grid,
     synonym_cover,
@@ -183,6 +185,7 @@ def write_report(blob: dict, path: Path) -> None:
     sub_left = cells["energy_highd_sub_e_leftover"]
     sub_syn = cells["energy_highd_sub_e_synonym"]
     bent = cells["energy_bend_synonym_l8"]
+    analogue = blob["analogue"]
     live_wide = [r for r in blob["lambda_dim"] if r["dim"] == 1024]
     p = blob["synonym_cover"]
     lines = [
@@ -280,6 +283,59 @@ def write_report(blob: dict, path: Path) -> None:
             f"as the PR."
         ),
         "",
+        "## The live signature, side by side",
+        "",
+        "Two rows are calibrated, not predicted: gender-like takes the ±1",
+        f"asymmetry implied by its own collapse log (bend {BEND_GENDER:g}), and",
+        "the energy analogue searches the asymmetry — size and gain / rotation",
+        "split — nearest the live `(c+, ±1)` pair. Everything else in both rows",
+        "is the geometry.",
+        "",
+        "| number | live gender-v14 | fixture | live energy-v14 | fixture analogue |",
+        "|---|---:|---:|---:|---:|",
+        f"| caption-axis gate `\\|odd·û\\|/\\|\\|odd\\|\\|` | 1.00 (clean pair) | "
+        f"{gender['gate_align']:.2f} | {LIVE_GATE_ALIGN:.2f} | "
+        f"{analogue['gate_align']:.2f} |",
+        f"| trainer c+ | {LIVE_GENDER_C_PLUS:.2f} | {gender['c_plus']:+.3f} | "
+        f"{LIVE_C_PLUS:.2f} | {analogue['c_plus']:+.3f} |",
+        f"| collapse | {LIVE_GENDER_COLLAPSE:+.2f} | {gender['collapse']:+.3f} | "
+        f"{LIVE_COLLAPSE:+.2f} | {analogue['collapse']:+.3f} |",
+        f"| loss | {LIVE_GENDER_LOSS:.3f} | {gender['loss']:.3f} | "
+        f"not in the 0.02 band | {analogue['loss']:.3f} |",
+        f"| hold λ | 0 (no ê) | 0 | {LEAK_HOLD_WEIGHT:g} | {LEAK_HOLD_WEIGHT:g} |",
+        f"| ±1 asymmetry | — | {BEND_GENDER:g} | — | "
+        f"{analogue['bend']:g} ({analogue['bend_parallel']:g} gain / "
+        f"{1 - analogue['bend_parallel']:g} rotation) |",
+        f"| ‖d+‖ / ‖d−‖ | — | {gender['norm_ratio']:.2f} | — | "
+        f"{analogue['norm_ratio']:.2f} |",
+        "",
+        (
+            f"The gender row lands all three of its live numbers. The energy "
+            f"search lands the collapse at bend {analogue['bend']:g} and gets "
+            f"c+ {analogue['c_plus']:+.3f} against a logged {LIVE_C_PLUS:.2f}, "
+            f"with the whole rest of the row — gate, λ, ê, D — untouched. Both "
+            f"live energy numbers are therefore consistent with one thing: an "
+            f"even reply {analogue['bend']:g}× the odd reply, on top of a hold "
+            f"that is otherwise doing exactly what the closed form says."
+        ),
+        "",
+        (
+            f"The search prefers a pure rotation "
+            f"({analogue['bend_parallel']:g} gain), which predicts the two "
+            f"poles move by the *same* amount: ‖d+‖/‖d−‖ = "
+            f"{analogue['norm_ratio']:.2f}. That is checkable without a new "
+            f"run — the trainer already writes `pperc` and `nperc` per step in "
+            f"`<name>_train.jsonl`. A gain share raises c+ at the same "
+            f"collapse and splits the two poles "
+            f"(at bend {blob['analogue_gain_bend']:g}, "
+            f"{blob['analogue_gain_parallel']:g} gain: c+ "
+            f"{blob['analogue_gain_c_plus']:+.3f}, ‖d+‖/‖d−‖ "
+            f"{blob['analogue_gain_ratio']:.2f}), so if energy-v14's two poles "
+            f"moved by very different amounts the asymmetry is bigger than "
+            f"{analogue['bend']:g} and part of it is gain. Read those two "
+            f"columns before spending a run on ê."
+        ),
+        "",
         "## Field",
         "",
         "```",
@@ -294,7 +350,10 @@ def write_report(blob: dict, path: Path) -> None:
         "ê = on_u · û + on_content · concept + on_leftover · leftover",
         "ê_⊥ = ê − (ê·û)û            what lm_axis_hold renormalizes and holds",
         "p  = |â · ê̂_⊥|              the share of the teacher the hold removes",
-        "δ(s) = s·w + bend·G w       ±1 replies of a stack, G fixed orthogonal",
+        "",
+        "δ(s) = s·w + bend·(par·w + √(1−par²)·G w)      ±1 replies of a stack",
+        "                            bend = size of the even reply, par = the",
+        "                            gain share of it, G fixed orthogonal",
         "```",
         "",
         "## Live bullets, one row each",
@@ -567,6 +626,12 @@ def main(argv: list[str] | None = None) -> int:
     match_l8 = match_sweep(hold_weight=LEAK_HOLD_WEIGHT, steps=args.steps, seed=args.seed)
     bend = bend_sweep(steps=args.steps, seed=args.seed)
     polarity = polarity_grid(steps=200, seed=args.seed)
+    analogue, analogue_grid = live_v14_analogue(seed=args.seed)
+    pure_bend = calibrate_bend(LIVE_COLLAPSE, parallel=0.0, steps=args.steps, seed=args.seed)
+    gain_side = min(
+        (r for r in analogue_grid if r["bend_parallel"] >= 0.6),
+        key=lambda r: abs(r["collapse"] - LIVE_COLLAPSE),
+    )
     overlap_2d = score_overlap_policy(
         "pole_synonym_slider_l8",
         overlap=0.5,
@@ -600,6 +665,13 @@ def main(argv: list[str] | None = None) -> int:
             "spike_loss": LIVE_SPIKE_LOSS,
         },
         "cells": [compact(r) for r in cells],
+        "analogue": compact(analogue),
+        "analogue_grid": [compact(r) for r in analogue_grid],
+        "analogue_pure_rotation": pure_bend,
+        "analogue_gain_bend": gain_side["bend"],
+        "analogue_gain_parallel": gain_side["bend_parallel"],
+        "analogue_gain_c_plus": gain_side["c_plus"],
+        "analogue_gain_ratio": gain_side["norm_ratio"],
         "lambda_dim": closed,
         "lambda_fit": [compact(r) for r in fitted],
         "wording": [compact(r) for r in wording],
