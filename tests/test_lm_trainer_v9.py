@@ -519,6 +519,76 @@ def test_faithful_sub_e_needs_leak_and_slider():
         lm_train_targets(pos, neg, neu, recipe="faithful_sub_e", leak_dir=leftover)
 
 
+def test_semantic_kl_pin_uses_the_hybrid_helper():
+    """Live semantic_kl_pin is KL plus MSE on ker(readout). Default stays hidden."""
+    from conceptmod.textsliders.slider_targets import (
+        NULL_PIN_WEIGHT,
+        lm_hybrid_kl_null_loss,
+    )
+
+    pos, neg, neu = _ungated_pair()
+    tgt_plus, tgt_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful")
+    pred_plus = neu + torch.tensor([0.8, 0.4])
+    pred_minus = neu + torch.tensor([-0.7, -0.3])
+    readout = torch.tensor(
+        [[1.0, 0.2], [0.1, -1.0], [0.4, 0.5], [-0.3, 0.8]], dtype=torch.float32
+    )
+    got = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        hold_weight=0.0,
+        pole_mode="semantic_kl_pin",
+        readout=readout,
+    )
+    expected = lm_hybrid_kl_null_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        readout,
+        pin_weight=NULL_PIN_WEIGHT,
+    )
+    assert float(got) == pytest.approx(float(expected), abs=1e-6)
+    kl_only = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        hold_weight=0.0,
+        pole_mode="semantic_kl",
+        readout=readout,
+    )
+    assert float(got) != pytest.approx(float(kl_only), abs=1e-6)
+    args = parse_args(["--prompts", "x.yaml"])
+    assert args.pole_mode == "hidden"
+    assert args.null_pin_weight == NULL_PIN_WEIGHT
+    with pytest.raises(ValueError, match="semantic readout"):
+        lm_train_loss(
+            pred_plus,
+            pred_minus,
+            tgt_plus,
+            tgt_minus,
+            pole_mode="semantic_kl_pin",
+        )
+
+
+def test_readout_null_pin_is_zero_on_the_row_space_and_full_on_the_kernel():
+    from conceptmod.textsliders.slider_targets import lm_readout_null_pin
+
+    readout = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float32)
+    visible = torch.tensor([0.4, -0.2, 0.0])
+    invisible = torch.tensor([0.0, 0.0, 0.7])
+    zero = torch.zeros(3)
+    assert float(lm_readout_null_pin(visible, zero, readout)) == pytest.approx(0.0, abs=1e-6)
+    assert float(lm_readout_null_pin(invisible, zero, readout)) == pytest.approx(
+        float(invisible.pow(2).mean()), abs=1e-6
+    )
+
+
 def test_semantic_kl_loss_uses_existing_helper():
     """Live semantic_kl is lm_semantic_pole_loss on lm_next_token_logits."""
     pos, neg, neu = _ungated_pair()

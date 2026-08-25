@@ -68,6 +68,8 @@ from conceptmod.textsliders.slider_targets import (
     lm_anchor_targets,
     lm_axis_hold,
     lm_faithful_sub_e,
+    lm_hybrid_kl_null_loss,
+    NULL_PIN_WEIGHT,
     lm_hold_dir,
     lm_hidden_targets,
     lm_next_token_logits,
@@ -91,7 +93,7 @@ LM_RECIPES = (
     "faithful",
     "faithful_sub_e",
 )
-POLE_MODES = ("hidden", "semantic_kl")
+POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_pin")
 PROJECT_RECIPES = frozenset({"v9_project", "v9_always"})
 V9_RECIPES = frozenset({"v9", "v9_project", "v9_always"})
 SUB_E_RECIPES = frozenset({"pair_odd_sub_e", "faithful_sub_e"})
@@ -135,7 +137,12 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
 
 
 def resolve_pole_mode(pole_mode: str) -> str:
-    """``hidden`` (default, hidden MSE) or ``semantic_kl`` (semantic-band KL)."""
+    """``hidden`` (default), ``semantic_kl``, or ``semantic_kl_pin``.
+
+    ``semantic_kl_pin`` is KL on the semantic band plus MSE on
+    ``ker(lm_head)`` — the block one-token KL cannot see. It is not
+    the default.
+    """
     mode = str(pole_mode).strip().lower()
     if mode not in POLE_MODES:
         raise ValueError(f"pole_mode must be one of {POLE_MODES}, got {pole_mode!r}")
@@ -339,6 +346,7 @@ def lm_train_loss(
     anchor_weight: float = 0.0,
     pole_mode: str = "hidden",
     readout: torch.Tensor | None = None,
+    pin_weight: float = NULL_PIN_WEIGHT,
 ) -> torch.Tensor:
     """Live pole loss: ``lm_slider_loss`` plus optional hold.
 
@@ -349,7 +357,8 @@ def lm_train_loss(
 
     ``pole_mode=hidden`` (default) is hidden MSE. ``semantic_kl`` is
     ``lm_semantic_pole_loss`` on ``lm_next_token_logits`` of the
-    semantic-band readout — not a second KL.
+    semantic-band readout — not a second KL. ``semantic_kl_pin`` is
+    that KL plus MSE on ``ker(readout)``.
     """
     hold = None
     if float(hold_weight) > 0.0:
@@ -364,10 +373,21 @@ def lm_train_loss(
         else:
             raise ValueError("hold_weight>0 requires a declared leak_dir or slider_dir")
     mode = resolve_pole_mode(pole_mode)
-    if mode == "semantic_kl":
+    if mode in ("semantic_kl", "semantic_kl_pin"):
         if readout is None:
-            raise ValueError("pole_mode=semantic_kl requires a semantic readout")
+            raise ValueError(f"pole_mode={mode} requires a semantic readout")
         head = readout.to(dtype=pred_plus.dtype)
+        if mode == "semantic_kl_pin":
+            return lm_hybrid_kl_null_loss(
+                pred_plus,
+                pred_minus,
+                tgt_plus,
+                tgt_minus,
+                head,
+                hold=hold,
+                hold_weight=hold_weight,
+                pin_weight=pin_weight,
+            )
         return lm_semantic_pole_loss(
             lm_next_token_logits(pred_plus, head),
             lm_next_token_logits(pred_minus, head),
@@ -678,7 +698,7 @@ def train(args: argparse.Namespace) -> Path:
     lm.to(device)
     lm.eval()
     lm.requires_grad_(False)
-    readout = _semantic_readout(lm) if pole_mode == "semantic_kl" else None
+    readout = _semantic_readout(lm) if pole_mode in ("semantic_kl", "semantic_kl_pin") else None
 
     beta = float(args.common_beta)
     slider_dir = None
@@ -776,6 +796,11 @@ def train(args: argparse.Namespace) -> Path:
             )
     if pole_mode == "semantic_kl":
         print("pole_mode=semantic_kl: next-token KL on the semantic band of lm_head")
+    elif pole_mode == "semantic_kl_pin":
+        print(
+            "pole_mode=semantic_kl_pin: semantic-band KL plus MSE on "
+            "ker(lm_head) (the block one-token KL cannot see)"
+        )
     else:
         print("pole_mode=hidden: hidden MSE onto the chosen targets")
 
@@ -995,6 +1020,7 @@ def train(args: argparse.Namespace) -> Path:
             anchor_weight=anchor_w,
             pole_mode=pole_mode,
             readout=readout,
+            pin_weight=float(getattr(args, "null_pin_weight", NULL_PIN_WEIGHT)),
         )
         loss = pole + 0.5 * args.endreg_weight * (end_pos + end_neg) + args.planreg_weight * (plan_pos + plan_neg)
         opt.zero_grad(set_to_none=True)
@@ -1162,7 +1188,16 @@ def parse_args(argv=None):
         help="pole supervision (default hidden = current hidden MSE onto the "
         "chosen targets). semantic_kl: next-token KL of the student policy "
         "to the teacher hidden's policy, using the semantic band of lm_head "
-        "(lm_semantic_pole_loss). Do not make this the default",
+        "(lm_semantic_pole_loss). semantic_kl_pin: that KL plus MSE on "
+        "ker(lm_head), the block one-token KL cannot see. Do not make "
+        "either the default",
+    )
+    p.add_argument(
+        "--null_pin_weight",
+        type=float,
+        default=NULL_PIN_WEIGHT,
+        help="weight on the ker(lm_head) MSE inside --pole_mode semantic_kl_pin "
+        f"(default {NULL_PIN_WEIGHT:g}). Ignored by hidden / semantic_kl",
     )
     p.add_argument(
         "--symmetric",

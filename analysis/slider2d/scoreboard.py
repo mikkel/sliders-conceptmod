@@ -907,6 +907,30 @@ def collect_scoreboard(
             notes="on-sheet, but unused gender still moves the leak token.",
         ),
         _row(
+            "semantic_kl_pin",
+            "semantic_kl + null-space pin onto real poles",
+            exam=exam,
+            leftover=sheet_left("v16_semantic_kl"),
+            gender=sheet_gen("v16_semantic_kl"),
+            leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
+            fixture="pair-exam both cells + sheet leftover/gender (caption teacher)",
+            notes="KL on the scored token plus MSE on ker(readout). Same caption "
+            "target as faithful_raw; the pin is the block one-token KL cannot "
+            "see. --lm_target faithful --pole_mode semantic_kl_pin.",
+        ),
+        _row(
+            "unrolled_kl",
+            "unrolled semantic_kl onto real poles",
+            exam=exam,
+            leftover=sheet_left("v16_semantic_kl"),
+            gender=sheet_gen("v16_semantic_kl"),
+            leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
+            fixture="pair-exam transition + sheet leftover/gender (caption teacher)",
+            notes="KL at token 0 and after the residual mix that carries delivery "
+            "into the scored band. Same caption target; no hidden MSE. "
+            "Fixture-only pole_mode (live has no frozen mix).",
+        ),
+        _row(
             "semantic_kl_sub_e",
             "semantic_kl onto ê-cleaned poles",
             exam=exam,

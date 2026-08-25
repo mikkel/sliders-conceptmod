@@ -332,6 +332,39 @@ def test_the_next_untrained_winner_is_faithful_on_hidden_mse():
     assert close["roll_swing_kept"] >= EXAM_ROLL_SWING
 
 
+def test_semantic_kl_pin_and_unrolled_kl_top_both_live_exam_pairs():
+    """New losses: caption poles + pin (or unroll) the KL-invisible block."""
+    for name in ("semantic_kl_pin", "unrolled_kl"):
+        for pair in ("divergent", "close"):
+            row = cell(pair)[name]
+            assert row["pass"] is True, f"{name}/{pair}: {row['reason']}"
+            assert row["roll_overlap"] >= EXAM_ROLL_OVERLAP
+            assert row["roll_swing_kept"] >= EXAM_ROLL_SWING
+        assert cell("close")[name]["invisible_kept"] == pytest.approx(1.0, abs=0.05)
+
+
+def test_pinning_the_null_space_is_what_kl_alone_cannot_do():
+    close = cell("close")
+    assert close["semantic_kl_poles"]["invisible_kept"] == pytest.approx(0.0, abs=1e-3)
+    assert close["semantic_kl_poles"]["pass"] is False
+    assert close["semantic_kl_pin"]["invisible_kept"] == pytest.approx(1.0, abs=0.05)
+    assert close["semantic_kl_pin"]["pass"] is True
+
+
+def test_a_midpoint_teacher_still_fails_divergent_under_the_new_losses():
+    """The target has to be a real caption. The new losses are not a cheat."""
+    field = divergent_field()
+    for mode in ("semantic_kl_pin", "unrolled_kl"):
+        row = score_exam(
+            f"{mode}_mid",
+            field,
+            pole_mode=mode,
+            teacher="pair_odd",
+            steps=STEPS,
+        )
+        assert row["pass"] is False, f"{mode} + midpoint passed: {row['reason']}"
+
+
 def test_subtracting_e_is_free_on_a_same_song_pair_and_not_on_two_tracks():
     unused = cell("unused_e")
     divergent = cell("divergent")
