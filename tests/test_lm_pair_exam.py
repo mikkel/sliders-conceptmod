@@ -42,7 +42,13 @@ from analysis.slider2d.exam import (
     visible_sweep,
 )
 from analysis.slider2d.sheet import leaky_cell
-from conceptmod.textsliders.slider_targets import lm_faithful_sub_e, lm_unit
+from conceptmod.textsliders.slider_targets import (
+    UNUSED_E_OVERLAP_MAX,
+    lm_e_overlap_a,
+    lm_faithful_sub_e,
+    lm_faithful_sub_e_if_unused,
+    lm_unit,
+)
 from conceptmod.textsliders.train_lm_slider_music3 import parse_args
 
 
@@ -225,6 +231,53 @@ def test_faithful_sub_e_is_a_blend_teacher_only_on_the_divergent_pair():
     assert same["visible_axis_eaten"] < 0.15
 
 
+def test_the_leftover_gate_floor_sits_between_unused_and_energy_v4():
+    """|ê̂_⊥ · â| is 0.39 on unused leftover and 0.78 when ê is the tracks."""
+    unused = unused_e_field()
+    divergent = divergent_field()
+    unused_overlap = float(
+        lm_e_overlap_a(
+            *unused.poles(0)[:2], unused.declared_e(), slider_dir=unused.short_u()
+        )
+    )
+    divergent_overlap = float(
+        lm_e_overlap_a(
+            *divergent.poles(0)[:2],
+            divergent.declared_e(),
+            slider_dir=divergent.short_u(),
+        )
+    )
+    assert unused_overlap == pytest.approx(0.391, abs=0.01)
+    assert divergent_overlap == pytest.approx(0.778, abs=0.01)
+    assert unused_overlap < UNUSED_E_OVERLAP_MAX < divergent_overlap
+    assert close_field().declared_e() is None
+
+
+def test_faithful_sub_e_if_unused_keeps_poles_when_e_is_the_tracks():
+    divergent = divergent_field()
+    pos, neg, neu = divergent.poles(0)
+    gated = lm_faithful_sub_e_if_unused(
+        pos, neg, neu, divergent.declared_e(), slider_dir=divergent.short_u()
+    )
+    assert torch.allclose(gated[0], pos)
+    assert torch.allclose(gated[1], neg)
+    unused = unused_e_field()
+    u_pos, u_neg, u_neu = unused.poles(0)
+    cleaned = lm_faithful_sub_e_if_unused(
+        u_pos, u_neg, u_neu, unused.declared_e(), slider_dir=unused.short_u()
+    )
+    want = lm_faithful_sub_e(
+        u_pos, u_neg, u_neu, unused.declared_e(), slider_dir=unused.short_u()
+    )
+    assert torch.allclose(cleaned[0], want[0])
+    assert torch.allclose(cleaned[1], want[1])
+    close = close_field()
+    c_pos, c_neg, c_neu = close.poles(0)
+    raw = lm_faithful_sub_e_if_unused(c_pos, c_neg, c_neu, None, slider_dir=close.short_u())
+    assert torch.allclose(raw[0], c_pos)
+    assert torch.allclose(raw[1], c_neg)
+
+
 def test_the_target_points_come_from_the_live_functions():
     divergent = divergent_field()
     pos, neg, neu = divergent.poles(0)
@@ -339,6 +392,19 @@ def test_subtracting_e_is_free_on_a_same_song_pair_and_not_on_two_tracks():
         assert unused[name]["pass"] is True, unused[name]["reason"]
     assert divergent["semantic_kl_sub_e"]["pass"] is False
     assert divergent["faithful_sub_e"]["pass"] is False
+
+
+def test_the_gated_leftover_recipe_passes_every_pair_type():
+    """One teacher: raw poles on energy-v4, ê-cleaned on unused leftover."""
+    for name in CELLS:
+        row = cell(name)["faithful_sub_e_if_unused"]
+        assert row["pass"] is True, f"{name}: {row['reason']}"
+    unused = cell("unused_e")["faithful_sub_e_if_unused"]
+    assert abs(unused["leak_tok"]) <= 0.20
+    assert unused["teacher"] == "faithful_sub_e_if_unused"
+    divergent = cell("divergent")["faithful_sub_e_if_unused"]
+    assert divergent["blend_teacher"] is False
+    assert cell("close")["faithful_sub_e_if_unused"]["teacher"] == "faithful_sub_e_if_unused"
 
 
 def test_the_exam_agrees_with_the_sheet_cell_about_leak():

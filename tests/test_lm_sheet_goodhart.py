@@ -38,6 +38,7 @@ from analysis.slider2d.sheet import (
     probe_cos,
     score_sheet,
     sheets,
+    teacher_points,
     teacher_sheet_row,
     teacher_sheet_table,
     teacher_swings,
@@ -209,6 +210,20 @@ def test_e_cleaning_is_a_small_step_off_the_caption():
     assert rows["faithful_sub_e"]["off_caption"] < 0.5 * rows["pair_odd"]["off_caption"]
     assert rows["faithful_sub_e"]["garble"] <= GARBLE_MAX
     assert rows["faithful_sub_e"]["argmax_on_sheet"] == 1.0
+
+
+def test_the_leftover_gate_matches_sub_e_on_unused_and_raw_poles_on_clean():
+    leaky = leaky_field()
+    e = leaky.leak_e()
+    gated = teacher_points(leaky, 0, teacher="faithful_sub_e_if_unused", leak_dir=e)
+    cleaned = teacher_points(leaky, 0, teacher="faithful_sub_e", leak_dir=e)
+    assert torch.allclose(gated[0], cleaned[0])
+    assert torch.allclose(gated[1], cleaned[1])
+    gender = gender_like_field()
+    raw = teacher_points(gender, 0, teacher="faithful_sub_e_if_unused")
+    poles = teacher_points(gender, 0, teacher="faithful")
+    assert torch.allclose(raw[0], poles[0])
+    assert torch.allclose(raw[1], poles[1])
 
 
 # -- the Goodhart --------------------------------------------------------
@@ -506,7 +521,9 @@ def test_the_live_default_is_still_hidden_mse_onto_the_midpoint():
     assert args.common_beta == 0.0
     assert "v9" in LM_RECIPES and "pair_odd_sub_e" in LM_RECIPES
     assert "faithful_sub_e" in LM_RECIPES
+    assert "faithful_sub_e_if_unused" in LM_RECIPES
     assert "faithful_sub_e" not in V9_RECIPES
+    assert "faithful_sub_e_if_unused" not in V9_RECIPES
 
 
 def test_the_recommended_live_ladder_is_reachable_today():

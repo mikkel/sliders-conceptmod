@@ -91,6 +91,7 @@ from analysis.slider2d.sheet import nucleus
 from conceptmod.textsliders.slider_targets import (
     lm_axis_hold,
     lm_faithful_sub_e,
+    lm_faithful_sub_e_if_unused,
     lm_hidden_targets,
     lm_hold_dir,
     lm_next_token_logits,
@@ -648,7 +649,7 @@ CELL_IS = {
 # -- teachers ------------------------------------------------------------
 
 
-TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e")
+TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e", "faithful_sub_e_if_unused")
 POLE_MODES = ("hidden", "semantic_kl")
 
 
@@ -676,6 +677,10 @@ def teacher_points(
         )
     if mode == "faithful":
         return pos, neg
+    if mode == "faithful_sub_e_if_unused":
+        return lm_faithful_sub_e_if_unused(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u()
+        )
     if leak_dir is None:
         raise ValueError(f"{mode} needs a declared ê")
     if mode == "pair_odd_sub_e":
@@ -1309,6 +1314,10 @@ def recipes(field: PairField) -> list[tuple[str, dict]]:
         ("faithful_raw", {"pole_mode": "hidden", "teacher": "faithful"}),
         ("semantic_kl_midpoint", {"pole_mode": "semantic_kl", "teacher": "pair_odd"}),
         ("semantic_kl_poles", {"pole_mode": "semantic_kl", "teacher": "faithful"}),
+        (
+            "faithful_sub_e_if_unused",
+            {"pole_mode": "hidden", "teacher": "faithful_sub_e_if_unused", "leak_dir": e},
+        ),
     ]
     if e is not None:
         out += [

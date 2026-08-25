@@ -78,6 +78,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_hidden_targets,
     lm_hold_dir,
     lm_next_token_logits,
+    lm_faithful_sub_e_if_unused,
     lm_pair_odd_sub_e,
     lm_semantic_pole_loss,
     lm_slider_loss,
@@ -592,7 +593,7 @@ class SharedResidual:
         return SharedResidual(self.w.detach().clone(), self.kind, even, self.gate, self.bend)
 
 
-TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e")
+TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e", "faithful_sub_e_if_unused")
 POLE_MODES = ("hidden", "semantic_kl")
 
 
@@ -640,6 +641,10 @@ def teacher_points(
             raise ValueError("faithful_sub_e needs a declared ê")
         held = hold_direction(field, leak_dir)
         return _sub_e(pos, neu, held), _sub_e(neg, neu, held)
+    if mode == "faithful_sub_e_if_unused":
+        return lm_faithful_sub_e_if_unused(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u()
+        )
     raise ValueError(f"teacher must be one of {TEACHERS}, got {teacher!r}")
 
 

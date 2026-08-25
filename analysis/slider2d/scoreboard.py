@@ -129,6 +129,7 @@ SHEET_LEFTOVER = {
     "hold_e_perp_l8": "v9_hold_e",
     "pair_odd_sub_e": "v15_pair_odd_sub_e",
     "faithful_sub_e": "faithful_sub_e",
+    "faithful_sub_e_if_unused": "faithful_sub_e",
     "semantic_kl_midpoint": "kl_on_midpoint",
     "semantic_kl_poles": "v16_semantic_kl",
     "semantic_kl_sub_e": "v16_semantic_kl_sub_e",
@@ -136,6 +137,7 @@ SHEET_LEFTOVER = {
 SHEET_GENDER = {
     "faithful_raw": "v6_faithful",
     "faithful_attrs": "v6_faithful",
+    "faithful_sub_e_if_unused": "v6_faithful",
     "pair_odd_midpoint": "v9_hidden",
     "hub": "v9_hidden",
     "hold_e_raw_l1": "v9_hidden",
@@ -885,6 +887,20 @@ def collect_scoreboard(
             leftover_leak=sheet_left("faithful_sub_e").get("leak_tok"),
             fixture="sheet leftover",
             notes="keeps c, drops ê_⊥. Hidden MSE onto a near-caption.",
+        ),
+        _row(
+            "faithful_sub_e_if_unused",
+            "faithful_sub_e_if_unused (|ê̂_⊥·â| leftover gate)",
+            exam=exam,
+            leftover=sheet_left("faithful_sub_e"),
+            gender=sheet_gen("v6_faithful"),
+            leftover_leak=sheet_left("faithful_sub_e").get("leak_tok"),
+            fixture="sheet leftover (unused → sub_e) + sheet gender (no ê → raw poles)",
+            notes=(
+                "subtract ê_⊥ only when leftover is unused: |ê̂_⊥ · â| < 0.50 "
+                "(measured unused leftover 0.32–0.39; energy-v4 restates at 0.778). "
+                "Otherwise keep the raw poles. One --lm_target, no human pick."
+            ),
         ),
         _row(
             "semantic_kl_midpoint",
