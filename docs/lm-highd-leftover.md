@@ -234,8 +234,13 @@ Still not a cell:
   place no caption occupies. That needs a next-token readout:
   [lm-sheet-goodhart.md](lm-sheet-goodhart.md), which borrows this
   cell's `bend` to reproduce the gender-lm-v4 log and then reads the
-  policy at the same fit. The compiled join of leftover leak + sheet
-  is [lm-2d-scoreboard.md](lm-2d-scoreboard.md).
+  policy at the same fit.
+- **whether the declared ê is leftover at all.** `leftover_only_e` here
+  assumes the genre/BPM pair energy-v4 declares is unused. On a pair
+  whose poles are two *different* tracks it is most of `a`, so
+  subtracting `ê_⊥` deletes the slider: [lm-pair-exam.md](lm-pair-exam.md).
+  The compiled join of leftover leak + sheet + pair is
+  [lm-2d-scoreboard.md](lm-2d-scoreboard.md).
 
 ## How to run
 
