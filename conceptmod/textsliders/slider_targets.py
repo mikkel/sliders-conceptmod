@@ -51,6 +51,17 @@ SLIDER_ALIGN_MIN = 0.50
 LEAK_HOLD_WEIGHT = 8.0
 SAME_DIR_MAX = 0.06
 
+# Weight on the blind-band term of ``lm_dual_band_pole_loss``. The pair-exam
+# cell is flat in this over 0.5 … 32 (six doublings), because the term's job
+# is to supply a gradient where the KL has none at all, not to outweigh it.
+DUAL_BAND_WEIGHT = 1.0
+# Spectral cut for ``lm_blind_projector``. 0 is the exact null space of the
+# readout, which is what a caricature head with an unread block has. A live
+# ``lm_head`` band whose row space fills the hidden width has no exact null
+# space and needs a cut > 0 — the directions it reads so weakly that a KL on
+# its policy has no usable gradient there.
+BLIND_SPECTRAL_CUT = 0.0
+
 
 def sd_noise_target(
     neutral: torch.Tensor,
@@ -423,6 +434,76 @@ def lm_faithful_sub_e(
     return plus + common, minus + common
 
 
+def lm_blend_guard(
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+) -> dict[str, float | bool]:
+    """Is a target still nearer its own caption than the pair's midpoint?
+
+        mid = ½(pos + neg)
+        to_pole = max(‖t₊ − pos‖, ‖t₋ − neg‖)
+        to_mid  = min(‖t₊ − mid‖, ‖t₋ − mid‖)
+        admissible ⟺ to_pole < to_mid
+
+    No threshold is chosen here. ``mid`` is the one point on the segment
+    that is not either caption, and on a divergent pair it is a state no
+    caption occupies at all — half of each song. A teacher that has drifted
+    closer to ``mid`` than to the pole it claims to be is a *blend* teacher,
+    and the ±1 ends of a blend sing both songs at once.
+
+    This is a test on the target **point**, so it can be run at setup from
+    the four declared captions, before a single step. It says nothing about
+    the loss.
+    """
+    mid = 0.5 * (pos + neg)
+    to_pole = max(
+        float((tgt_plus - pos).norm()), float((tgt_minus - neg).norm())
+    )
+    to_mid = min(float((tgt_plus - mid).norm()), float((tgt_minus - mid).norm()))
+    return {
+        "to_pole": to_pole,
+        "to_mid": to_mid,
+        "admissible": bool(to_pole < to_mid),
+    }
+
+
+def lm_faithful_guard_e(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor,
+    target_scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """``lm_faithful_sub_e`` when the blend guard admits it, else raw poles.
+
+    ``faithful_sub_e`` is right when ``ê`` names a leftover the captions
+    left unpinned and wrong when ``ê`` restates the pole difference: on
+    energy-v4 the declared pair (``"Pop-punk mix, BPM 168."`` /
+    ``"Ambient lullaby mix, BPM 52."``) is the same genre and BPM the poles
+    move, so subtracting ``ê_⊥`` deletes the slider and the target lands
+    nearer ``½(h₊+h₋)`` than the caption. :func:`lm_blend_guard` is exactly
+    that condition, so this teacher subtracts ``ê_⊥`` only while what is
+    left of the axis is longer than what was taken, and otherwise keeps the
+    caption it was already aiming at.
+
+    One declaration, both pair types: a yaml may keep its ``leak_*`` pair
+    without that pair being able to eat the axis. The guard is per row, so
+    ``lm_teachers_mixed`` can report a yaml whose rows disagree.
+    """
+    plus, minus = lm_faithful_sub_e(
+        pos, neg, neu, leak_dir, slider_dir=slider_dir, target_scale=target_scale
+    )
+    if lm_blend_guard(plus, minus, pos, neg)["admissible"]:
+        return plus, minus
+    if float(target_scale) != 1.0:
+        raise ValueError("--target_scale is defined for symmetric targets only")
+    return pos, neg
+
+
 def lm_project_odd_axis(
     pos: torch.Tensor,
     neg: torch.Tensor,
@@ -647,6 +728,112 @@ def lm_semantic_pole_loss(
     if hold_w > 0.0 and hold is not None:
         pole = pole + hold_w * hold
     return pole
+
+
+def blind_band_tolerance(
+    readout: torch.Tensor, top: float, *, cut: float = BLIND_SPECTRAL_CUT
+) -> float:
+    """Singular values at or below this count as blind.
+
+    ``cut`` is the stated spectral cut; the floor underneath it is the usual
+    numerical rank tolerance, so ``cut = 0`` means "the exact null space" and
+    not "singular values that happen to round to zero".
+    """
+    eps = torch.finfo(readout.dtype).eps if readout.is_floating_point() else 1e-7
+    floor = float(eps) * max(readout.shape) * float(top)
+    return max(float(cut) * float(top), floor)
+
+
+def lm_blind_projector(
+    readout: torch.Tensor,
+    *,
+    cut: float = BLIND_SPECTRAL_CUT,
+    center: bool = True,
+) -> torch.Tensor | None:
+    """Projector onto the hidden directions a next-token KL cannot use.
+
+    A softmax policy is unchanged by adding a constant to every logit, so
+    what the KL can see is the row space of the *centered* readout
+    ``W − mean_row(W)``. Everything orthogonal to it is invisible to
+    :func:`lm_semantic_kl` — the gradient there is exactly zero, not small.
+
+    ``cut`` widens "invisible" to "read too weakly to matter": keep the
+    right-singular directions with ``s ≤ cut · s_max``. ``cut = 0`` is the
+    exact null space. Returns ``None`` when that subspace is empty, which is
+    the honest answer for a band whose row space fills the hidden width —
+    then :func:`lm_dual_band_pole_loss` degenerates to plain semantic KL and
+    the caller has to raise ``cut`` rather than believe it got a free fix.
+
+    One SVD of the frozen band at setup; the projector is a constant.
+    """
+    weight = readout - readout.mean(dim=0, keepdim=True) if center else readout
+    _u, sing, vh = torch.linalg.svd(weight, full_matrices=True)
+    top = float(sing.max()) if sing.numel() else 0.0
+    if top <= 0.0:
+        return torch.eye(weight.shape[1], dtype=weight.dtype, device=weight.device)
+    tol = blind_band_tolerance(weight, top, cut=cut)
+    keep = [i for i in range(vh.shape[0]) if i >= sing.numel() or float(sing[i]) <= tol]
+    if not keep:
+        return None
+    basis = vh[keep]
+    return basis.transpose(-1, -2) @ basis
+
+
+def lm_blind_residual(
+    vec: torch.Tensor, projector: torch.Tensor | None
+) -> torch.Tensor:
+    """The part of ``vec`` inside the readout's blind band."""
+    if projector is None:
+        return torch.zeros_like(vec)
+    flat = vec.flatten()
+    return (projector.to(dtype=flat.dtype) @ flat).reshape_as(vec)
+
+
+def lm_dual_band_pole_loss(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    *,
+    pred_plus_logits: torch.Tensor,
+    pred_minus_logits: torch.Tensor,
+    tgt_plus_logits: torch.Tensor,
+    tgt_minus_logits: torch.Tensor,
+    blind_projector: torch.Tensor | None,
+    blind_weight: float = DUAL_BAND_WEIGHT,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+) -> torch.Tensor:
+    """Semantic KL where the head reads, hidden MSE where it cannot.
+
+        loss = KL(t₊ ‖ p₊) + KL(t₋ ‖ p₋)
+             + blind_weight · ( ‖P_blind(p₊ − t₊)‖² + ‖P_blind(p₋ − t₋)‖² )
+
+    Neither band is new; splitting them is. ``semantic_kl`` alone is the
+    live v16 loss and on a close pair it reaches its floor without the axis
+    arriving, because which of two voices sings the same song barely moves
+    the one scored distribution — that content is in ``P_blind``, where the
+    KL's gradient is zero. Hidden MSE alone pins ``P_blind`` but also
+    insists on matching the readable band in Euclidean distance, which is
+    not the quantity anyone listens to.
+
+    The targets must still be states a real caption produces; this is a
+    loss, and no loss fixes a target point that is not a caption.
+    """
+    total = lm_semantic_kl(pred_plus_logits, tgt_plus_logits) + lm_semantic_kl(
+        pred_minus_logits, tgt_minus_logits
+    )
+    weight = float(blind_weight)
+    if weight > 0.0 and blind_projector is not None:
+        blind = lm_blind_residual(pred_plus - tgt_plus, blind_projector).pow(2).mean()
+        blind = blind + lm_blind_residual(
+            pred_minus - tgt_minus, blind_projector
+        ).pow(2).mean()
+        total = total + weight * blind
+    hold_w = float(hold_weight)
+    if hold_w > 0.0 and hold is not None:
+        total = total + hold_w * hold
+    return total
 
 
 def encoder_mse_loss(

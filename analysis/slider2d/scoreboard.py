@@ -125,6 +125,10 @@ EXAM_ONLY_CELLS = {
 # Sheet recipe names on the leftover (energy-like) cell.
 SHEET_LEFTOVER = {
     "faithful_raw": "v6_faithful",
+    "faithful_guard_e": "faithful_guard_e",
+    "dual_band_poles": "dual_band_poles",
+    "dual_band_guard_e": "dual_band_guard_e",
+    "dual_band_midpoint": "dual_band_midpoint",
     "pair_odd_midpoint": "v9_hidden",
     "hold_e_perp_l8": "v9_hold_e",
     "pair_odd_sub_e": "v15_pair_odd_sub_e",
@@ -136,6 +140,10 @@ SHEET_LEFTOVER = {
 SHEET_GENDER = {
     "faithful_raw": "v6_faithful",
     "faithful_attrs": "v6_faithful",
+    "faithful_guard_e": "faithful_guard_e",
+    "dual_band_poles": "dual_band_poles",
+    "dual_band_guard_e": "dual_band_guard_e",
+    "dual_band_midpoint": "dual_band_midpoint",
     "pair_odd_midpoint": "v9_hidden",
     "hub": "v9_hidden",
     "hold_e_raw_l1": "v9_hidden",
@@ -703,6 +711,64 @@ def collect_scoreboard(
         return dict(gender_sheet[name]) if name and name in gender_sheet else {}
 
     rows = [
+        _row(
+            "faithful_guard_e",
+            "blend-guarded ê on real poles (new)",
+            exam=exam,
+            leftover=sheet_left("faithful_guard_e"),
+            gender=sheet_gen("faithful_guard_e"),
+            leftover_leak=sheet_left("faithful_guard_e").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "new target rule: subtract the declared ê_⊥ only while the "
+                "result is still nearer the pole caption than the pair "
+                "midpoint (lm_blend_guard). Refuses on energy-v4, where ê "
+                "restates the axis; accepts on a real leftover. No data fix."
+            ),
+        ),
+        _row(
+            "dual_band_guard_e",
+            "dual-band loss + blend-guarded ê (new)",
+            exam=exam,
+            leftover=sheet_left("dual_band_guard_e"),
+            gender=sheet_gen("dual_band_guard_e"),
+            leftover_leak=sheet_left("dual_band_guard_e").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "both new pieces at once: semantic KL where the head reads, "
+                "hidden MSE on the band it is blind to, aimed at guarded "
+                "real poles."
+            ),
+        ),
+        _row(
+            "dual_band_poles",
+            "dual-band loss on real poles (new)",
+            exam=exam,
+            leftover=sheet_left("dual_band_poles"),
+            gender=sheet_gen("dual_band_poles"),
+            leftover_leak=sheet_left("dual_band_poles").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "new loss: lm_dual_band_pole_loss. The smallest change to the "
+                "live v16 recipe that makes the close pair arrive — KL keeps "
+                "the readable band, MSE pins the band the KL has no gradient "
+                "on. Still charged for the unpinned ê the target carries."
+            ),
+        ),
+        _row(
+            "dual_band_midpoint",
+            "dual-band loss on the v9 midpoint (control)",
+            exam=exam,
+            leftover=sheet_left("dual_band_midpoint"),
+            gender=sheet_gen("dual_band_midpoint"),
+            leftover_leak=sheet_left("dual_band_midpoint").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "ablation: the new loss with the old target. Pins the blind "
+                "band and still walks off the divergent pair's continuation, "
+                "which is what says the target point has to be a caption."
+            ),
+        ),
         _row(
             "faithful_raw",
             "faithful / v6 raw poles",

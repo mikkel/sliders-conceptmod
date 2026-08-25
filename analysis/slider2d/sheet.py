@@ -73,8 +73,12 @@ import torch
 from analysis.slider2d.field import cosine
 from analysis.slider2d.highd import BEND_GENDER
 from conceptmod.textsliders.slider_targets import (
+    DUAL_BAND_WEIGHT,
     LEAK_HOLD_WEIGHT,
     lm_axis_hold,
+    lm_blend_guard,
+    lm_blind_projector,
+    lm_dual_band_pole_loss,
     lm_hidden_targets,
     lm_hold_dir,
     lm_next_token_logits,
@@ -592,8 +596,14 @@ class SharedResidual:
         return SharedResidual(self.w.detach().clone(), self.kind, even, self.gate, self.bend)
 
 
-TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e")
-POLE_MODES = ("hidden", "semantic_kl")
+TEACHERS = (
+    "pair_odd",
+    "pair_odd_sub_e",
+    "faithful",
+    "faithful_sub_e",
+    "faithful_guard_e",
+)
+POLE_MODES = ("hidden", "semantic_kl", "dual_band")
 
 
 def _sub_e(h: torch.Tensor, neu: torch.Tensor, held: torch.Tensor | None) -> torch.Tensor:
@@ -640,6 +650,18 @@ def teacher_points(
             raise ValueError("faithful_sub_e needs a declared ê")
         held = hold_direction(field, leak_dir)
         return _sub_e(pos, neu, held), _sub_e(neg, neu, held)
+    if mode == "faithful_guard_e":
+        # ``faithful_sub_e`` while the blend guard admits it, else the raw
+        # poles. On this field ê is a genuine leftover, so the guard admits
+        # and the row is ``faithful_sub_e``; on the pair-exam divergent cell
+        # the same recipe refuses and is ``faithful``. One recipe, both.
+        held = hold_direction(field, leak_dir) if leak_dir is not None else None
+        if held is None:
+            return pos, neg
+        plus, minus = _sub_e(pos, neu, held), _sub_e(neg, neu, held)
+        if lm_blend_guard(plus, minus, pos, neg)["admissible"]:
+            return plus, minus
+        return pos, neg
     raise ValueError(f"teacher must be one of {TEACHERS}, got {teacher!r}")
 
 
@@ -694,6 +716,7 @@ def fit_sheet(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    blind_weight: float = DUAL_BAND_WEIGHT,
     student: str = "odd_even",
     steps: int = 400,
     lr: float = 0.08,
@@ -705,11 +728,15 @@ def fit_sheet(
     live default. ``semantic_kl`` is ``lm_semantic_pole_loss`` on the
     readout's logits; the brief's v16 sets hold to 0 there, and this
     function does not stop you passing one so the choice stays visible.
+    ``dual_band`` is that KL plus hidden MSE on the readout's blind band —
+    which on ``gender_like_field`` is empty (``null_dims = 0``), so there
+    the two are the same loss and the row says so rather than claiming a fix.
     """
     mode = str(pole_mode).strip().lower()
     if mode not in POLE_MODES:
         raise ValueError(f"pole_mode must be one of {POLE_MODES}, got {pole_mode!r}")
     head = field.readout()
+    blind = lm_blind_projector(head.weight) if mode == "dual_band" else None
     held = hold_direction(field, leak_dir)
     lam = float(hold_weight) if held is not None else 0.0
     targets = [
@@ -738,6 +765,21 @@ def fit_sheet(
                     pred_minus,
                     t_plus,
                     t_minus,
+                    hold=hold,
+                    hold_weight=lam if hold is not None else 0.0,
+                )
+            elif mode == "dual_band":
+                term = lm_dual_band_pole_loss(
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    pred_plus_logits=head.logits(pred_plus),
+                    pred_minus_logits=head.logits(pred_minus),
+                    tgt_plus_logits=head.logits(t_plus),
+                    tgt_minus_logits=head.logits(t_minus),
+                    blind_projector=blind,
+                    blind_weight=float(blind_weight),
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
                 )
@@ -770,6 +812,7 @@ def score_sheet(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    blind_weight: float = DUAL_BAND_WEIGHT,
     student: str = "odd_even",
     steps: int = 400,
     seed: int = 0,
@@ -782,6 +825,7 @@ def score_sheet(
         leak_dir=leak_dir,
         hold_weight=hold_weight,
         common_beta=common_beta,
+        blind_weight=blind_weight,
         student=student,
         steps=steps,
         seed=seed,
@@ -805,6 +849,10 @@ def score_sheet(
             "teacher": teacher,
             "student": student,
             "hold_weight": float(hold_weight) if held is not None else 0.0,
+            # How many hidden dims the readout is blind to on this field.
+            # 0 means ``dual_band`` has nothing extra to pin and is exactly
+            # ``semantic_kl`` — the gender-like field is that case.
+            "blind_dims": len(head.null_dims()),
             "common": float(field.common),
             "common_beta": float(common_beta),
             "probe_cos": field.probe_cos(0),
@@ -907,6 +955,43 @@ def gender_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             steps=steps,
             seed=seed,
         ),
+        # New rows. On a clean pair the guard has no ê to decide about, so
+        # ``faithful_guard_e`` is ``faithful`` here by construction, and the
+        # field has no blind dims, so ``dual_band`` is ``semantic_kl`` here.
+        # Both are scored anyway: a recipe that only exists on one field is
+        # not a recipe.
+        score_sheet(
+            "faithful_guard_e",
+            field,
+            pole_mode="hidden",
+            teacher="faithful_guard_e",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_poles",
+            field,
+            pole_mode="dual_band",
+            teacher="faithful",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_guard_e",
+            field,
+            pole_mode="dual_band",
+            teacher="faithful_guard_e",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_midpoint",
+            field,
+            pole_mode="dual_band",
+            teacher="pair_odd",
+            steps=steps,
+            seed=seed,
+        ),
     ]
     return rows
 
@@ -982,6 +1067,44 @@ def leaky_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             pole_mode="semantic_kl",
             teacher="faithful_sub_e",
             leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        # New rows. Here ê really is a leftover the captions left unpinned,
+        # so the blend guard admits the subtraction and ``faithful_guard_e``
+        # is ``faithful_sub_e`` — the leak this cell charges ``v6_faithful``
+        # for is gone without rewriting a caption.
+        score_sheet(
+            "faithful_guard_e",
+            field,
+            pole_mode="hidden",
+            teacher="faithful_guard_e",
+            leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_poles",
+            field,
+            pole_mode="dual_band",
+            teacher="faithful",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_guard_e",
+            field,
+            pole_mode="dual_band",
+            teacher="faithful_guard_e",
+            leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_midpoint",
+            field,
+            pole_mode="dual_band",
+            teacher="pair_odd",
             steps=steps,
             seed=seed,
         ),

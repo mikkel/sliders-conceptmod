@@ -89,7 +89,12 @@ import torch
 from analysis.slider2d.field import cosine
 from analysis.slider2d.sheet import nucleus
 from conceptmod.textsliders.slider_targets import (
+    DUAL_BAND_WEIGHT,
     lm_axis_hold,
+    lm_blend_guard,
+    lm_blind_projector,
+    lm_dual_band_pole_loss,
+    lm_faithful_guard_e,
     lm_faithful_sub_e,
     lm_hidden_targets,
     lm_hold_dir,
@@ -648,8 +653,14 @@ CELL_IS = {
 # -- teachers ------------------------------------------------------------
 
 
-TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e")
-POLE_MODES = ("hidden", "semantic_kl")
+TEACHERS = (
+    "pair_odd",
+    "pair_odd_sub_e",
+    "faithful",
+    "faithful_sub_e",
+    "faithful_guard_e",
+)
+POLE_MODES = ("hidden", "semantic_kl", "dual_band")
 
 
 def hold_direction(field: PairField, leak_dir: torch.Tensor | None) -> torch.Tensor | None:
@@ -676,12 +687,18 @@ def teacher_points(
         )
     if mode == "faithful":
         return pos, neg
+    if mode == "faithful_guard_e" and leak_dir is None:
+        # No ``leak_*`` in the yaml is nothing to subtract, not an error.
+        # That is how one recipe covers gender-v4 and energy-v4 at once.
+        return pos, neg
     if leak_dir is None:
         raise ValueError(f"{mode} needs a declared ê")
     if mode == "pair_odd_sub_e":
         return lm_pair_odd_sub_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
     if mode == "faithful_sub_e":
         return lm_faithful_sub_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
+    if mode == "faithful_guard_e":
+        return lm_faithful_guard_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
     raise ValueError(f"teacher must be one of {TEACHERS}, got {teacher!r}")
 
 
@@ -715,13 +732,23 @@ def target_geometry(
     kept_vis = sum(float(kept @ d) ** 2 for d in vis) ** 0.5
     to_pole = float((t_plus - pos).norm()) / a_norm
     to_mid = float((t_plus - mid).norm()) / a_norm
+    guard = lm_blend_guard(t_plus, t_minus, pos, neg)
     return {
         "axis_eaten": max(0.0, 1.0 - float(kept.norm()) / a_norm),
         "visible_axis_eaten": max(0.0, 1.0 - kept_vis / (a_vis + 1e-8)),
         "off_caption": to_pole,
         "to_mid": to_mid,
         "blend_teacher": bool(to_mid < to_pole),
-        "is_caption": str(teacher).strip().lower() == "faithful" or float(common_beta) == 1.0,
+        # The live blend guard, on the same two points. ``blend_teacher``
+        # reads row 0's ``t₊`` only; this is the both-signs, worst-case
+        # form ``lm_faithful_guard_e`` actually gates on.
+        "guard_admits": bool(guard["admissible"]),
+        "guard_to_pole": float(guard["to_pole"]) / a_norm,
+        "guard_to_mid": float(guard["to_mid"]) / a_norm,
+        # A caption target is one that *is* the pole, whatever route reached
+        # it: ``faithful``, ``symmetric --common_beta 1``, or a guarded ê
+        # subtraction the guard refused.
+        "is_caption": bool(to_pole <= 1e-6),
     }
 
 
@@ -735,6 +762,7 @@ def teacher_geometry_table(cell: str) -> list[dict]:
         ("pair_odd", "pair_odd"),
         ("pair_odd_sub_e", "pair_odd_sub_e"),
         ("faithful_sub_e", "faithful_sub_e"),
+        ("faithful_guard_e", "faithful_guard_e"),
     ):
         if teacher.endswith("sub_e") and e is None:
             continue
@@ -742,6 +770,71 @@ def teacher_geometry_table(cell: str) -> list[dict]:
         geom.update({"name": name, "cell": cell, "teacher": teacher})
         out.append(geom)
     return out
+
+
+def guard_table() -> list[dict]:
+    """What the blend guard decides about ``ê`` on every pair, per row.
+
+    The guard reads the four declared captions and nothing else — no
+    optimizer, no threshold, no readout. The number that decides it is
+    ``to_pole`` against ``to_mid``, both in units of ``‖a‖``: the ê-cleaned
+    target is admissible while it is still nearer the caption it claims to
+    be than the pair's own midpoint.
+    """
+    out = []
+    for cell, ctor in CELLS.items():
+        field = ctor()
+        e = field.declared_e()
+        for row in range(int(field.rows)):
+            pos, neg, neu = field.poles(row)
+            if e is None:
+                out.append(
+                    {
+                        "cell": cell,
+                        "row": row,
+                        "declared_e": False,
+                        "to_pole": 0.0,
+                        "to_mid": 1.0,
+                        "admits": None,
+                        "axis_eaten": 0.0,
+                        "teacher_used": "faithful",
+                    }
+                )
+                continue
+            sub_plus, sub_minus = lm_faithful_sub_e(
+                pos, neg, neu, e, slider_dir=field.short_u()
+            )
+            guard = lm_blend_guard(sub_plus, sub_minus, pos, neg)
+            a_norm = float(field.odd(row).norm().clamp_min(1e-8))
+            kept = 0.5 * (sub_plus - sub_minus)
+            out.append(
+                {
+                    "cell": cell,
+                    "row": row,
+                    "declared_e": True,
+                    "to_pole": float(guard["to_pole"]) / a_norm,
+                    "to_mid": float(guard["to_mid"]) / a_norm,
+                    "admits": bool(guard["admissible"]),
+                    "axis_eaten": max(0.0, 1.0 - float(kept.norm()) / a_norm),
+                    "teacher_used": "faithful_sub_e"
+                    if guard["admissible"]
+                    else "faithful",
+                }
+            )
+    return out
+
+
+def guard_is_uniform(rows: list[dict] | None = None) -> bool:
+    """True when every row of every pair agrees with its pair's decision.
+
+    A yaml whose rows disagree would train a mixed teacher, which the
+    trainer already treats as a warning (``lm_teachers_mixed``).
+    """
+    table = rows if rows is not None else guard_table()
+    per_cell: dict[str, set] = {}
+    for row in table:
+        per_cell.setdefault(row["cell"], set()).add(row["admits"])
+    return all(len(v) == 1 for v in per_cell.values())
 
 
 # -- the rollout ---------------------------------------------------------
@@ -992,6 +1085,8 @@ def fit_exam(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    blind_weight: float = DUAL_BAND_WEIGHT,
+    blind_cut: float = 0.0,
     steps: int = 400,
     lr: float = 0.08,
     seed: int = 0,
@@ -1005,6 +1100,11 @@ def fit_exam(
     if mode not in POLE_MODES:
         raise ValueError(f"pole_mode must be one of {POLE_MODES}, got {pole_mode!r}")
     head = field.readout()
+    blind = (
+        lm_blind_projector(head.weight, cut=float(blind_cut))
+        if mode == "dual_band"
+        else None
+    )
     held = hold_direction(field, leak_dir)
     lam = float(hold_weight) if held is not None else 0.0
     targets = [
@@ -1033,6 +1133,21 @@ def fit_exam(
                     pred_minus,
                     t_plus,
                     t_minus,
+                    hold=hold,
+                    hold_weight=lam if hold is not None else 0.0,
+                )
+            elif mode == "dual_band":
+                term = lm_dual_band_pole_loss(
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    pred_plus_logits=head.logits(pred_plus),
+                    pred_minus_logits=head.logits(pred_minus),
+                    tgt_plus_logits=head.logits(t_plus),
+                    tgt_minus_logits=head.logits(t_minus),
+                    blind_projector=blind,
+                    blind_weight=float(blind_weight),
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
                 )
@@ -1070,6 +1185,8 @@ def score_exam(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    blind_weight: float = DUAL_BAND_WEIGHT,
+    blind_cut: float = 0.0,
     steps: int = 400,
     seed: int = 0,
 ) -> dict:
@@ -1081,6 +1198,8 @@ def score_exam(
         leak_dir=leak_dir,
         hold_weight=hold_weight,
         common_beta=common_beta,
+        blind_weight=blind_weight,
+        blind_cut=blind_cut,
         steps=steps,
         seed=seed,
     )
@@ -1163,6 +1282,9 @@ def score_exam(
             "teacher": teacher,
             "hold_weight": float(hold_weight) if leak_dir is not None else 0.0,
             "common_beta": float(common_beta),
+            "blind_weight": float(blind_weight)
+            if str(pole_mode).strip().lower() == "dual_band"
+            else 0.0,
             # Pair coordinates the sheet field has no column for.
             "divergence": field.divergence(),
             "visible_share": field.visible_share(),
@@ -1302,13 +1424,31 @@ def exam_reason(row: dict) -> str:
 
 
 def recipes(field: PairField) -> list[tuple[str, dict]]:
-    """The live recipes this pair can express, named as the board names them."""
+    """The live recipes this pair can express, named as the board names them.
+
+    The three ``*guard_e`` / ``dual_band_*`` rows are the new ones. They are
+    written so that every pair can express them: a pair with no declared
+    ``ê`` is a guard with nothing to decide, which is the point — one recipe
+    name has to cover gender-v4 and energy-v4 or it is two recipes.
+    """
     e = field.declared_e()
     out: list[tuple[str, dict]] = [
         ("pair_odd_midpoint", {"pole_mode": "hidden", "teacher": "pair_odd"}),
         ("faithful_raw", {"pole_mode": "hidden", "teacher": "faithful"}),
         ("semantic_kl_midpoint", {"pole_mode": "semantic_kl", "teacher": "pair_odd"}),
         ("semantic_kl_poles", {"pole_mode": "semantic_kl", "teacher": "faithful"}),
+        (
+            "faithful_guard_e",
+            {"pole_mode": "hidden", "teacher": "faithful_guard_e", "leak_dir": e},
+        ),
+        ("dual_band_poles", {"pole_mode": "dual_band", "teacher": "faithful"}),
+        (
+            "dual_band_guard_e",
+            {"pole_mode": "dual_band", "teacher": "faithful_guard_e", "leak_dir": e},
+        ),
+        # Control: the same new loss on the live v9 midpoint. If the blind
+        # band were the whole story this would pass too.
+        ("dual_band_midpoint", {"pole_mode": "dual_band", "teacher": "pair_odd"}),
     ]
     if e is not None:
         out += [
