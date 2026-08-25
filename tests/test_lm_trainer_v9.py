@@ -26,6 +26,8 @@ from conceptmod.textsliders.slider_targets import (
     lm_ortho_hold,
     lm_pair_odd_sub_e,
     lm_project_odd_axis,
+    lm_readout_null_basis,
+    lm_semantic_null_pole_loss,
     lm_semantic_pole_loss,
     lm_slider_loss,
     lm_unit,
@@ -565,6 +567,46 @@ def test_semantic_kl_loss_uses_existing_helper():
             tgt_minus,
             pole_mode="semantic_kl",
         )
+
+
+def test_semantic_kl_null_loss_pins_ker_readout():
+    pos, neg, neu = _ungated_pair()
+    tgt_plus, tgt_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful")
+    pred_plus = neu + torch.tensor([0.8, 0.4])
+    pred_minus = neu + torch.tensor([-0.7, -0.3])
+    readout = torch.tensor(
+        [[1.0, 0.2], [0.1, -1.0], [0.4, 0.5], [-0.3, 0.8]],
+        dtype=torch.float32,
+    )
+    basis = lm_readout_null_basis(readout)
+    assert basis is None
+    got = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        hold_weight=0.0,
+        pole_mode="semantic_kl_null",
+        readout=readout,
+        null_basis=basis,
+    )
+    expected = lm_semantic_null_pole_loss(
+        lm_next_token_logits(pred_plus, readout),
+        lm_next_token_logits(pred_minus, readout),
+        lm_next_token_logits(tgt_plus, readout),
+        lm_next_token_logits(tgt_minus, readout),
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        readout,
+        null_basis=basis,
+    )
+    assert float(got) == pytest.approx(float(expected), abs=1e-6)
+    assert resolve_pole_mode("semantic_kl_null") == "semantic_kl_null"
+    args = parse_args(["--prompts_file", "prompts.yaml", "--pole_mode", "semantic_kl_null"])
+    assert args.pole_mode == "semantic_kl_null"
 
 
 def test_hidden_pole_mode_leaves_v9_and_pair_odd_sub_e_unchanged():

@@ -131,6 +131,7 @@ SHEET_LEFTOVER = {
     "faithful_sub_e": "faithful_sub_e",
     "semantic_kl_midpoint": "kl_on_midpoint",
     "semantic_kl_poles": "v16_semantic_kl",
+    "semantic_kl_null": "v16_semantic_kl",
     "semantic_kl_sub_e": "v16_semantic_kl_sub_e",
 }
 SHEET_GENDER = {
@@ -145,6 +146,7 @@ SHEET_GENDER = {
     "pair_odd_sub_e": "v9_hidden",
     "semantic_kl_midpoint": "kl_on_midpoint",
     "semantic_kl_poles": "v16_semantic_kl",
+    "semantic_kl_null": "v16_semantic_kl",
     "gender_like_no_e": "v9_hidden",
     "hidden_beta1": "hidden_beta1",
 }
@@ -905,6 +907,16 @@ def collect_scoreboard(
             leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
             fixture="sheet leftover + sheet gender",
             notes="on-sheet, but unused gender still moves the leak token.",
+        ),
+        _row(
+            "semantic_kl_null",
+            "semantic_kl + null-space hidden pin",
+            exam=exam,
+            leftover=sheet_left("v16_semantic_kl"),
+            gender=sheet_gen("v16_semantic_kl"),
+            leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
+            fixture="pair-exam + sheet leftover + sheet gender",
+            notes="faithful caption poles; KL on the readout row space plus hidden MSE on ker(W) pins delivery the KL cannot see.",
         ),
         _row(
             "semantic_kl_sub_e",
