@@ -136,6 +136,12 @@ stays parallel to the teacher when ê ∥ â — c+ stays high, perc
 → λ/(1+λ). The slider-lock failure still shows up as leftover unused
 when ê ≈ û.
 
+The ½ factor is a width effect: `F.mse_loss` averages over the hidden
+state and `lm_axis_hold` does not, so at width D the fit keeps
+`teacher_ê/(1 + λ·D/2)`. λ=8 here is a stiffness of 8; live it is
+`4·D`. That, the concept living partly off short û, and the ±1 break
+are cells in [lm-highd-leftover.md](lm-highd-leftover.md).
+
 ê = û, λ=8 raw: step 0 loss 1.44 c+ +0.00 col +0.00 p% 100 step 50 loss 0.46 c+ +0.85 col -1.00 p% 53 step 100 loss 0.45 c+ +0.85 col -1.00 p% 52 step 150 loss 0.45 c+ +0.85 col -1.00 p% 52 step 200 loss 0.45 c+ +0.85 col -1.00 p% 52
 
 ê ≈ â, λ=8 raw: step 0 loss 1.44 c+ +0.00 col +0.00 p% 100 step 50 loss 1.27 c+ +0.79 col -1.00 p% 88 step 100 loss 1.27 c+ +0.80 col -1.00 p% 89 step 150 loss 1.27 c+ +0.80 col -1.00 p% 89 step 200 loss 1.27 c+ +0.80 col -1.00 p% 89
