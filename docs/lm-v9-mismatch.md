@@ -17,7 +17,7 @@ logged on gender-v1 against
 `A woman is singing, her voice is feminine.` /
 `A man is singing, his voice is masculine.`. Always-project+hold
 (`--lm_target v9_always`) **fails**. Hub / pair-symmetric and the
-new slider-level default **pass**.
+new hold-ê default **pass**.
 
 CPU only. No Hub, no GPU, no Music 3 weights.
 
@@ -98,7 +98,7 @@ intended concept, pair is junk” without another check.
 
 - `pair_symmetric` / Hub-on-pair (full odd, κ=0): **pass** mismatch,
   **fail** leak (unused gender stays in `(pos−neg)/2`).
-- `always_project_hold` / today’s `--lm_target v9`: **fail** mismatch
+- `always_project_hold` / `--lm_target v9_always`: **fail** mismatch
   (strength 0.200, cos 0.20),
   **pass** leak (leak-0).
 - `gated_align` (`--project_align_min 0.5`):
