@@ -6,7 +6,8 @@ per-coordinate residual. This cell keeps the live loss
 (`lm_hidden_targets` + `lm_axis_hold` on `ê_⊥ = ê − (ê·û)û`) and
 adds the three things live energy-v14 has and 2-D does not: a
 hidden width, concept content off the short caption axis, and a
-±1 pair that is not a perfect mirror.
+±1 pair that is not a perfect mirror (two forward passes with the
+LoRA multiplier flipped are not odd in the multiplier).
 
 CPU only. No Hub, no GPU, no Music 3 weights. `--lm_target v9`
 default is untouched.
@@ -19,7 +20,7 @@ default is untouched.
 
 **What actually failed live is ê's wording.** The hold eats one direction. On the synonym ê that direction is 92% concept content, so cos to the short probe *rises* to +0.684 while cos to the concept falls to +0.144 and 54% of the leak survives. A 2-D field cannot show that split — there û and the concept are one axis (same cell in 2-D: cos û +0.988, cos concept +0.988, leak +0.155, **PASS**).
 
-**The ±1 break is not geometry.** With a symmetric pair-odd teacher and any residual linear in the slider scale, the pole MSE splits into `|w_odd − a|² + |w_even|²` and the hold splits the same way, so `w_even` never leaves 0 and `cos(d+, d−) = −1`. 45 cells with a *free* even parameter — D up to 64, λ up to 1024, tiny and messy ê_⊥ — all print collapse -1.000000. Live ±1 goes through the stack twice; SwiGLU gating makes those replies non-mirror. `bend` is that asymmetry, and collapse -0.95 → bend 0.16, collapse +0.18 → bend 1.20. Live energy-v14's `+0.18` says the even reply outgrew the odd reply — the LoRA left its linear regime. No ê and no λ in this fixture does that.
+**The ±1 break is not geometry.** With a symmetric pair-odd teacher and any residual linear in the slider scale, the pole MSE splits into `|w_odd − a|² + |w_even|²` and the hold splits the same way, so `w_even` never leaves 0 and `cos(d+, d−) = −1`. 45 cells with a *free* even parameter — D up to 64, λ up to 1024, tiny and messy ê_⊥ — all print collapse -1.000000. Live ±1 is two forward passes with the LoRA multiplier flipped, through attention softmax and SwiGLU MLPs; none of that is odd in the multiplier, so the replies are only approximate mirrors. `bend` is the size of the non-mirror part, and collapse -0.95 → bend 0.16, collapse +0.18 → bend 1.20. Live energy-v14's `+0.18` says the even reply was *larger* than the odd one (bend > 1) at whatever scale that run drove the LoRA to. That is a fact about the stack, not about ê: no ê and no λ in this fixture moves collapse at all.
 
 **Recommendation.** Leftover-only ê is right on direction and is the canary for *that*: at λ=1 it is bipolar (-1.000), trainable (loss 0.099), keeps the concept (+0.884) and still leaves leak +0.529 — λ=8 barely moves it (+0.504), because the leftover a single caption pair does not name survives any λ. It is *not* a canary for the stiffness that broke ±1. `pair_odd_sub_e` on the same ê lands on the same residual (c+ +0.809 vs +0.822, leak +0.503 vs +0.504) with loss 0.000 and no stiffness at all: it is the hold's λ→∞ limit reached in one step. Ship leftover-only ê with `--hold_weight 1` to test the wording; then move the axis into the teacher (`pair_odd_sub_e`, subtracting **ê_⊥**, not raw ê) as the PR.
 

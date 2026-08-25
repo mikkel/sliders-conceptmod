@@ -24,12 +24,13 @@ What high-D still cannot show is the ±1 polarity break. With a
 symmetric pair-odd teacher and any residual that is linear in the
 slider scale, the pole MSE splits into ``|w_odd − a|² + |w_even|²``
 and the hold splits the same way, so ``w_even`` stays 0 and
-``cos(d+, d−) = −1`` for every ê, λ and D. Live ±1 goes through a
-LoRA'd attention stack twice; SwiGLU gating makes those two responses
-non-mirror at first order. ``bend`` is that asymmetry (``δ(s) = s·w +
-bend·G w`` with a fixed orthogonal ``G``), and it is a property of the
-net, not of ê. Gender-v14 (collapse −0.95) implies bend ≈ 0.18;
-energy-v14 (collapse +0.18) implies bend ≈ 1.2.
+``cos(d+, d−) = −1`` for every ê, λ and D. Live ±1 is two forward
+passes with the LoRA multiplier flipped, through attention softmax and
+SwiGLU MLPs; none of that is odd in the multiplier, so the two replies
+are only approximately mirrors. ``bend`` is the size of the non-mirror
+part and it is a property of the net, not of ê. Gender-v14 (collapse
+−0.95) implies bend ≈ 0.16; energy-v14 (collapse +0.18) implies
+bend ≈ 1.2, i.e. an even reply larger than the odd one.
 
 CPU only. No Hub, no GPU, no Music 3 weights. Does not change the live
 trainer default.
@@ -1127,7 +1128,7 @@ def live_v14_analogue(
     return best, rows
 
 
-def compact(row: dict) -> dict:
+def compact(row: dict, *, history: bool = True) -> dict:
     out = {}
     for key, value in row.items():
         if key in ("history", "axis"):
@@ -1135,8 +1136,9 @@ def compact(row: dict) -> dict:
         if isinstance(value, (int, float, bool, str)):
             out[key] = value
     out["axis"] = dict(row.get("axis", {}))
-    out["history"] = [
-        {k: (int(v) if k == "step" else float(v)) for k, v in snap.items()}
-        for snap in row.get("history", [])
-    ]
+    if history:
+        out["history"] = [
+            {k: (int(v) if k == "step" else float(v)) for k, v in snap.items()}
+            for snap in row.get("history", [])
+        ]
     return out

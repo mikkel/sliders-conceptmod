@@ -197,7 +197,8 @@ def write_report(blob: dict, path: Path) -> None:
         "(`lm_hidden_targets` + `lm_axis_hold` on `ê_⊥ = ê − (ê·û)û`) and",
         "adds the three things live energy-v14 has and 2-D does not: a",
         "hidden width, concept content off the short caption axis, and a",
-        "±1 pair that is not a perfect mirror.",
+        "±1 pair that is not a perfect mirror (two forward passes with the",
+        "LoRA multiplier flipped are not odd in the multiplier).",
         "",
         "CPU only. No Hub, no GPU, no Music 3 weights. `--lm_target v9`",
         "default is untouched.",
@@ -252,15 +253,18 @@ def write_report(blob: dict, path: Path) -> None:
             f"D up to {max(r['dim'] for r in blob['polarity'])}, λ up to "
             f"{max(r['hold_weight'] for r in blob['polarity']):.0f}, tiny and "
             f"messy ê_⊥ — all print collapse "
-            f"{blob['polarity_max_collapse']:+.6f}. Live ±1 goes through the "
-            f"stack twice; SwiGLU gating makes those replies non-mirror. "
-            f"`bend` is that asymmetry, and collapse "
+            f"{blob['polarity_max_collapse']:+.6f}. Live ±1 is two forward "
+            f"passes with the LoRA multiplier flipped, through attention "
+            f"softmax and SwiGLU MLPs; none of that is odd in the multiplier, "
+            f"so the replies are only approximate mirrors. `bend` is the size "
+            f"of the non-mirror part, and collapse "
             f"{LIVE_GENDER_COLLAPSE:+.2f} → bend "
             f"{bend_for_collapse(LIVE_GENDER_COLLAPSE):.2f}, collapse "
             f"{LIVE_COLLAPSE:+.2f} → bend {bend_for_collapse(LIVE_COLLAPSE):.2f}. "
-            f"Live energy-v14's `+{LIVE_COLLAPSE:.2f}` says the even reply "
-            f"outgrew the odd reply — the LoRA left its linear regime. No ê "
-            f"and no λ in this fixture does that."
+            f"Live energy-v14's `+{LIVE_COLLAPSE:.2f}` says the even reply was "
+            f"*larger* than the odd one (bend > 1) at whatever scale that run "
+            f"drove the LoRA to. That is a fact about the stack, not about ê: "
+            f"no ê and no λ in this fixture moves collapse at all."
         ),
         "",
         (
@@ -666,7 +670,24 @@ def main(argv: list[str] | None = None) -> int:
         },
         "cells": [compact(r) for r in cells],
         "analogue": compact(analogue),
-        "analogue_grid": [compact(r) for r in analogue_grid],
+        "analogue_grid": [
+            {
+                key: round(float(r[key]), 6)
+                for key in (
+                    "bend",
+                    "bend_parallel",
+                    "c_plus",
+                    "collapse",
+                    "norm_ratio",
+                    "cos_short_u",
+                    "cos_intended",
+                    "leftover_leak",
+                    "perc",
+                    "loss",
+                )
+            }
+            for r in analogue_grid
+        ],
         "analogue_pure_rotation": pure_bend,
         "analogue_gain_bend": gain_side["bend"],
         "analogue_gain_parallel": gain_side["bend_parallel"],
@@ -674,11 +695,11 @@ def main(argv: list[str] | None = None) -> int:
         "analogue_gain_ratio": gain_side["norm_ratio"],
         "lambda_dim": closed,
         "lambda_fit": [compact(r) for r in fitted],
-        "wording": [compact(r) for r in wording],
+        "wording": [compact(r, history=False) for r in wording],
         "match_l1": [compact(r) for r in match_l1],
         "match_l8": [compact(r) for r in match_l8],
         "bend": [compact(r) for r in bend],
-        "polarity": [compact(r) for r in polarity],
+        "polarity": [compact(r, history=False) for r in polarity],
         "polarity_rows": len(polarity),
         "polarity_max_collapse": max(r["collapse"] for r in polarity),
         "polarity_max_even": max(r["even_norm"] for r in polarity),
