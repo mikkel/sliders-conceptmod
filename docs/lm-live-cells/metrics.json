@@ -15,7 +15,7 @@
     0.6800000071525574
   ],
   "slider_align_min": 0.5,
-  "bare_train_energy": "python conceptmod/textsliders/train_lm_slider_music3.py --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml",
+  "bare_train_energy": "python conceptmod/textsliders/train_lm_slider_music3.py --lm_target pair_odd_sub_e --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml",
   "bare_train_gender": "python conceptmod/textsliders/train_lm_slider_music3.py --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml",
   "table": {
     "gender": [

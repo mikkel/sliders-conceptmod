@@ -48,7 +48,14 @@ from conceptmod.textsliders.slider_targets import (
     lm_semantic_kl,
     lm_semantic_pole_loss,
 )
-from conceptmod.textsliders.train_lm_slider_music3 import LM_RECIPES, parse_args
+from conceptmod.textsliders.train_lm_slider_music3 import (
+    LM_RECIPES,
+    SUB_E_RECIPES,
+    V9_RECIPES,
+    lm_train_targets,
+    parse_args,
+    resolve_lm_loss_weights,
+)
 
 
 STEPS = 400
@@ -499,6 +506,33 @@ def test_the_live_default_is_still_hidden_mse_onto_the_midpoint():
     assert args.common_beta == 0.0
     assert "v9" in LM_RECIPES and "pair_odd_sub_e" in LM_RECIPES
     assert not hasattr(args, "pole_mode")
+
+
+def test_the_recommended_live_ladder_is_reachable_today():
+    """``--lm_target symmetric --common_beta 1`` really is the raw poles.
+
+    The report offers this as the one on-sheet target reachable without new
+    code. It is only reachable off `v9`: `v9` and `pair_odd_sub_e` drop β.
+    """
+    assert "symmetric" not in V9_RECIPES | SUB_E_RECIPES
+    field = leaky_field()
+    pos, neg, neu = field.poles(0)
+    plus, minus, anc_plus, anc_minus = lm_train_targets(
+        pos, neg, neu, recipe="symmetric", common_beta=1.0
+    )
+    assert torch.allclose(plus, pos, atol=1e-6)
+    assert torch.allclose(minus, neg, atol=1e-6)
+    assert anc_plus is None and anc_minus is None
+    # No hold on that recipe, so it is the faithful teacher exactly.
+    hold, anchor = resolve_lm_loss_weights(
+        "symmetric", hold_weight=None, anchor_weight=None, leak_declared=True
+    )
+    assert (hold, anchor) == (0.0, 0.0)
+    # v9 ignores β, which is why the ladder is not reachable there.
+    v9_plus, _v9_minus, _a, _b = lm_train_targets(
+        pos, neg, neu, recipe="v9", common_beta=1.0
+    )
+    assert not torch.allclose(v9_plus, pos, atol=1e-3)
 
 
 def test_teacher_row_rejects_an_e_recipe_without_a_declared_axis():

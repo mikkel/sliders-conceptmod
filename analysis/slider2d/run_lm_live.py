@@ -27,6 +27,7 @@ DEFAULT_OUT = _REPO / "docs" / "lm-live-cells"
 
 BARE_TRAIN = (
     "python conceptmod/textsliders/train_lm_slider_music3.py "
+    "--lm_target pair_odd_sub_e "
     "--prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml"
 )
 BARE_TRAIN_GENDER = (
@@ -183,10 +184,11 @@ def write_report(table: dict, blob: dict, path: Path) -> None:
         "",
         "## Bare Music 3 LM train",
         "",
-        "The one argv is `--lm_target v9` (default). Declare ê in YAML as",
-        "`leak_positive` / `leak_negative` (or `leak: [pos, neg]`). CLI",
-        "`--leak_positive` / `--leak_negative` wins. `attributes` prefixes",
-        "captions (makes `a` clean) and is not ê. Omit leak on a clean pair.",
+        "Gender stays `--lm_target v9` (default): omit leak_*, hold 0. Leaky",
+        "axes use `--lm_target pair_odd_sub_e` (pair-odd minus `ê_⊥`, hold 0)",
+        "with leftover-only `leak_positive` / `leak_negative` (genre + mix /",
+        "BPM, not the slider). CLI `--leak_positive` / `--leak_negative` wins.",
+        "`attributes` prefixes captions (makes `a` clean) and is not ê.",
         "",
         "Old short-û project is `--lm_target v9_project` (slider-level gate)",
         "or `--lm_target v9_always`.",
@@ -212,6 +214,11 @@ def write_report(table: dict, blob: dict, path: Path) -> None:
         "the short û *is* the concept. At live width λ=8 is `4·D`, the concept",
         "sits partly off û, and trainer c+ has a ceiling below gender's 0.97:",
         "[lm-highd-leftover.md](lm-highd-leftover.md).",
+        "",
+        "Both cells also score a high `cos_intended` as success, and neither",
+        "can ask whether the teacher point is a caption the LM would ever",
+        "produce. The pair-odd midpoint is not, and that is what garbles the",
+        "lyric: [lm-sheet-goodhart.md](lm-sheet-goodhart.md).",
         "",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

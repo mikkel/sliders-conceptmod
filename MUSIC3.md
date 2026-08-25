@@ -109,6 +109,25 @@ its job. What ê's wording changes is whether `ê_⊥` is unused leftover
 or the concept off short û. `collapse` is the one number ê / λ / D
 cannot move — see [docs/lm-highd-leftover.md](docs/lm-highd-leftover.md).
 
+**`c+` and `collapse` are not the success metric.** Both are maximized
+by a target no caption occupies. `h± = h0 ± a + c` exactly, with
+`c = ½(h++h−) − h0`, so `t± = h0 ± a` is the pole minus its whole common
+component — the Structured-Caption specificity both poles share and the
+neutral skeleton lacks. The trainer already prints the size of `c`:
+`cos(pos−neu, neg−neu)` is `(‖c‖²−‖a‖²)/(‖c‖²+‖a‖²)`, so the v4 probe
+table above (gender −0.08 … live +0.32) puts `‖c‖/‖a‖` between 0.92 and
+1.39 on **every** shipped axis, and v9 deletes all of it (`--common_beta`
+is ignored by v9). On a fixture with a next-token readout that target
+prints `c+ 1.00 / collapse −1.00` and puts 41% of its next-token mass on
+words the song has no sheet for, while delivering 27% of the caption's
+own token swing; a target that *is* a caption stays on the sheet and
+prints `c+ 0.60 / collapse +0.13`. Under a caption target `collapse`
+converges to `cos(pos−neu, neg−neu)` itself, so a collapse near −1 is
+the tell that the common component is gone. See
+[docs/lm-sheet-goodhart.md](docs/lm-sheet-goodhart.md). Nothing about
+this is wired: `--pole_mode` is not a flag in
+`train_lm_slider_music3.py`, and the default is still `--lm_target v9`.
+
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
 Published Hub floor is `--lm_target hub` and still leaks — not the default.

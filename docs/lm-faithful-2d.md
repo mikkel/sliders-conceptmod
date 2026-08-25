@@ -8,9 +8,13 @@ poles: MSE to `h+` / `h−` (`--lm_target faithful` / v6). This scores
 every honest knob that keeps that teacher, then the non-faithful
 comparables. CPU only. No Hub, no GPU, no Music 3 weights.
 
-Endreg / planreg / `pole_mode: semantic_kl` are AR-only and are not
-on this field. `--common_beta` is ignored in faithful mode (the
-function returns `pos, neg`). `--target_scale` is symmetric-only.
+Endreg / planreg are AR-only and are not on this field.
+`--common_beta` is ignored in faithful mode (the function returns
+`pos, neg`) and by `--lm_target v9`; on the symmetric teacher β = 1
+*is* the faithful teacher, which is the point of
+[lm-sheet-goodhart.md](lm-sheet-goodhart.md). `--target_scale` is
+symmetric-only. `pole_mode: semantic_kl` is a v6 note, not a live
+flag; its CPU form is scored on the sheet cell.
 
 ## Verdict
 
