@@ -80,4 +80,6 @@ project is leak-0 here because û *is* the pole names. That hid both
 live failures. Gender-like and energy-like cells are
 [lm-live-cells.md](lm-live-cells.md). Default `--lm_target v9` is now
 full pair-odd + hold-on-ê, not short-û project.
+See [lm-faithful-2d.md](lm-faithful-2d.md) for whether v6 faithful
+(raw-pole MSE) can be fixed on this field while remaining faithful.
 
