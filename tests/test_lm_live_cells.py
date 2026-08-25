@@ -240,6 +240,7 @@ def test_mean_odd_align_is_slider_level():
 def test_bare_trainer_is_hold_e_v9():
     args = parse_args(["--prompts_file", "prompts.yaml"])
     assert args.lm_target == "v9"
+    assert args.pole_mode == "hidden"
     assert resolve_lm_recipe(lm_target=args.lm_target, symmetric=True) == "v9"
     floor, scope = resolve_v9_gate(
         recipe="v9",

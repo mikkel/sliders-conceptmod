@@ -20,7 +20,9 @@ Formulas are copied from:
   pair, or ``attributes`` already pin the unused axis), hold is 0.
   ``--lm_target pair_odd_sub_e`` is the leaky-axis teacher: drop
   ``ê_⊥`` out of pair-odd first (the λ→∞ hold limit, no stiffness).
-  Subtract ``ê_⊥``, not raw ê. Gender stays ``v9`` with no ê / hold 0.
+  Subtract ``ê_⊥``, not raw ê. ``--lm_target faithful_sub_e`` is the
+  same leftover odd on the real poles (midpoint stays ½(h++h−));
+  it is not the default. Gender stays ``v9`` with no ê / hold 0.
   ``--lm_target v9_project`` is the old slider-level project+hold
   onto û; ``v9_always`` never gates.
 - Encoder MSE in ``train_encoder_music3.py``
@@ -390,6 +392,35 @@ def lm_pair_odd_sub_e(
         unit = lm_unit(held)
         axis = axis - ((axis.flatten() @ unit) * unit).view_as(axis)
     return neu + axis, neu - axis
+
+
+def lm_faithful_sub_e(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor,
+    target_scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Real caption poles with leftover ê removed from the odd part only.
+
+        a = (pos − neg) / 2
+        ê_⊥ = ê − (ê·û)û          # same leftover geometry as pair_odd_sub_e
+        â = a − (a · ê̂_⊥) ê̂_⊥
+        mid = ½(pos + neg)
+        tgt(±1) = mid ± â · target_scale
+
+    Midpoint stays ½(h++h−). Teacher is a real caption minus leftover
+    unused, not ``t± = h0 ± a``. ``pair_odd_sub_e`` is the
+    midpoint-minus-ê teacher (v15) and is not this function — it is
+    this leftover odd plus ``h0`` instead of ``mid``.
+    """
+    plus, minus = lm_pair_odd_sub_e(
+        pos, neg, neu, leak_dir, slider_dir=slider_dir, target_scale=target_scale
+    )
+    common = (pos + neg) / 2.0 - neu
+    return plus + common, minus + common
 
 
 def lm_project_odd_axis(

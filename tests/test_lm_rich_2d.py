@@ -46,6 +46,7 @@ def core():
 def test_live_default_is_still_v9_hold_e():
     args = parse_args(["--prompts_file", "prompts.yaml"])
     assert args.lm_target == "v9"
+    assert args.pole_mode == "hidden"
     assert resolve_lm_recipe(lm_target="v9", symmetric=True) == "v9"
 
 

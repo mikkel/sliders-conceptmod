@@ -288,24 +288,24 @@ So the campaign's best log and the off-sheet failure are the same fit.
   way `garble_*` does here is exactly the measurement to run next,
   and it needs no training: encode the v4 pole captions, build
   `t± = h0 ± a`, and compare the two policies.
-- **Whether the live fix is wired at all.** `--pole_mode` does not
-  exist in `train_lm_slider_music3.py`; `semantic_kl` appears only in
-  doc prose describing a v6-era AR feature. See the note below.
+- **Whether the live fix is the default.** `--pole_mode` and
+  `--lm_target faithful_sub_e` are wired; the default is still
+  `--lm_target v9` / `--pole_mode hidden`. See the note below.
 
 ## The live path
 
-`--pole_mode semantic_kl` is **not implemented**. The trainer's pole
-supervision is `--lm_target` (default `v9`) and the loss is always
-`lm_slider_loss`, i.e. hidden MSE. The three doc mentions of
-`pole_mode: semantic_kl` (`docs/lm-v9-2d.md`, `docs/lm-faithful-2d.md`
-and their generators) describe it as a v6-era AR-only feature that v9
-removed. This PR does not wire it: it adds the CPU-tested pole term
-(`lm_semantic_pole_loss` / `lm_semantic_kl` / `lm_next_token_logits`
-in `slider_targets.py`) and leaves `--lm_target v9` as the default,
-because the fixture's conclusion changes what the wiring should be —
-the targets have to be ê-cleaned *real pole* hiddens, and the readout
-has to be the semantic band, neither of which is what "KL instead of
-MSE" alone would give you.
+`--pole_mode semantic_kl` and `--lm_target faithful_sub_e` are now
+live flags. The default is still `--lm_target v9` and
+`--pole_mode hidden` (`lm_slider_loss`, hidden MSE). The v16 card is
+gender: `--lm_target faithful --pole_mode semantic_kl` (no leak_*);
+leaky: `--lm_target faithful_sub_e --pole_mode semantic_kl` (leftover
+ê from YAML, hold 0). That is the wiring the fixture asked for —
+ê-cleaned *real pole* hiddens, and the semantic band of `lm_head`
+via `lm_semantic_pole_loss` / `lm_semantic_kl` /
+`lm_next_token_logits` — not "KL instead of MSE" onto the midpoint.
+`pair_odd_sub_e` stays the midpoint-minus-ê teacher. Do not retune
+the pair-odd early-stop gates to KL; `--no-early_stop` is the
+train-card choice.
 
 The cheapest next measurement needs no training and no new code path:
 encode the v4 pole and neutral captions with
