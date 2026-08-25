@@ -105,3 +105,6 @@ PYTHONPATH=. pytest tests/test_lm_live_cells.py tests/test_lm_v9_mismatch.py tes
 
 Seed `0`, `200` Adam steps.
 
+Unused-ê is the wrong ê for live energy-v4 leak captions (they
+*are* energy). That cell is [lm-hold-overlap.md](lm-hold-overlap.md).
+
