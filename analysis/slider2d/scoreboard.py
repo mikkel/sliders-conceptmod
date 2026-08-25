@@ -36,6 +36,11 @@ from analysis.slider2d.rich import (
     RichField,
     score_rich,
 )
+from analysis.slider2d.exam import (
+    LIVE_EXAM,
+    close_cell,
+    divergent_cell,
+)
 from analysis.slider2d.sheet import (
     ARGMAX_LOCK,
     GARBLE_MAX,
@@ -61,11 +66,12 @@ COMPILED_CONCEPT_COS = 0.90
 COMPILED_STRENGTH_FLOOR = 0.50
 
 WORKS = "works"
+WORKS_ENERGY_ONLY = "works-on-energy-only"
 WORKS_GENDER_ONLY = "works-on-gender-only"
 FAILS = "fails"
-VERDICT_ORDER = {WORKS: 0, WORKS_GENDER_ONLY: 1, FAILS: 2}
+VERDICT_ORDER = {WORKS: 0, WORKS_ENERGY_ONLY: 1, WORKS_GENDER_ONLY: 2, FAILS: 3}
 
-# Sheet recipe names on the leftover (energy-like) cell.
+# Unused-gender leftover sheet (informational). Not the energy stand-in.
 SHEET_LEFTOVER = {
     "faithful_raw": "v6_faithful",
     "pair_odd_midpoint": "v9_hidden",
@@ -90,6 +96,50 @@ SHEET_GENDER = {
     "semantic_kl_poles": "v16_semantic_kl",
     "gender_like_no_e": "v9_hidden",
     "hidden_beta1": "hidden_beta1",
+}
+
+# Energy stand-in: divergent two-track field (energy-v4).
+SHEET_DIVERGENT = {
+    "faithful_raw": "v6_faithful",
+    "faithful_attrs": "v6_faithful",
+    "hidden_beta1": "v6_faithful",
+    "pair_odd_midpoint": "v9_hidden",
+    "hub": "v9_hidden",
+    "hold_e_raw_l1": "v9_hidden",
+    "hold_e_raw_l8": "v9_hidden",
+    "hold_e_perp_l1": "v9_hidden",
+    "hold_e_perp_l8": "v9_hidden",
+    "hold_e_raw_synonym_l8": "v9_hidden",
+    "project_short_u": "v9_hidden",
+    "project_rich_u": "v9_hidden",
+    "leftover_hold_l1": "v9_hidden",
+    "leftover_hold_l8": "v9_hidden",
+    "pair_odd_sub_e": "v15_pair_odd_sub_e",
+    "faithful_sub_e": "faithful_sub_e",
+    "semantic_kl_midpoint": "kl_on_midpoint",
+    "semantic_kl_poles": "v16_semantic_kl",
+    "semantic_kl_sub_e": "v16_semantic_kl_sub_e",
+    "gender_like_no_e": "v9_hidden",
+}
+
+# Gender stand-in: close same-song pair + rollout (gender-v4).
+SHEET_CLOSE = {
+    "faithful_raw": "v6_faithful",
+    "faithful_attrs": "v6_faithful",
+    "hidden_beta1": "hidden_beta1",
+    "pair_odd_midpoint": "v9_hidden",
+    "hub": "v9_hidden",
+    "hold_e_raw_l1": "v9_hidden",
+    "hold_e_raw_l8": "v9_hidden",
+    "hold_e_perp_l1": "v9_hidden",
+    "hold_e_perp_l8": "v9_hidden",
+    "hold_e_raw_synonym_l8": "v9_hidden",
+    "project_short_u": "v9_hidden",
+    "project_rich_u": "v9_hidden",
+    "pair_odd_sub_e": "v9_hidden",
+    "semantic_kl_midpoint": "kl_on_midpoint",
+    "semantic_kl_poles": "v16_semantic_kl",
+    "gender_like_no_e": "v9_hidden",
 }
 
 
@@ -205,18 +255,23 @@ def cell_works(
 
 def compiled_verdict(
     *,
-    leftover_works: bool | None,
-    gender_works: bool | None,
+    energy_works: bool | None = None,
+    gender_works: bool | None = None,
+    leftover_works: bool | None = None,
     pair_odd_cos: float | None = None,
 ) -> str:
-    """Join the leftover cell and the gender-like cell.
+    """Join the divergent energy cell and the close-pair gender cell.
 
-    ``pair_odd_cos`` is accepted and ignored so a caller cannot
-    accidentally feed the logged lock into the compiled score.
+    ``leftover_works`` is the unused-gender leftover sheet. It is
+    accepted and ignored as an energy stand-in — that is the #23
+    mistake the live exam failed. ``pair_odd_cos`` is accepted and
+    ignored so a caller cannot feed the logged lock into the score.
     """
-    del pair_odd_cos
-    if leftover_works is True:
+    del leftover_works, pair_odd_cos
+    if energy_works is True and gender_works is True:
         return WORKS
+    if energy_works is True:
+        return WORKS_ENERGY_ONLY
     if gender_works is True:
         return WORKS_GENDER_ONLY
     return FAILS
@@ -251,6 +306,8 @@ def _row(
     *,
     leftover: dict | None = None,
     gender: dict | None = None,
+    energy: dict | None = None,
+    close: dict | None = None,
     leftover_leak: float | None = None,
     gender_leak: float | None = None,
     on_sheet: float | None = None,
@@ -274,6 +331,8 @@ def _row(
 ) -> dict:
     leftover = leftover or {}
     gender = gender or {}
+    energy = energy or {}
+    close = close or {}
     leftover_leak = leftover_leak if leftover_leak is not None else leftover.get("leftover_leak")
     if leftover_leak is None:
         leftover_leak = leftover.get("leak_tok", leftover.get("leak_ratio", leftover.get("leak")))
@@ -309,7 +368,17 @@ def _row(
     strength = strength if strength is not None else leftover.get("strength", leftover.get("strength_on_u", gender.get("strength")))
     pole_cos = pole_cos if pole_cos is not None else leftover.get("pole_cos", leftover.get("pole_cos_plus"))
 
-    leftover_pass = cell_works(
+    # Displayed sheet columns prefer the divergent energy stand-in.
+    if energy:
+        on_sheet = energy.get("on_sheet", on_sheet)
+        on_sheet_kept = energy.get("on_sheet_kept", on_sheet_kept)
+        off_sheet = energy.get("garble", off_sheet)
+        argmax_on_sheet = energy.get("argmax_on_sheet", argmax_on_sheet)
+        swing_kept = energy.get("swing_kept", swing_kept)
+        pair_odd_cos = energy.get("pair_odd_cos", pair_odd_cos)
+        collapse = energy.get("collapse", collapse)
+
+    unused_pass = cell_works(
         leak=leftover_leak,
         on_sheet_kept=leftover.get("on_sheet_kept", on_sheet_kept if leftover else None),
         off_sheet=leftover.get("garble", off_sheet if leftover else None),
@@ -322,7 +391,7 @@ def _row(
         pair_odd_cos=pair_odd_cos,
         collapse=collapse,
     )
-    gender_pass = cell_works(
+    old_gender_pass = cell_works(
         leak=gender_leak,
         on_sheet_kept=gender.get("on_sheet_kept"),
         off_sheet=gender.get("garble"),
@@ -335,14 +404,17 @@ def _row(
         pair_odd_cos=gender.get("pair_odd_cos"),
         collapse=gender.get("collapse", gender.get("cos_plus_minus")),
     )
-    # Recipes that only have leftover numbers should not inherit a
-    # gender pass from a missing gender cell.
-    if not gender and leftover:
-        gender_pass = False if leftover_pass is False else gender_pass
+    energy_pass = energy.get("pass") if energy else None
+    close_pass = close.get("pass") if close else None
+    if energy and not close:
+        close_pass = False if energy_pass is False else close_pass
+    if close and not energy:
+        energy_pass = False if close_pass is False else energy_pass
 
     verdict = compiled_verdict(
-        leftover_works=leftover_pass,
-        gender_works=gender_pass,
+        energy_works=energy_pass,
+        gender_works=close_pass,
+        leftover_works=unused_pass,
         pair_odd_cos=pair_odd_cos,
     )
     c_plus_distinct = (
@@ -363,8 +435,11 @@ def _row(
         "id": recipe_id,
         "label": label,
         "compiled": verdict,
-        "leftover_works": leftover_pass,
-        "gender_works": gender_pass,
+        "leftover_works": unused_pass,
+        "unused_gender_works": unused_pass,
+        "old_gender_works": old_gender_pass,
+        "energy_works": energy_pass,
+        "gender_works": close_pass,
         "leftover_leak": leftover_leak,
         "gender_leak": gender_leak,
         "on_sheet": on_sheet,
@@ -385,6 +460,27 @@ def _row(
         "rich_kept": rich_kept,
         "strength": strength,
         "pole_cos": pole_cos,
+        "energy_on_sheet_kept": energy.get("on_sheet_kept"),
+        "energy_garble": energy.get("garble"),
+        "energy_says": energy.get("says"),
+        "energy_off_caption": energy.get("off_caption"),
+        "close_on_sheet_kept": close.get("on_sheet_kept"),
+        "close_rollout_kept": close.get("rollout_on_sheet_kept"),
+        "close_rollout_garble": close.get("rollout_garble"),
+        "close_pperc": close.get("pperc"),
+        "close_kl_pole": close.get("kl_pole"),
+        "kl_small_hidden_far": close.get("kl_small_hidden_far") or energy.get("kl_small_hidden_far"),
+        "pperc": close.get("pperc", energy.get("pperc")),
+        "live_runs": [
+            spec["live"]
+            for spec in LIVE_EXAM
+            if spec["scoreboard_id"] == recipe_id
+        ],
+        "exam": [
+            spec["live"]
+            for spec in LIVE_EXAM
+            if spec["scoreboard_id"] == recipe_id
+        ],
         "fixture": fixture,
         "notes": notes,
         "gates": {
@@ -408,6 +504,19 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
     """
     gender_sheet = _sheet_map(gender_cell(steps=sheet_steps, seed=seed))
     leftover_sheet = _sheet_map(leaky_cell(steps=sheet_steps, seed=seed))
+    divergent_sheet = _sheet_map(divergent_cell(steps=sheet_steps, seed=seed))
+    close_sheet = _sheet_map(close_cell(steps=sheet_steps, seed=seed))
+
+    def row(recipe_id: str, label: str, **kwargs) -> dict:
+        energy_name = SHEET_DIVERGENT.get(recipe_id)
+        close_name = SHEET_CLOSE.get(recipe_id)
+        return _row(
+            recipe_id,
+            label,
+            energy=dict(divergent_sheet[energy_name]) if energy_name and energy_name in divergent_sheet else None,
+            close=dict(close_sheet[close_name]) if close_name and close_name in close_sheet else None,
+            **kwargs,
+        )
     leftover_sheet["v9_hold_e_l1"] = score_sheet(
         "v9_hold_e_l1",
         leaky_field(),
@@ -532,7 +641,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         return dict(gender_sheet[name]) if name and name in gender_sheet else {}
 
     rows = [
-        _row(
+        row(
             "faithful_raw",
             "faithful / v6 raw poles",
             leftover=sheet_left("v6_faithful"),
@@ -541,7 +650,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="sheet leftover + sheet gender",
             notes="raw-pole MSE. Caption target; unused ê rides along.",
         ),
-        _row(
+        row(
             "faithful_attrs",
             "faithful + attributes / pin unused",
             leftover={
@@ -558,7 +667,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="Field2D attrs + rich pin-both + gender sheet",
             notes="data fix: unused gender/BPM pinned in the captions. Poles become the gender-like sheet.",
         ),
-        _row(
+        row(
             "pair_odd_midpoint",
             "pair-odd / v9 hidden midpoint",
             leftover=sheet_left("v9_hidden"),
@@ -567,7 +676,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="sheet leftover + sheet gender",
             notes="live --lm_target v9 teacher t± = h0 ± a. Not a caption.",
         ),
-        _row(
+        row(
             "hidden_beta1",
             "pair-odd β=1 / symmetric --common_beta 1",
             leftover={
@@ -579,7 +688,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="sheet leftover faithful ≡ β=1 + gender hidden_beta1",
             notes="lm_hidden_targets(symmetric, β=1) is the raw poles. Sheet-good, still leaks ê.",
         ),
-        _row(
+        row(
             "hub",
             "hub (published floor + anchor)",
             leftover={
@@ -602,7 +711,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="live energy/gender + pair-odd sheet",
             notes="same odd teacher as pair-odd; even blend-back does not take ê out of a. Sheet inherited from the midpoint.",
         ),
-        _row(
+        row(
             "hold_e_raw_l1",
             "hold-ê raw λ=1",
             leftover={
@@ -620,7 +729,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="overlap leftover raw + midpoint sheet",
             notes="λ=1 is too soft on leftover ê. Teacher is still the midpoint.",
         ),
-        _row(
+        row(
             "hold_e_raw_l8",
             "hold-ê raw λ=8 (leftover ê)",
             leftover={
@@ -637,7 +746,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="overlap leftover raw λ=8 + hold-ê sheet",
             notes="on leftover ê, raw ≡ ê_⊥û. Leak can look small; sheet is still the midpoint.",
         ),
-        _row(
+        row(
             "hold_e_perp_l1",
             "hold-ê ê_⊥û λ=1",
             leftover={
@@ -653,7 +762,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="overlap leftover ê_⊥û λ=1 + sheet hold λ=1",
             notes="live-weak λ. Sheet still aims at h0 ± a.",
         ),
-        _row(
+        row(
             "hold_e_perp_l8",
             "hold-ê ê_⊥û λ=8 (live v9)",
             leftover=sheet_left("v9_hold_e"),
@@ -666,7 +775,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="sheet leftover hold-ê + overlap ê_⊥û λ=8",
             notes="current leftover-ê default. Fixes unused-axis leak, not the sheet.",
         ),
-        _row(
+        row(
             "hold_e_raw_synonym_l8",
             "hold-ê raw λ=8 (synonym ê)",
             leftover={
@@ -682,7 +791,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="overlap synonym raw λ=8 + midpoint sheet",
             notes="ê restates the poles. Raw hold punches the slider.",
         ),
-        _row(
+        row(
             "pair_odd_sub_e",
             "pair_odd_sub_e (#20, midpoint − ê_⊥)",
             leftover=sheet_left("v15_pair_odd_sub_e"),
@@ -695,15 +804,15 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="sheet leftover pair_odd_sub_e + high-D leftover subtract",
             notes="λ→∞ hold in one step. Leak 0; further off-caption than pair-odd.",
         ),
-        _row(
+        row(
             "faithful_sub_e",
             "faithful_sub_e (ê-cleaned real poles, hidden MSE)",
             leftover=sheet_left("faithful_sub_e"),
             leftover_leak=sheet_left("faithful_sub_e").get("leak_tok"),
             fixture="sheet leftover",
-            notes="keeps c, drops ê_⊥. Hidden MSE onto a near-caption.",
+            notes="On unused-gender leftover this is a near-caption. On two tracks leftover ê *is* the poles, so mid ± â is a third song (energy-v16 listen fail).",
         ),
-        _row(
+        row(
             "semantic_kl_midpoint",
             "semantic_kl onto midpoint",
             leftover=sheet_left("kl_on_midpoint"),
@@ -712,24 +821,24 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="sheet leftover + sheet gender",
             notes="KL is not the fix. The target point is.",
         ),
-        _row(
+        row(
             "semantic_kl_poles",
             "semantic_kl onto real poles",
             leftover=sheet_left("v16_semantic_kl"),
             gender=sheet_gen("v16_semantic_kl"),
             leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
             fixture="sheet leftover + sheet gender",
-            notes="on-sheet, but unused gender still moves the leak token.",
+            notes="Live energy-v18 PASS / gender-v16 FAIL. Raw poles. Genre/BPM that are the poles is not a leak fail; close-pair one-token KL is kl_small_hidden_far.",
         ),
-        _row(
+        row(
             "semantic_kl_sub_e",
             "semantic_kl onto ê-cleaned poles",
             leftover=sheet_left("v16_semantic_kl_sub_e"),
             leftover_leak=sheet_left("v16_semantic_kl_sub_e").get("leak_tok"),
             fixture="sheet leftover",
-            notes="same target as faithful_sub_e; KL ignores the readout null space.",
+            notes="Live energy-v16. Same blend teacher as faithful_sub_e on two tracks. KL matching a third song still sings off-caption.",
         ),
-        _row(
+        row(
             "project_short_u",
             "project short û",
             leftover={
@@ -754,7 +863,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="rich project_short + live gender always_project_hold",
             notes="leak-0 by dropping everything ⊥ short û, including the singer and slider adjectives. Still a midpoint (c deleted); sheet inherited from pair-odd.",
         ),
-        _row(
+        row(
             "project_rich_u",
             "project rich û (oracle intended span)",
             leftover={
@@ -771,7 +880,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="rich project_rich",
             notes="oracle û = span{short, slider adjectives}. Still a midpoint in the intended plane, so c is dropped; sheet inherited from pair-odd.",
         ),
-        _row(
+        row(
             "gender_like_no_e",
             "gender-like (no ê, hold 0)",
             leftover=None,
@@ -796,7 +905,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="sheet gender v9_hidden + high-D gender_like_no_e",
             notes="clean pair, hold 0. Live gender-lm-v4 log. Midpoint still deletes c.",
         ),
-        _row(
+        row(
             "leftover_hold_l1",
             "energy-like leftover hold-ê λ=1 (high-D)",
             leftover={
@@ -817,7 +926,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             fixture="high-D leftover λ=1 + sheet hold λ=1",
             notes="one leftover caption pair cannot name the whole unused remainder.",
         ),
-        _row(
+        row(
             "leftover_hold_l8",
             "energy-like leftover hold-ê λ=8 (high-D)",
             leftover={
@@ -855,25 +964,22 @@ def gates_blob() -> dict:
         "pair_odd_cos_scored": False,
         "collapse_scored": False,
         "prose": (
-            "A method WORKS only if leftover leak is small "
-            f"(≤ {COMPILED_LEAK_LOCK}) AND, when a sheet readout exists, "
-            f"on-sheet kept ≥ {COMPILED_SHEET_LOCK}, off-sheet mass ≤ "
-            f"{COMPILED_GARBLE_MAX}, argmax-on-sheet = {COMPILED_ARGMAX_LOCK:g}, "
-            f"and concept swing kept ≥ {COMPILED_SWING_FLOOR}. "
-            "High pair-odd cos and ±1 collapse are logged, never scored. "
-            "works-on-gender-only means the gender-like cell (no leftover ê) "
-            "passes that same gate and the leftover cell does not."
+            "A method WORKS only if it stays on the divergent two-track "
+            "sheet (energy-v4 stand-in: leftover ê *is* the poles) AND on "
+            "the close-pair rollout (gender-v4 stand-in: one-token KL is "
+            "not enough). Unused-gender leftover leak is logged; it is "
+            "not the energy stand-in. Genre/BPM that are the poles are "
+            "not a leak fail. High pair-odd cos and ±1 collapse are "
+            "logged, never scored. works-on-energy-only means the "
+            "divergent cell passes and the close pair does not "
+            "(energy-v18). works-on-gender-only means the close pair "
+            "sings and the two-track cell does not."
         ),
     }
 
 
 def compile_sheet_row(leftover: dict, gender: dict | None = None) -> dict:
-    """Apply the compiled gate to a sheet leftover row (and optional gender row).
-
-    Tests use this so the four locked recipes are scored by the same
-    function the table uses, without re-running the hidden-geometry
-    fixtures.
-    """
+    """Unused-gender leftover row through ``_row`` (not the energy stand-in)."""
     return _row(
         leftover["name"],
         leftover["name"],
@@ -881,7 +987,19 @@ def compile_sheet_row(leftover: dict, gender: dict | None = None) -> dict:
         gender=gender,
         leftover_leak=leftover.get("leak_tok"),
         gender_leak=(gender or {}).get("leak_tok"),
-        fixture="sheet",
+        fixture="unused-gender leftover",
+    )
+
+
+def compile_exam_row(energy: dict, close: dict | None = None) -> dict:
+    """Apply the compiled exam gate to a divergent row (and optional close row)."""
+    return _row(
+        energy["name"],
+        energy["name"],
+        energy=energy,
+        close=close,
+        leftover_leak=0.0,
+        fixture="exam",
     )
 
 
@@ -892,5 +1010,7 @@ def floatable_row(row: dict) -> dict:
             out[key] = value
             continue
         if isinstance(value, (int, float, str, bool)) or value is None:
+            out[key] = value
+        elif isinstance(value, list) and all(isinstance(v, str) for v in value):
             out[key] = value
     return out
