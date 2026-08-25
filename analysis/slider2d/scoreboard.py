@@ -30,6 +30,14 @@ from analysis.slider2d.highd import (
     score_highd,
 )
 from analysis.slider2d.live_compare import live_policy_table
+from analysis.slider2d.live_exam import (
+    OFF_CAPTION_MAX,
+    ROLLOUT_GARBLE_MAX,
+    ROLLOUT_MATCH_MIN,
+    divergent_pair_field,
+    live_exam_cell,
+    score_exam,
+)
 from analysis.slider2d.overlap import score_overlap_policy
 from analysis.slider2d.rich import (
     RICH_KEPT_MIN,
@@ -223,14 +231,15 @@ def compiled_verdict(
 
 
 def sort_rows(rows: list[dict]) -> list[dict]:
-    """Works first, then gender-only, then fails; then leak, then on-sheet."""
+    """Verdict first, then live-exam evidence, leak, and on-sheet."""
 
     def key(row: dict) -> tuple:
         leak = row.get("leftover_leak")
         sheet = row.get("on_sheet")
         leak_key = float(leak) if _finite(leak) else 1e9
         sheet_key = -float(sheet) if _finite(sheet) else 1e9
-        return (VERDICT_ORDER[row["compiled"]], leak_key, sheet_key, row["id"])
+        exam_key = 0 if row.get("live_run") else (1 if row.get("pair_kind") else 2)
+        return (VERDICT_ORDER[row["compiled"]], exam_key, leak_key, sheet_key, row["id"])
 
     return sorted(rows, key=key)
 
@@ -269,6 +278,17 @@ def _row(
     rich_kept: float | None = None,
     strength: float | None = None,
     pole_cos: float | None = None,
+    pair_kind: str | None = None,
+    live_run: str | None = None,
+    expected_listen: str | None = None,
+    one_token_kl: float | None = None,
+    hidden_far: float | None = None,
+    hidden_far_while_kl_small: bool | None = None,
+    teacher_forced_kl: float | None = None,
+    rollout_match: float | None = None,
+    rollout_garble: float | None = None,
+    off_caption_teacher: float | None = None,
+    exam_pass: bool | None = None,
     fixture: str,
     notes: str = "",
 ) -> dict:
@@ -345,6 +365,17 @@ def _row(
         gender_works=gender_pass,
         pair_odd_cos=pair_odd_cos,
     )
+    if exam_pass is not None:
+        if exam_pass and pair_kind == "divergent":
+            leftover_pass, gender_pass, verdict = True, False, WORKS
+        elif exam_pass and pair_kind == "close":
+            leftover_pass, gender_pass, verdict = None, True, WORKS_GENDER_ONLY
+        else:
+            leftover_pass, gender_pass, verdict = (
+                False if pair_kind == "divergent" else None,
+                False,
+                FAILS,
+            )
     c_plus_distinct = (
         trainer_c_plus
         if trainer_c_plus is not None
@@ -385,6 +416,17 @@ def _row(
         "rich_kept": rich_kept,
         "strength": strength,
         "pole_cos": pole_cos,
+        "pair_kind": pair_kind,
+        "live_run": live_run,
+        "expected_listen": expected_listen,
+        "one_token_kl": one_token_kl,
+        "hidden_far": hidden_far,
+        "hidden_far_while_kl_small": hidden_far_while_kl_small,
+        "teacher_forced_kl": teacher_forced_kl,
+        "rollout_match": rollout_match,
+        "rollout_garble": rollout_garble,
+        "off_caption_teacher": off_caption_teacher,
+        "exam_pass": exam_pass,
         "fixture": fixture,
         "notes": notes,
         "gates": {
@@ -408,6 +450,17 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
     """
     gender_sheet = _sheet_map(gender_cell(steps=sheet_steps, seed=seed))
     leftover_sheet = _sheet_map(leaky_cell(steps=sheet_steps, seed=seed))
+    exam = _sheet_map(live_exam_cell(steps=sheet_steps, seed=seed))
+    exam["faithful_sub_e_divergent_hidden"] = score_exam(
+        "faithful_sub_e_divergent_hidden",
+        divergent_pair_field(),
+        pole_mode="hidden",
+        target="faithful_sub_e",
+        live_run=None,
+        expected_listen=None,
+        steps=sheet_steps,
+        seed=seed,
+    )
     leftover_sheet["v9_hold_e_l1"] = score_sheet(
         "v9_hold_e_l1",
         leaky_field(),
@@ -531,7 +584,54 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
     def sheet_gen(name: str | None) -> dict:
         return dict(gender_sheet[name]) if name and name in gender_sheet else {}
 
+    def exam_row(name: str, label: str, notes: str) -> dict:
+        row = exam[name]
+        return _row(
+            row["name"],
+            label,
+            pair_odd_cos=row["pair_odd_cos"],
+            collapse=row["collapse"],
+            pair_kind=row["pair_kind"],
+            live_run=row["live_run"],
+            expected_listen=row["expected_listen"],
+            one_token_kl=row["one_token_kl"],
+            hidden_far=row["hidden_far"],
+            hidden_far_while_kl_small=row["hidden_far_while_kl_small"],
+            teacher_forced_kl=row["teacher_forced_kl"],
+            rollout_match=row["rollout_match"],
+            rollout_garble=row["rollout_garble"],
+            off_caption_teacher=row["off_caption_teacher"],
+            exam_pass=row["pass"],
+            fixture=f"live exam {row['pair_kind']} pair + frozen continuation",
+            notes=notes,
+        )
+
     rows = [
+        exam_row(
+            "energy_v18_semantic_kl_faithful",
+            "semantic_kl + faithful / divergent pair",
+            "Predicts energy-lm-v18 PASS. Raw poles retain intended genre/BPM track identity.",
+        ),
+        exam_row(
+            "energy_v16_semantic_kl_sub_e",
+            "semantic_kl + faithful_sub_e / divergent pair",
+            "Predicts energy-lm-v16 FAIL. The declared ê is most of the intended two-track difference, so subtraction trains a blend teacher.",
+        ),
+        exam_row(
+            "gender_v16_semantic_kl_faithful",
+            "semantic_kl + faithful / close pair",
+            "Predicts gender-lm-v16 FAIL: KL-small / hidden-far / rollout garble.",
+        ),
+        exam_row(
+            "gender_hidden_faithful_next",
+            "hidden + faithful / close pair (next card)",
+            "Untrained control: hidden MSE copies the continuation-bearing plan and passes the close-pair rollout.",
+        ),
+        exam_row(
+            "faithful_sub_e_divergent_hidden",
+            "hidden + faithful_sub_e / divergent pair",
+            "Target-side control: changing KL to MSE cannot repair a teacher made into a third-song blend by subtracting intended track identity.",
+        ),
         _row(
             "faithful_raw",
             "faithful / v6 raw poles",
@@ -696,12 +796,12 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             notes="λ→∞ hold in one step. Leak 0; further off-caption than pair-odd.",
         ),
         _row(
-            "faithful_sub_e",
-            "faithful_sub_e (ê-cleaned real poles, hidden MSE)",
+            "faithful_sub_e_unused_e",
+            "faithful_sub_e / unused-ê same-song diagnostic",
             leftover=sheet_left("faithful_sub_e"),
             leftover_leak=sheet_left("faithful_sub_e").get("leak_tok"),
             fixture="sheet leftover",
-            notes="keeps c, drops ê_⊥. Hidden MSE onto a near-caption.",
+            notes="Retained old cell: ê is unused gender inside one clean pair. Not the divergent energy-v4 stand-in.",
         ),
         _row(
             "semantic_kl_midpoint",
@@ -713,21 +813,21 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
             notes="KL is not the fix. The target point is.",
         ),
         _row(
-            "semantic_kl_poles",
-            "semantic_kl onto real poles",
+            "semantic_kl_poles_unused_e",
+            "semantic_kl poles / unused-ê same-song diagnostic",
             leftover=sheet_left("v16_semantic_kl"),
             gender=sheet_gen("v16_semantic_kl"),
             leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
             fixture="sheet leftover + sheet gender",
-            notes="on-sheet, but unused gender still moves the leak token.",
+            notes="Retained old cell: unused gender moves the leak token. Energy-v4 and gender-v4 are scored in separate pair-geometry rows above.",
         ),
         _row(
-            "semantic_kl_sub_e",
-            "semantic_kl onto ê-cleaned poles",
+            "semantic_kl_sub_e_unused_e",
+            "semantic_kl sub_e / unused-ê same-song diagnostic",
             leftover=sheet_left("v16_semantic_kl_sub_e"),
             leftover_leak=sheet_left("v16_semantic_kl_sub_e").get("leak_tok"),
             fixture="sheet leftover",
-            notes="same target as faithful_sub_e; KL ignores the readout null space.",
+            notes="Retained old cell: passes when ê really is unused inside a clean pair; not an energy-v4 proxy.",
         ),
         _row(
             "project_short_u",
@@ -854,12 +954,19 @@ def gates_blob() -> dict:
         "rich_kept_min": RICH_KEPT_MIN,
         "pair_odd_cos_scored": False,
         "collapse_scored": False,
+        "rollout_match_min": ROLLOUT_MATCH_MIN,
+        "rollout_garble_max": ROLLOUT_GARBLE_MAX,
+        "off_caption_max": OFF_CAPTION_MAX,
         "prose": (
-            "A method WORKS only if leftover leak is small "
+            "Legacy unused-attribute cells require leftover leak to be small "
             f"(≤ {COMPILED_LEAK_LOCK}) AND, when a sheet readout exists, "
             f"on-sheet kept ≥ {COMPILED_SHEET_LOCK}, off-sheet mass ≤ "
             f"{COMPILED_GARBLE_MAX}, argmax-on-sheet = {COMPILED_ARGMAX_LOCK:g}, "
             f"and concept swing kept ≥ {COMPILED_SWING_FLOOR}. "
+            "Live-exam pair cells instead require the target to remain a pole "
+            f"(off-caption ≤ {OFF_CAPTION_MAX}) "
+            f"and greedy rollout match must be ≥ {ROLLOUT_MATCH_MIN} with "
+            f"garble ≤ {ROLLOUT_GARBLE_MAX}. "
             "High pair-odd cos and ±1 collapse are logged, never scored. "
             "works-on-gender-only means the gender-like cell (no leftover ê) "
             "passes that same gate and the leftover cell does not."

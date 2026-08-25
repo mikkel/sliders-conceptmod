@@ -18,6 +18,7 @@ from analysis.slider2d.scoreboard import (
     WORKS,
     WORKS_GENDER_ONLY,
     cell_works,
+    collect_scoreboard,
     compile_sheet_row,
     compiled_verdict,
     leak_ok,
@@ -43,6 +44,16 @@ def leftover() -> dict[str, dict]:
 
 def compiled(name: str) -> dict:
     return compile_sheet_row(leftover()[name])
+
+
+def board() -> list[dict]:
+    if "board" not in _CACHE:
+        _CACHE["board"] = collect_scoreboard(
+            sheet_steps=STEPS,
+            other_steps=120,
+            seed=0,
+        )
+    return _CACHE["board"]
 
 
 # -- the gate itself -----------------------------------------------------
@@ -138,6 +149,48 @@ def test_sort_is_verdict_then_leak_then_on_sheet():
     assert [r["id"] for r in rows] == ["d", "c", "a", "e", "b"]
 
 
+def test_live_exam_rows_match_and_rank_the_three_listens():
+    by_id = {row["id"]: row for row in board()}
+    energy_v16 = by_id["energy_v16_semantic_kl_sub_e"]
+    energy_v18 = by_id["energy_v18_semantic_kl_faithful"]
+    gender_v16 = by_id["gender_v16_semantic_kl_faithful"]
+    assert energy_v16["live_run"] == "energy-lm-v16"
+    assert energy_v16["expected_listen"] == "FAIL"
+    assert energy_v16["compiled"] == FAILS
+    assert energy_v18["live_run"] == "energy-lm-v18"
+    assert energy_v18["expected_listen"] == "PASS"
+    assert energy_v18["compiled"] == WORKS
+    assert gender_v16["live_run"] == "gender-lm-v16"
+    assert gender_v16["expected_listen"] == "FAIL"
+    assert gender_v16["hidden_far_while_kl_small"] is True
+    assert gender_v16["compiled"] == FAILS
+    ranks = {row["id"]: i for i, row in enumerate(board())}
+    assert ranks[energy_v18["id"]] < ranks[energy_v16["id"]]
+    assert ranks[energy_v18["id"]] < ranks[gender_v16["id"]]
+
+
+def test_old_unused_e_sheet_is_retained_but_not_the_energy_proxy():
+    by_id = {row["id"]: row for row in board()}
+    old = by_id["semantic_kl_sub_e_unused_e"]
+    live = by_id["energy_v16_semantic_kl_sub_e"]
+    assert old["live_run"] is None
+    assert "unused-ê same-song" in old["label"]
+    assert live["pair_kind"] == "divergent"
+    assert live["live_run"] == "energy-lm-v16"
+    assert live["compiled"] == FAILS
+
+
+def test_hidden_faithful_close_pair_outranks_gender_semantic_kl():
+    by_id = {row["id"]: row for row in board()}
+    hidden = by_id["gender_hidden_faithful_next"]
+    semantic = by_id["gender_v16_semantic_kl_faithful"]
+    assert hidden["compiled"] == WORKS_GENDER_ONLY
+    assert hidden["rollout_match"] > semantic["rollout_match"]
+    assert hidden["rollout_garble"] < semantic["rollout_garble"]
+    ranks = {row["id"]: i for i, row in enumerate(board())}
+    assert ranks[hidden["id"]] < ranks[semantic["id"]]
+
+
 # -- the four locked recipes --------------------------------------------
 
 
@@ -204,6 +257,6 @@ def test_a_caption_target_without_e_cleaning_still_fails_leftover():
 def test_the_live_default_is_still_v9():
     args = parse_args(["--prompts", "x.yaml"])
     assert args.lm_target == "v9"
+    assert args.pole_mode == "hidden"
     assert args.common_beta == 0.0
     assert "v9" in LM_RECIPES
-    assert not hasattr(args, "pole_mode")
