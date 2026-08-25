@@ -20,7 +20,7 @@ if str(_REPO) not in sys.path:
 from analysis.slider2d.highd import (
     BEND_ENERGY,
     BEND_GENDER,
-    COVER_GRID,
+    CONTENT_GRID,
     DIM_GRID,
     HOLD_LAMBDAS,
     LIVE_COLLAPSE,
@@ -40,12 +40,10 @@ from analysis.slider2d.highd import (
     hold_spike,
     lambda_dim_sweep,
     lambda_fit_sweep,
-    leftover_only_e,
     live_v14_analogue,
     match_sweep,
     polarity_grid,
     synonym_cover,
-    synonym_e,
 )
 from analysis.slider2d.overlap import score_overlap_policy
 from conceptmod.textsliders.slider_targets import LEAK_HOLD_WEIGHT
@@ -710,7 +708,7 @@ def main(argv: list[str] | None = None) -> int:
             "perc": overlap_2d["perc"],
             "loss": overlap_2d["loss"],
         },
-        "cover_grid": list(COVER_GRID),
+        "content_grid": list(CONTENT_GRID),
         "lambdas": list(HOLD_LAMBDAS),
         "dims": list(DIM_GRID),
     }

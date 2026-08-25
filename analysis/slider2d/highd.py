@@ -42,7 +42,6 @@ from dataclasses import dataclass
 from typing import Iterable, Sequence
 
 import torch
-import torch.nn.functional as F
 
 from analysis.slider2d.energy import CONCEPT_SCALE
 from analysis.slider2d.field import cosine
@@ -83,7 +82,7 @@ DEFAULT_DIM = 8
 HOLD_LAMBDAS = (0.0, 0.3, 1.0, 8.0)
 DIM_GRID = (2, 4, 8, 16, 64, 1024)
 BEND_GRID = (0.0, BEND_GENDER, 0.5, 1.0, BEND_ENERGY, 1.5)
-COVER_GRID = (0.0, 0.25, 0.5, 0.75, 0.9, 1.0)
+CONTENT_GRID = (0.0, 0.25, 0.5, 0.75, 0.9, 1.0)
 
 SLIDER_LOCK = 0.90
 LEAK_LOCK = 0.20
@@ -887,7 +886,7 @@ def bend_sweep(
 
 def content_sweep(
     *,
-    fractions: Iterable[float] = COVER_GRID,
+    fractions: Iterable[float] = CONTENT_GRID,
     hold_weight: float = LEAK_HOLD_WEIGHT,
     steps: int = 400,
     seed: int = 0,
