@@ -76,6 +76,21 @@ the prompt file. Compare variants with the pipeline
 ([slider_pipeline/README.md](slider_pipeline/README.md)), not a hand-launched
 grid.
 
+## Current LM trainer defaults (August 2026)
+
+`train_lm_slider_music3.py` now defaults to the 2-D-proven **`lm_v9`**
+target: `--symmetric` polarity, then project the odd teacher onto a
+**declared** slider axis (`--slider_positive` / `--slider_negative`) and
+hold the orthogonal residual. κ = 0. Retrain as-is with only `--symmetric`
+would still leak — that odd teacher is `(pos−neg)/2`.
+
+**Retrain the LM halves after this lands.** TF is still the caption-BPM
+problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
+Published Hub floor is `--lm_target hub` and still leaks — not the default.
+
+The live graph has no separate hold embedding. Hold is the residual
+orthogonal to the encoded declared pair, matching the 2-D math.
+
 ## v3 recipe (August 2026)
 
 Four trainer bugs were found and fixed; v3 sliders (`models/*-v3/`) use:
@@ -87,11 +102,11 @@ Four trainer bugs were found and fixed; v3 sliders (`models/*-v3/`) use:
 2. **Bidirectional loss** (`--bidirectional`, default on) — the −1 direction is
    trained explicitly against `vel_neu − g·(vel_pos − vel_neg)`; per-step
    `cos_pos` / `cos_neg` / `collapse` are logged.
-3. **Symmetric LM targets** (`train_lm_slider_music3.py --symmetric`, default
-   on) — targets are antisymmetrized around neutral: `tgt(±1) = neu ± (pos−neg)/2`.
-   This fixed the collapse metric from **+0.53** (gender-lm v2: both directions
-   pointed the same way) to **−0.97** (gender-lm-v3: near-opposite).
-   `--common_beta` blends the shared component back in if ±1 sounds weak.
+3. **Symmetric LM polarity** (`train_lm_slider_music3.py --symmetric`) —
+   `tgt(±1)` sit opposite around neu. That is now the polarity step inside
+   default `--lm_target v9` (project the odd teacher onto a declared axis).
+   Plain `--symmetric` alone still leaks unused attributes that live in
+   `(pos−neg)/2`. `--common_beta` is ignored by v9 (κ=0).
 4. **Module-identity dedupe in `lora.py`** — `--targets full` used to wrap
    every attention/FF Linear **twice** (438 modules with two name prefixes,
    2× gain). Now 222 unique modules. Old double-wrapped checkpoints
@@ -795,14 +810,17 @@ $PY conceptmod/textsliders/train_lora_music3.py \
   --save_dir /ml2/music/sliders-conceptmod/models/energy-slider-v2
 ```
 
-Language-model slider (gender). `--endreg_weight` defaults to 1.0;
-`--symmetric` defaults on. Stop the studio first (bf16 LM is ~16 GB):
+Language-model slider (gender). `--lm_target v9` and `--endreg_weight 1.0`
+default on. Declare the slider axis — do not let energy project onto a
+row's `(pos−neg)`. Stop the studio first (bf16 LM is ~16 GB):
 
 ```bash
 $PY conceptmod/textsliders/train_lm_slider_music3.py \
-  --name gender-lm-v4 \
+  --name gender-lm-v9 \
   --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml \
-  --save_dir /ml2/music/sliders-conceptmod/models/gender-lm-v4 \
+  --slider_positive "A woman is singing, her voice is feminine." \
+  --slider_negative "A man is singing, his voice is masculine." \
+  --save_dir /ml2/music/sliders-conceptmod/models/gender-lm-v9 \
   --rank 8 --alpha 8 --lr 5e-4 --steps 800 --device 0
 ```
 

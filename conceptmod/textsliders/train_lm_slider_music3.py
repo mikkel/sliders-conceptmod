@@ -4,6 +4,12 @@ Vocal identity is chosen in the AR stage, not the flow transformer. This trains
 LoRA on Qwen3Attention so a neutral caption + LoRA scale moves the prompt
 hidden state toward a female or male caption.
 
+Default ``--lm_target v9`` is the 2-D leak-0 geometry: ``--symmetric`` polarity,
+then ``lm_project_odd_axis`` onto a **declared** ``--slider_positive`` /
+``--slider_negative`` pair, plus ``lm_ortho_hold`` on the orthogonal residual.
+κ = 0. A bare ``--symmetric`` retrain without that pair would still leak.
+Published Hub floor is ``--lm_target hub`` and is not the default.
+
 Audio-end regularizer: a cut ends when the AR language model samples
 <|audio_end|>; LM LoRAs perturb those logits, and un-regularized sliders
 measurably suppress the end token, so stacked sliders blow through the
@@ -42,15 +48,158 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from conceptmod.textsliders.lora import LoRANetwork
+from conceptmod.textsliders.slider_targets import (
+    lm_anchor_kappa,
+    lm_anchor_targets,
+    lm_hidden_targets,
+    lm_ortho_hold,
+    lm_project_odd_axis,
+    lm_slider_loss,
+    lm_unit,
+)
 
 DEFAULT_MODEL = Path("/ml2/music/models/MiniMax-Music3")
+LM_RECIPES = ("v9", "hub", "symmetric", "faithful")
 TARGET_REPLACE = ["Qwen3Attention"]
 
 # Row fields this trainer actually consumes (`attributes` is expanded away by
 # _expand_attributes). Anything else in the YAML - `action`, `guidance_scale`,
 # `batch_size`, `unconditional` - is only read by the transformer trainer.
+# Declared slider axis lives at YAML top-level (slider_positive / slider_negative)
+# or on the CLI; it is not a per-row field and is never inferred from (pos-neg).
 _USED_ROW_KEYS = frozenset({"target", "positive", "negative", "neutral", "lyrics", "attributes"})
+
+
+def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
+    """Live trainer recipe. Default ``v9`` is the 2-D leak-0 cell.
+
+    ``--symmetric`` is the polarity step inside ``v9`` / ``hub`` / ``symmetric``.
+    It is not a second loss.
+    """
+    recipe = str(lm_target).strip().lower()
+    if recipe not in LM_RECIPES:
+        raise ValueError(f"lm_target must be one of {LM_RECIPES}, got {lm_target!r}")
+    if recipe == "v9" and not symmetric:
+        raise ValueError(
+            "lm_target=v9 keeps --symmetric as the polarity step; "
+            "use --lm_target faithful --no-symmetric for raw poles"
+        )
+    if recipe == "hub" and not symmetric:
+        raise ValueError(
+            "lm_target=hub is the published symmetric + leakage_floor blend; got --no-symmetric"
+        )
+    if recipe == "symmetric" and not symmetric:
+        raise ValueError("lm_target=symmetric requires --symmetric")
+    return recipe
+
+
+def resolve_slider_axis_captions(
+    *,
+    slider_positive: str | None,
+    slider_negative: str | None,
+    prompts_meta: dict,
+) -> tuple[str, str] | None:
+    """Declared slider pair. CLI wins over YAML. Never (pos−neg) of a row."""
+    pos = (slider_positive or prompts_meta.get("slider_positive") or "").strip()
+    neg = (slider_negative or prompts_meta.get("slider_negative") or "").strip()
+    if pos and neg:
+        return pos, neg
+    if pos or neg:
+        raise ValueError("declared slider axis needs both slider_positive and slider_negative")
+    return None
+
+
+def resolve_lm_loss_weights(
+    recipe: str,
+    *,
+    hold_weight: float | None,
+    anchor_weight: float | None,
+) -> tuple[float, float]:
+    hold = 1.0 if recipe == "v9" else 0.0
+    anchor = 0.3 if recipe == "hub" else 0.0
+    if hold_weight is not None:
+        hold = float(hold_weight)
+    if anchor_weight is not None:
+        anchor = float(anchor_weight)
+    return hold, anchor
+
+
+def lm_train_targets(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    *,
+    recipe: str,
+    slider_dir: torch.Tensor | None = None,
+    symmetric: bool = True,
+    target_scale: float = 1.0,
+    common_beta: float = 0.0,
+    leakage_floor: float | None = None,
+    anchor_autocal: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+    """Pole targets for the live LM trainer. Delegates to ``slider_targets``.
+
+    Returns ``(tgt_plus, tgt_minus, anchor_plus, anchor_minus)``.
+    Anchors are set only for the published Hub floor recipe.
+    """
+    if recipe == "v9":
+        if slider_dir is None:
+            raise ValueError("lm_target=v9 requires a declared slider_dir")
+        plus, minus = lm_project_odd_axis(pos, neg, neu, slider_dir, target_scale=target_scale)
+        return plus, minus, None, None
+    target_mode = "faithful" if recipe == "faithful" else "symmetric"
+    plus, minus = lm_hidden_targets(
+        pos,
+        neg,
+        neu,
+        target_mode=target_mode,
+        symmetric=symmetric,
+        target_scale=target_scale,
+        common_beta=common_beta,
+    )
+    if recipe != "hub":
+        return plus, minus, None, None
+    floor = -0.9 if leakage_floor is None else float(leakage_floor)
+    kappa = lm_anchor_kappa(pos, neg, neu, floor, autocal=anchor_autocal)
+    anc_plus, anc_minus = lm_anchor_targets(pos, neg, neu, kappa, target_scale=target_scale)
+    return plus, minus, anc_plus, anc_minus
+
+
+def lm_train_loss(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    *,
+    neu: torch.Tensor | None = None,
+    slider_dir: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+    anchor_plus: torch.Tensor | None = None,
+    anchor_minus: torch.Tensor | None = None,
+    anchor_weight: float = 0.0,
+) -> torch.Tensor:
+    """Live pole loss: ``lm_slider_loss`` plus optional ``lm_ortho_hold``.
+
+    No second lookalike. The live graph has no hold embedding; hold is the
+    residual orthogonal to the declared ``slider_dir``.
+    """
+    hold = None
+    if float(hold_weight) > 0.0:
+        if neu is None or slider_dir is None:
+            raise ValueError("hold_weight>0 requires neu and a declared slider_dir")
+        hold = lm_ortho_hold(pred_plus, pred_minus, neu, slider_dir)
+    return lm_slider_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        anchor_plus=anchor_plus,
+        anchor_minus=anchor_minus,
+        anchor_weight=anchor_weight,
+        hold=hold,
+        hold_weight=hold_weight,
+    )
+
 
 _IM_START, _IM_END = "<|im_start|>", "<|im_end|>"
 _CAPTION_START, _CAPTION_END = "<|caption_start|>", "<|caption_end|>"
@@ -81,6 +230,8 @@ def _load_rows(path: Path) -> tuple[list[dict], dict]:
             "plus_label": str(raw.get("plus_label") or ""),
             "minus_label": str(raw.get("minus_label") or ""),
             "recommended_range": raw.get("recommended_range") or [-2.0, 2.0],
+            "slider_positive": str(raw.get("slider_positive") or ""),
+            "slider_negative": str(raw.get("slider_negative") or ""),
         }
         raw = raw.get("rows")
     if not isinstance(raw, list) or not raw:
@@ -251,7 +402,27 @@ def train(args: argparse.Namespace) -> Path:
     if args.minus_label:
         prompts_meta["minus_label"] = args.minus_label
 
+    recipe = resolve_lm_recipe(lm_target=args.lm_target, symmetric=args.symmetric)
+    hold_w, anchor_w = resolve_lm_loss_weights(
+        recipe, hold_weight=args.hold_weight, anchor_weight=args.anchor_weight
+    )
+    axis_captions = resolve_slider_axis_captions(
+        slider_positive=args.slider_positive,
+        slider_negative=args.slider_negative,
+        prompts_meta=prompts_meta,
+    )
+    if (recipe == "v9" or hold_w > 0.0) and axis_captions is None:
+        raise ValueError(
+            "lm_target=v9 (and any hold_weight>0) needs a declared slider axis: "
+            "--slider_positive / --slider_negative, or YAML slider_positive / "
+            "slider_negative. Do not silently use a row's (pos-neg) — that is "
+            "the unused-attribute leak."
+        )
+    if recipe == "v9" and float(args.common_beta) != 0.0:
+        print("note: lm_target=v9 is κ=0 (no even blend-back); ignoring --common_beta")
+
     from transformers import AutoModelForCausalLM, AutoTokenizer
+    from conceptmod.textsliders.lora import LoRANetwork
 
     tokenizer = AutoTokenizer.from_pretrained(
         str(Path(args.model_dir) / "tokenizer"),
@@ -267,6 +438,20 @@ def train(args: argparse.Namespace) -> Path:
     lm.requires_grad_(False)
 
     beta = float(args.common_beta)
+    slider_dir = None
+    if axis_captions is not None:
+        axis_lyrics = str(rows[0].get("lyrics") or "")
+        axis_pos_text = _assemble(axis_captions[0], axis_lyrics)
+        axis_neg_text = _assemble(axis_captions[1], axis_lyrics)
+        with torch.no_grad():
+            axis_pos_h = _encode_static(lm, *_tokenize(tokenizer, axis_pos_text, device))
+            axis_neg_h = _encode_static(lm, *_tokenize(tokenizer, axis_neg_text, device))
+        slider_dir = axis_pos_h - axis_neg_h
+        print(
+            f"declared slider axis: {axis_captions[0]!r} / {axis_captions[1]!r} "
+            f"||û||={slider_dir.norm().item():.3f} (encoded once, not a row's pos-neg)"
+        )
+
     row_data = []
     for index, row in enumerate(rows):
         lyrics = str(row["lyrics"])
@@ -281,25 +466,31 @@ def train(args: argparse.Namespace) -> Path:
             neg_tgt = _encode_static(lm, *tokens["negative"])
             neu_ref = _encode_static(lm, *tokens["neutral"])
         target_cos = F.cosine_similarity(pos_tgt - neu_ref, neg_tgt - neu_ref, dim=-1).mean().item()
+        odd = (pos_tgt - neg_tgt) / 2.0
+        dropped = ""
+        if slider_dir is not None:
+            unit = lm_unit(slider_dir)
+            align = (odd.flatten() @ unit).abs() / odd.norm().clamp_min(1e-8)
+            dropped = f" odd·û/||odd||={float(align):.3f}"
         print(
             f"row {index}: tokens={tokens['neutral'][0].shape[1]} "
             f"L2 pos={torch.norm(pos_tgt - neu_ref).item():.3f} "
             f"neg={torch.norm(neg_tgt - neu_ref).item():.3f} "
-            f"cos(pos-neu, neg-neu)={target_cos:.3f}"
+            f"cos(pos-neu, neg-neu)={target_cos:.3f}{dropped}"
             f"{'  <- collapse inherited from raw targets' if target_cos > 0.3 else ''}"
         )
-        if args.symmetric:
-            # Raw pos/neg targets share a large common component vs neutral (both
-            # captions add axis-independent detail); training against them makes
-            # +1 and -1 point the same way. Antisymmetrize around neutral instead.
-            axis = (pos_tgt - neg_tgt) / 2.0 * float(args.target_scale)
-            common = (pos_tgt + neg_tgt) / 2.0 - neu_ref
-            tgt_plus = neu_ref + axis + beta * common
-            tgt_minus = neu_ref - axis + beta * common
-        else:
-            if float(args.target_scale) != 1.0:
-                raise ValueError("--target_scale is defined for symmetric targets only")
-            tgt_plus, tgt_minus = pos_tgt, neg_tgt
+        tgt_plus, tgt_minus, anc_plus, anc_minus = lm_train_targets(
+            pos_tgt,
+            neg_tgt,
+            neu_ref,
+            recipe=recipe,
+            slider_dir=slider_dir,
+            symmetric=args.symmetric,
+            target_scale=float(args.target_scale),
+            common_beta=beta,
+            leakage_floor=args.leakage_floor,
+            anchor_autocal=args.anchor_autocal,
+        )
         row_data.append(
             {
                 "tokens": tokens["neutral"],
@@ -307,6 +498,9 @@ def train(args: argparse.Namespace) -> Path:
                 "tgt_plus": tgt_plus,
                 "tgt_minus": tgt_minus,
                 "neu_ref": neu_ref,
+                "slider_dir": slider_dir,
+                "anchor_plus": anc_plus,
+                "anchor_minus": anc_minus,
             }
         )
 
@@ -400,13 +594,11 @@ def train(args: argparse.Namespace) -> Path:
             # so the slider loss is unchanged and the end margins come free.
             _set_scale(network, 1.0)
             pred_pos, m_pos, hid_pos = _forward_teacher_forced(lm, data["prompt_embeds"], data["frame_embeds"])
-            ploss = F.mse_loss(pred_pos, tgt_plus)
             end_pos = F.mse_loss(m_pos, data["base_margins"])
             plan_pos = F.mse_loss(hid_pos[:, data["prompt_embeds"].shape[1] :].float(), data["base_hidden"])
 
             _set_scale(network, -1.0)
             pred_neg, m_neg, hid_neg = _forward_teacher_forced(lm, data["prompt_embeds"], data["frame_embeds"])
-            nloss = F.mse_loss(pred_neg, tgt_minus)
             end_neg = F.mse_loss(m_neg, data["base_margins"])
             plan_neg = F.mse_loss(hid_neg[:, data["prompt_embeds"].shape[1] :].float(), data["base_hidden"])
             edrift_p = float((m_pos - data["base_margins"]).abs().mean().detach())
@@ -418,11 +610,9 @@ def train(args: argparse.Namespace) -> Path:
                 raise ValueError("--planreg_weight requires the audio-end regularizer (its pre-roll supplies the plan)")
             _set_scale(network, 1.0)
             pred_pos = _encode_train(lm, neu_ids, neu_mask)
-            ploss = F.mse_loss(pred_pos, tgt_plus)
 
             _set_scale(network, -1.0)
             pred_neg = _encode_train(lm, neu_ids, neu_mask)
-            nloss = F.mse_loss(pred_neg, tgt_minus)
             end_pos = end_neg = torch.zeros((), device=device)
             plan_pos = plan_neg = torch.zeros((), device=device)
             edrift_p = edrift_n = 0.0
@@ -438,7 +628,19 @@ def train(args: argparse.Namespace) -> Path:
         pperc = (torch.norm(pred_pos - tgt_plus) / torch.norm(v_pos_t).clamp_min(1e-6)).item()
         nperc = (torch.norm(pred_neg - tgt_minus) / torch.norm(v_neg_t).clamp_min(1e-6)).item()
 
-        loss = ploss + nloss + 0.5 * args.endreg_weight * (end_pos + end_neg) + args.planreg_weight * (plan_pos + plan_neg)
+        pole = lm_train_loss(
+            pred_pos,
+            pred_neg,
+            tgt_plus,
+            tgt_minus,
+            neu=neu_ref,
+            slider_dir=data.get("slider_dir"),
+            hold_weight=hold_w,
+            anchor_plus=data.get("anchor_plus"),
+            anchor_minus=data.get("anchor_minus"),
+            anchor_weight=anchor_w,
+        )
+        loss = pole + 0.5 * args.endreg_weight * (end_pos + end_neg) + args.planreg_weight * (plan_pos + plan_neg)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_value_(network.parameters(), clip_value=1.0)
@@ -511,7 +713,13 @@ def train(args: argparse.Namespace) -> Path:
         "lr": args.lr,
         "seed": int(args.seed),
         "rows": len(row_data),
+        "lm_target": recipe,
         "symmetric": bool(args.symmetric),
+        "hold_weight": hold_w,
+        "anchor_weight": anchor_w,
+        "leakage_floor": args.leakage_floor,
+        "slider_positive": axis_captions[0] if axis_captions else "",
+        "slider_negative": axis_captions[1] if axis_captions else "",
         "common_beta": beta,
         "target_scale": float(args.target_scale),
         "planreg_weight": float(args.planreg_weight),
@@ -553,7 +761,7 @@ def train(args: argparse.Namespace) -> Path:
     return last
 
 
-def parse_args():
+def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--name", default="gender-lm")
     p.add_argument("--model_dir", default=str(DEFAULT_MODEL))
@@ -572,16 +780,64 @@ def parse_args():
         help="LoRA init seed; pin it so runs differing only in --seed are comparable",
     )
     p.add_argument(
+        "--lm_target",
+        default="v9",
+        choices=LM_RECIPES,
+        help="live target recipe (default v9 = 2-D leak-0 geometry). v9: --symmetric "
+        "polarity, then project the odd teacher onto --slider_positive/--slider_negative "
+        "and hold the orthogonal residual (κ=0). hub: published leakage_floor blend-back "
+        "(still leaks). symmetric / faithful: old poles without projection",
+    )
+    p.add_argument(
         "--symmetric",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="antisymmetrize targets: tgt(±1) = neu ± (pos-neg)/2 (fixes +/- collapse)",
+        help="polarity step inside v9/hub/symmetric: tgt(±1) sit opposite around neu. "
+        "v9 then projects that odd teacher onto the declared slider axis",
+    )
+    p.add_argument(
+        "--slider_positive",
+        default=None,
+        help="declared + slider caption encoded once as û (not a training row's pos). "
+        "Required for --lm_target v9 unless YAML slider_positive is set. "
+        "Do not omit this and expect (pos-neg) to be the axis — that is the leak",
+    )
+    p.add_argument(
+        "--slider_negative",
+        default=None,
+        help="declared − slider caption; pair with --slider_positive",
+    )
+    p.add_argument(
+        "--hold_weight",
+        type=float,
+        default=None,
+        help="weight on ||(h(±1)−h0)_⊥û||² (default 1.0 for v9, 0 otherwise). "
+        "The live graph has no hold embedding; this is the 2-D orthogonal residual",
+    )
+    p.add_argument(
+        "--leakage_floor",
+        type=float,
+        default=None,
+        help="Hub-only even blend-back floor (default −0.9 with --lm_target hub). "
+        "Does not change the odd teacher; do not make this the default",
+    )
+    p.add_argument(
+        "--anchor_weight",
+        type=float,
+        default=None,
+        help="Hub-only weight on the κ-blend anchors (default 0.3 with --lm_target hub)",
+    )
+    p.add_argument(
+        "--anchor_autocal",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="autocal κ from --leakage_floor (Hub recipe)",
     )
     p.add_argument(
         "--common_beta",
         type=float,
         default=0.0,
-        help="blend back beta*(midpoint - neutral) if symmetric ±1 sounds too weak",
+        help="blend back beta*(midpoint - neutral) on symmetric/hub targets; ignored by v9 (κ=0)",
     )
     p.add_argument(
         "--target_scale",
@@ -633,7 +889,7 @@ def parse_args():
     p.add_argument("--early_cos", type=float, default=0.97, help="min mean c+ and c- in the window")
     p.add_argument("--early_collapse", type=float, default=-0.95, help="max mean collapse (more negative is better)")
     p.add_argument("--early_perc", type=float, default=0.20, help="max mean pperc/nperc in the window")
-    args = p.parse_args()
+    args = p.parse_args(argv)
     if args.steps < 1:
         p.error("--steps must be >= 1")
     return args
