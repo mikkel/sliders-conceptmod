@@ -7,6 +7,8 @@ Formulas are copied from:
   (SD / XL / SD3 / Flux / Cascade noise-prediction sliders)
 - ``_slider_loss`` and ``_target_delta`` in ``train_lora_music3.py``
 - LM raw vs ``--symmetric`` targets in ``train_lm_slider_music3.py``
+- Hub v9 LM recipe (sidecar ``target_mode`` / ``leakage_floor`` / ``anchor_*``;
+  this tree's GPU trainer does not yet take those flags)
 - Encoder MSE in ``train_encoder_music3.py``
 
 No Hub, no GPU, no model weights.
@@ -131,27 +133,143 @@ def music3_slider_loss(
     raise ValueError(f"unknown loss {kind!r}")
 
 
+def resolve_lm_target_mode(
+    *,
+    symmetric: bool = True,
+    target_mode: str | None = None,
+) -> str:
+    """``faithful`` (v6 raw poles) or ``symmetric`` (v4/v9 polarity).
+
+    Sidecar name is ``target_mode``. The live trainer in this tree still
+    exposes the older ``--symmetric`` Boolean; either form is accepted.
+    """
+    if target_mode is None:
+        return "symmetric" if symmetric else "faithful"
+    mode = str(target_mode).strip().lower()
+    if mode not in ("faithful", "symmetric"):
+        raise ValueError(f"target_mode must be faithful or symmetric, got {target_mode!r}")
+    return mode
+
+
 def lm_hidden_targets(
     pos: torch.Tensor,
     neg: torch.Tensor,
     neu: torch.Tensor,
     *,
     symmetric: bool = True,
+    target_mode: str | None = None,
     target_scale: float = 1.0,
     common_beta: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """LM slider targets from ``train_lm_slider_music3.py``.
+    """LM slider pole targets from ``train_lm_slider_music3.py``.
 
-    symmetric (default): ``tgt(±1) = neu ± (pos-neg)/2 * target_scale + β * common``
-    raw: ``tgt(+1), tgt(-1) = pos, neg``
+    ``target_mode symmetric`` (default, also ``--symmetric``):
+        ``tgt(±1) = neu ± (pos-neg)/2 * target_scale + β * common``
+    ``target_mode faithful`` (v6 raw, also ``--no-symmetric``):
+        ``tgt(+1), tgt(-1) = pos, neg``
     """
-    if symmetric:
+    mode = resolve_lm_target_mode(symmetric=symmetric, target_mode=target_mode)
+    if mode == "symmetric":
         axis = (pos - neg) / 2.0 * float(target_scale)
         common = (pos + neg) / 2.0 - neu
         return neu + axis + float(common_beta) * common, neu - axis + float(common_beta) * common
     if float(target_scale) != 1.0:
         raise ValueError("--target_scale is defined for symmetric targets only")
     return pos, neg
+
+
+def lm_pair_collapse(pos: torch.Tensor, neg: torch.Tensor, neu: torch.Tensor) -> torch.Tensor:
+    """``r = cos(h+ − h0, h− − h0)``. Raw even-mode collapse from the Hub v9 note."""
+    return F.cosine_similarity(
+        (pos - neu).flatten().unsqueeze(0),
+        (neg - neu).flatten().unsqueeze(0),
+    ).squeeze()
+
+
+def lm_anchor_kappa(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leakage_floor: float,
+    *,
+    autocal: bool = True,
+    kappa: float | None = None,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Largest κ ∈ [0, 1] whose perfect-fit ±1 cosine stays ≤ ``leakage_floor``.
+
+    Hub v9 / sidecar ``--anchor_autocal --leakage_floor``:
+
+        r = cos(h+ − h0, h− − h0)
+        ρ² = (1 − r) / (1 + r)
+        a perfect fit on the blend realizes cos(d+, d−) = (κ² − ρ²) / (κ² + ρ²)
+        κ = √(ρ² · (1 + floor) / (1 − floor))   clamped to [0, 1]
+
+    This sizes the *even* blend back toward raw ``h±``. It does not touch the
+    odd teacher ``(pos − neg) / 2``, so unused-attribute leak in that axis
+    is unchanged.
+    """
+    if not autocal:
+        value = 1.0 if kappa is None else float(kappa)
+        return pos.new_tensor(min(1.0, max(0.0, value)))
+    floor = float(leakage_floor)
+    if floor >= 1.0:
+        return pos.new_tensor(1.0)
+    if floor <= -1.0:
+        return pos.new_tensor(0.0)
+    r = lm_pair_collapse(pos, neg, neu).clamp(-1.0 + eps, 1.0 - eps)
+    rho2 = (1.0 - r) / (1.0 + r)
+    raw = (rho2 * (1.0 + floor) / (1.0 - floor)).clamp(min=0.0)
+    return raw.sqrt().clamp(0.0, 1.0)
+
+
+def lm_anchor_targets(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    kappa: torch.Tensor | float,
+    *,
+    target_scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """``anchor± = (1 − κ)(h0 ± a) + κ h±`` with ``a = (pos − neg) / 2``."""
+    axis = (pos - neg) / 2.0 * float(target_scale)
+    k = kappa if torch.is_tensor(kappa) else pos.new_tensor(float(kappa))
+    return (1.0 - k) * (neu + axis) + k * pos, (1.0 - k) * (neu - axis) + k * neg
+
+
+def lm_perfect_fit_collapse(
+    kappa: torch.Tensor | float,
+    rho2: torch.Tensor | float,
+) -> torch.Tensor:
+    """``cos(d+, d−) = (κ² − ρ²) / (κ² + ρ²)`` for a perfect fit on the blend."""
+    k2 = kappa * kappa if torch.is_tensor(kappa) else kappa ** 2
+    r2 = rho2 if torch.is_tensor(rho2) else torch.tensor(float(rho2))
+    k2_t = k2 if torch.is_tensor(k2) else r2.new_tensor(float(k2))
+    return (k2_t - r2) / (k2_t + r2).clamp_min(1e-8)
+
+
+def lm_slider_loss(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    *,
+    anchor_plus: torch.Tensor | None = None,
+    anchor_minus: torch.Tensor | None = None,
+    anchor_weight: float = 0.0,
+) -> torch.Tensor:
+    """Pole MSE plus optional v9 anchor MSE (``--anchor_weight``).
+
+    Endreg / planreg / collapse_weight / semantic-KL poles are AR-only and
+    are not expressed on the CPU field.
+    """
+    pole = F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_minus, tgt_minus)
+    weight = float(anchor_weight)
+    if weight <= 0.0 or anchor_plus is None or anchor_minus is None:
+        return pole
+    return pole + weight * (
+        F.mse_loss(pred_plus, anchor_plus) + F.mse_loss(pred_minus, anchor_minus)
+    )
 
 
 def encoder_mse_loss(

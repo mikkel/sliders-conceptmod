@@ -74,4 +74,7 @@ Seed `0`, `250` Adam steps, CPU.
 
 See [tf-leak.md](tf-leak.md) for whether that gender leak is a Music 3 TF
 trainer bug (it is not) or caption BPM sitting inside `pos − neg` (it is).
+See [lm-v9-2d.md](lm-v9-2d.md) for the Hub v9 LM recipe (symmetric +
+`leakage_floor` + anchor) on this same field: it fixes even-mode collapse
+only, not the unused-gender leak.
 

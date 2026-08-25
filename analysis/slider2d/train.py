@@ -12,10 +12,14 @@ from conceptmod.textsliders.slider_targets import (
     encoder_mse_loss,
     expand_attributes_music3,
     expand_attributes_sd,
+    lm_anchor_kappa,
+    lm_anchor_targets,
     lm_hidden_targets,
+    lm_slider_loss,
     music3_axis_delta,
     music3_pole_delta,
     music3_slider_loss,
+    resolve_lm_target_mode,
     sd_noise_target,
 )
 
@@ -242,6 +246,10 @@ def train_lm(
     pairs: list[Pair],
     *,
     symmetric: bool = True,
+    target_mode: str | None = None,
+    leakage_floor: float | None = None,
+    anchor_weight: float = 0.0,
+    anchor_autocal: bool = True,
     steps: int = 250,
     lr: float = 0.08,
     seed: int = 0,
@@ -249,6 +257,8 @@ def train_lm(
 ) -> Residual:
     residual = Residual.create("odd_even")
     t = 0.5
+    mode = resolve_lm_target_mode(symmetric=symmetric, target_mode=target_mode)
+    weight = float(anchor_weight)
 
     def loss_fn(res: Residual) -> torch.Tensor:
         total = residual.w_odd.new_zeros(())
@@ -258,11 +268,29 @@ def train_lm(
             neg = field.embed(pair.negative, t)
             neu = field.embed(pair.neutral, t)
             tgt_plus, tgt_minus = lm_hidden_targets(
-                pos, neg, neu, symmetric=symmetric, common_beta=common_beta
+                pos, neg, neu, target_mode=mode, common_beta=common_beta
             )
             pred_plus = neu + res.delta(1.0)
             pred_minus = neu + res.delta(-1.0)
-            total = total + F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_minus, tgt_minus)
+            anchor_plus = anchor_minus = None
+            if weight > 0.0:
+                if anchor_autocal and leakage_floor is None:
+                    raise ValueError("anchor_autocal requires leakage_floor")
+                kappa = lm_anchor_kappa(
+                    pos, neg, neu,
+                    -1.0 if leakage_floor is None else float(leakage_floor),
+                    autocal=anchor_autocal,
+                )
+                anchor_plus, anchor_minus = lm_anchor_targets(pos, neg, neu, kappa)
+            total = total + lm_slider_loss(
+                pred_plus,
+                pred_minus,
+                tgt_plus,
+                tgt_minus,
+                anchor_plus=anchor_plus,
+                anchor_minus=anchor_minus,
+                anchor_weight=weight,
+            )
             n += 1
         return total / n
 
@@ -316,6 +344,18 @@ def score_residual(residual: Residual, action: str = "enhance") -> dict:
         "norm_minus": minus["norm"],
         "action": action,
         "want_sign": want,
+    }
+
+
+def axis_verdicts(metrics: dict) -> dict[str, str]:
+    """Independent right / needs_help on slider axis, attribute leak, ±1 collapse."""
+    leak = abs(metrics["leak_ratio"])
+    slider = metrics["cos_slider_plus"] * metrics["want_sign"]
+    bipolar = metrics["cos_plus_minus"]
+    return {
+        "slider": "right" if slider >= 0.90 else "needs_help",
+        "leak": "right" if leak <= 0.20 else "needs_help",
+        "collapse": "right" if bipolar <= -0.85 else "needs_help",
     }
 
 
@@ -402,6 +442,43 @@ def all_specs() -> list[MethodSpec]:
     ]
 
 
+def lm_v9_specs() -> list[MethodSpec]:
+    """LM cells for the v9 formulation question, plus the TF ``nmse``/``axis`` baseline."""
+    by_name = {spec.name: spec for spec in all_specs()}
+    extra = [
+        MethodSpec(
+            "lm_symmetric_floor",
+            "lm",
+            "bipolar_allow_leak",
+            builder="lm",
+            kwargs={"symmetric": True, "with_attrs": False, "leakage_floor": -0.9, "anchor_weight": 0.0},
+        ),
+        MethodSpec(
+            "lm_v9",
+            "lm",
+            "bipolar_allow_leak",
+            builder="lm",
+            kwargs={
+                "symmetric": True,
+                "target_mode": "symmetric",
+                "with_attrs": False,
+                "leakage_floor": -0.9,
+                "anchor_weight": 0.3,
+                "anchor_autocal": True,
+            },
+        ),
+    ]
+    extra_by_name = {spec.name: spec for spec in extra}
+    return [
+        by_name["lm_raw"],
+        by_name["lm_symmetric"],
+        extra_by_name["lm_symmetric_floor"],
+        extra_by_name["lm_v9"],
+        by_name["lm_raw_attrs"],
+        by_name["m3_nmse_axis"],
+    ]
+
+
 def run_method(spec: MethodSpec, field: Field2D, *, steps: int = 250, seed: int = 0) -> MethodResult:
     action = spec.kwargs.get("action", spec.action)
     with_attrs = spec.kwargs.get("with_attrs", False)
@@ -422,7 +499,15 @@ def run_method(spec: MethodSpec, field: Field2D, *, steps: int = 250, seed: int 
     elif spec.builder == "lm":
         pairs = music3_pairs(with_attrs, action=action)
         residual = train_lm(
-            field, pairs, symmetric=spec.kwargs["symmetric"], steps=steps, seed=seed
+            field,
+            pairs,
+            symmetric=spec.kwargs.get("symmetric", True),
+            target_mode=spec.kwargs.get("target_mode"),
+            leakage_floor=spec.kwargs.get("leakage_floor"),
+            anchor_weight=spec.kwargs.get("anchor_weight", 0.0),
+            anchor_autocal=spec.kwargs.get("anchor_autocal", True),
+            steps=steps,
+            seed=seed,
         )
     elif spec.builder == "enc":
         pairs = music3_pairs(with_attrs, action=action)
