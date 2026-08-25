@@ -10,10 +10,12 @@ Formulas are copied from:
 - Hub v9 LM recipe (sidecar ``target_mode`` / ``leakage_floor`` / ``anchor_*``)
   plus the leak fix: project the odd teacher onto a declared slider
   direction and hold the orthogonal residual (``project_odd`` / ``hold_weight``).
-  The live trainer defaults to this path (``--lm_target v9``). An opt-in
-  ``project_align_min`` refuses to project when ``|odd·û|/||odd||`` is
-  below a floor (gender-v1: the short declared û kept 0.20 of a clean pair).
-  That flag does **not** change the v9 default.
+  The live trainer default (``--lm_target v9``) is a **slider-level**
+  alignment gate: one mean ``|odd·û|/||odd||`` across every row, then
+  project+hold on all rows or pair-symmetric on all rows. A hard
+  *per-row* 0.50 floor mixes teachers on live energy (0.48 / 0.68).
+  ``--lm_target v9_always`` is the old always-project alias.
+  ``project_align_scope=row`` is the opt-in per-row gate (v12).
 - Encoder MSE in ``train_encoder_music3.py``
 
 No Hub, no GPU, no model weights.
@@ -21,10 +23,16 @@ No Hub, no GPU, no model weights.
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import torch
 import torch.nn.functional as F
+
+
+# Live gender-v1 sat at 0.20; live energy rows sat at 0.48 and 0.68.
+# A slider-level floor in that gap is one teacher for the whole LoRA.
+# Per-row 0.50 splits energy (mixed teacher) and is not the default.
+SLIDER_ALIGN_MIN = 0.50
 
 
 def sd_noise_target(
@@ -281,17 +289,63 @@ def lm_should_project_odd(
     slider_dir: torch.Tensor,
     project_align_min: float | None,
 ) -> tuple[bool, torch.Tensor]:
-    """Whether v9 should project the odd teacher onto û.
+    """Whether one row should project the odd teacher onto û.
 
-    ``project_align_min is None`` keeps today's default (always project).
-    Otherwise project only when ``|odd·û|/||odd||`` ≥ the floor. The live
-    trainer must also drop the orthogonal hold when this returns False —
+    ``project_align_min is None`` is always-project (``v9_always``).
+    Otherwise this is the *per-row* floor. Live energy at 0.48 / 0.68
+    splits on a hard 0.50 row gate — do not use this as the default.
+    Prefer ``lm_project_decisions`` with ``scope="slider"``. The trainer
+    must also drop the orthogonal hold when this returns False —
     holding ⊥ the rejected û still eats the pair.
     """
     align = lm_odd_align(pos, neg, slider_dir)
     if project_align_min is None:
         return True, align
     return bool(float(align) >= float(project_align_min)), align
+
+
+def lm_mean_odd_align(
+    pairs: Sequence[tuple[torch.Tensor, torch.Tensor]],
+    slider_dir: torch.Tensor,
+) -> torch.Tensor:
+    """Mean ``|odd·û|/||odd||`` across every (pos, neg) row of one slider."""
+    if not pairs:
+        raise ValueError("lm_mean_odd_align needs at least one (pos, neg) pair")
+    aligns = [lm_odd_align(pos, neg, slider_dir) for pos, neg in pairs]
+    stacked = torch.stack([a.reshape(()) for a in aligns])
+    return stacked.mean()
+
+
+def lm_project_decisions(
+    aligns: Sequence[float | torch.Tensor],
+    project_align_min: float | None,
+    scope: str = "slider",
+) -> list[bool]:
+    """Per-row project+hold decisions from a list of ``|odd·û|/||odd||``.
+
+    ``project_align_min is None`` → always project (old v9).
+    ``scope="slider"`` → one decision from the mean (live default).
+    ``scope="row"`` → hard per-row floor (v12; mixes live energy).
+    """
+    if not aligns:
+        raise ValueError("lm_project_decisions needs at least one align")
+    values = [float(a) for a in aligns]
+    if project_align_min is None:
+        return [True] * len(values)
+    floor = float(project_align_min)
+    mode = str(scope).strip().lower()
+    if mode == "slider":
+        mean = sum(values) / len(values)
+        return [mean >= floor] * len(values)
+    if mode == "row":
+        return [v >= floor for v in values]
+    raise ValueError(f"project_align_scope must be 'slider' or 'row', got {scope!r}")
+
+
+def lm_teachers_mixed(decisions: Sequence[bool]) -> bool:
+    """True when some rows project and others fall back (mixed teacher)."""
+    kinds = {bool(d) for d in decisions}
+    return len(kinds) > 1
 
 
 def lm_project_odd_axis(

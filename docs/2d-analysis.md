@@ -75,9 +75,9 @@ Seed `0`, `250` Adam steps, CPU.
 See [tf-leak.md](tf-leak.md) for whether that gender leak is a Music 3 TF
 trainer bug (it is not) or caption BPM sitting inside `pos − neg` (it is).
 See [lm-v9-2d.md](lm-v9-2d.md) for the LM recipe on this same field:
-published Hub v9 (`leakage_floor` + anchor) still leaks; the default
-`lm_v9` projects the odd teacher onto the declared slider direction
-(κ=0 + orthogonal hold) and is right on slider, leak, and collapse
-without `--attributes`. This field **cannot** see gender-v1: û here
-*is* the pole names. The mismatch cell is [lm-v9-mismatch.md](lm-v9-mismatch.md).
+published Hub v9 (`leakage_floor` + anchor) still leaks; projected-odd
+is leak-0 here because û *is* the pole names. That hid both live
+failures. Gender-like and energy-like cells are
+[lm-live-cells.md](lm-live-cells.md). Default `--lm_target v9` is now
+a slider-level alignment gate, not always-project.
 

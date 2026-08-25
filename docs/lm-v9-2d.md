@@ -12,9 +12,12 @@ teacher onto the declared slider direction**, then holds the
 orthogonal residual. κ = 0 — no even blend-back. Ungated captions
 only; `--attributes` is not used.
 
-The live `train_lm_slider_music3.py` defaults to this recipe
-(`--lm_target v9`) and calls the same functions. Endreg / planreg /
-semantic-KL poles are AR-only and are not on this field.
+The live `train_lm_slider_music3.py` default (`--lm_target v9`) still
+calls these functions, but gates them with a **slider-level**
+`|odd·û|/||odd||` mean (see [lm-live-cells.md](lm-live-cells.md)).
+On this pole-name cell the mean is ~0.95, so the default still
+projects. Endreg / planreg / semantic-KL poles are AR-only and are
+not on this field.
 
 ## Verdict
 
