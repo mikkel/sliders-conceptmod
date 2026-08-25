@@ -80,6 +80,7 @@ The verdict stays a label; the number is what a human sorts by.
 | `faithful_attrs` | 1.000 | pass | pass | pass | pass | pass | — | **works** |
 | `faithful_raw` | 1.000 | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
 | `hidden_beta1` | 1.000 | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
+| `semantic_kl_plus_hidden` | 0.994 | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
 | `gender_like_no_e` | 0.974 | — | pass | — | — | **fail** | — | works-on-some-pairs |
 | `pair_odd_midpoint` | 0.974 | **fail** | pass | pass | **fail** | **fail** | — | works-on-some-pairs |
 | `hold_e_perp_l8` | 0.974 | **fail** | — | pass | **fail** | **fail** | — | works-on-some-pairs |
@@ -109,15 +110,15 @@ What each cell is:
 The two `semantic_kl_poles` cells are the load-bearing row: it is the
 live energy win on a divergent pair and the live gender garble on a
 close one, so no single verdict for the recipe is honest and
-`works-on-some-pairs` names which. `faithful_raw` and its data-fixed
-sibling `faithful_attrs` are the only recipes that pass every pair
-they are read on.
+`works-on-some-pairs` names which. `faithful_raw`, its data-fixed
+sibling `faithful_attrs`, and `semantic_kl_plus_hidden` are the
+recipes that pass both live exam pairs.
 
 ## Short verdict
 
 **Works on every pair it is read on:** `faithful_attrs`. `faithful_attrs` is `--lm_target faithful --pole_mode hidden` plus the data fix — the unpinned attribute written into both pole captions, the way energy-v4 already pins the singer with `attributes` — so there is no leftover ê in the text for the sheet cell to charge it for.
 
-**Works on some pairs:** `faithful_raw`, `hidden_beta1`, `gender_like_no_e`, `pair_odd_midpoint`, `hold_e_perp_l8`, `pair_odd_sub_e`, `faithful_sub_e`, `semantic_kl_midpoint`, `semantic_kl_poles`, `semantic_kl_sub_e`. Each passes at least one pair and fails another. `faithful_raw` (and `hidden_beta1`, which is the same target reached through `--lm_target symmetric --common_beta 1`) passes all three pair cells and is charged only by the unused-ê sheet — which is a leak gender-v4 has no `leak_*` to trip, so it is the next live card. `semantic_kl_poles` is the row the live exam is about: the energy win and the gender garble.
+**Works on some pairs:** `faithful_raw`, `hidden_beta1`, `semantic_kl_plus_hidden`, `gender_like_no_e`, `pair_odd_midpoint`, `hold_e_perp_l8`, `pair_odd_sub_e`, `faithful_sub_e`, `semantic_kl_midpoint`, `semantic_kl_poles`, `semantic_kl_sub_e`. Each passes at least one pair and fails another. `faithful_raw` (and `hidden_beta1`, which is the same target reached through `--lm_target symmetric --common_beta 1`) passes all three pair cells and is charged only by the unused-ê sheet — which is a leak gender-v4 has no `leak_*` to trip, so it is the next live card. `semantic_kl_poles` is the row the live exam is about: the energy win and the gender garble. `semantic_kl_plus_hidden` keeps that KL on the semantic band and pins the unread residual gender-v16 left behind.
 
 **Fails:** 9 recipes — hub, hold-ê raw, short-û and rich-û project, and the high-D leftover holds. None of them has a pair-exam reading; they fail on leftover leak and the sheet alone. A perfect pair-odd lock and a solved pole loss are both failure modes here.
 
@@ -131,6 +132,7 @@ Pair-odd cos and ±1 are **logged, never scored**.
 | `faithful_attrs` | 1.000 | +0.000 | 0.938 | 0.997 | 0.005 | 1.00 | 1.02 | +0.735 | -0.080 | +1.000 | +0.735 | N/A | 1.00 | **works** |
 | `faithful_raw` | 1.000 | +0.228 | 0.934 | 0.993 | 0.001 | 1.00 | 1.01 | +0.696 | +0.030 | N/A | +0.696 | N/A | N/A | works-on-some-pairs |
 | `hidden_beta1` | 1.000 | +0.228 | 0.934 | 0.993 | 0.001 | 1.00 | 1.01 | +0.696 | +0.030 | N/A | +0.696 | N/A | N/A | works-on-some-pairs |
+| `semantic_kl_plus_hidden` | 0.994 | +0.226 | 0.926 | 0.985 | 0.001 | 1.00 | 1.00 | +0.706 | +0.003 | N/A | +0.706 | N/A | N/A | works-on-some-pairs |
 | `gender_like_no_e` | 0.974 | N/A | 0.540 | 0.575 | 0.415 | 0.00 | 0.27 | +1.000 | -1.000 | +0.987 | +0.987 | 0 | N/A | works-on-some-pairs |
 | `pair_odd_midpoint` | 0.974 | +0.228 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | N/A | +1.000 | N/A | N/A | works-on-some-pairs |
 | `hold_e_perp_l8` | 0.974 | +0.006 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.932 | -1.000 | +0.988 | +0.696 | 1 | N/A | works-on-some-pairs |
@@ -162,6 +164,10 @@ Pair-odd cos and ±1 are **logged, never scored**.
   - close pair: on-continuation
   - unused_e pair: on-continuation
 - `hidden_beta1` — pair-odd β=1 / symmetric --common_beta 1. lm_hidden_targets(symmetric, β=1) is the raw poles. Sheet-good, still leaks ê. Fixture: sheet leftover faithful ≡ β=1 + gender hidden_beta1.
+  - divergent pair: on-continuation
+  - close pair: on-continuation
+  - unused_e pair: on-continuation
+- `semantic_kl_plus_hidden` — semantic KL + unread-hidden residual on real poles. hybrid: energy-v18's on-sheet KL on the semantic-band logits, plus MSE on the readout null space that gender-v16 left behind. Not a rename of faithful_raw / hidden_beta1 / faithful_attrs. Fixture: sheet leftover + sheet gender + pair exam.
   - divergent pair: on-continuation
   - close pair: on-continuation
   - unused_e pair: on-continuation
@@ -203,24 +209,25 @@ Pair-odd cos and ±1 are **logged, never scored**.
 
 ## The next live card the board points at
 
-`faithful_raw` — `--lm_target faithful --pole_mode hidden` — is the
-only recipe besides its own data-fixed sibling that passes every pair
-it is read on, and it has **no live run**. It is the untrained winner.
+`semantic_kl_plus_hidden` — `--lm_target faithful --pole_mode
+semantic_kl_plus_hidden` — is the hybrid that keeps energy-v18's
+on-sheet KL and pins the unread residual gender-v16 left in the
+readout null space. It is not a rename of `faithful_raw` /
+`hidden_beta1` / `faithful_attrs`: those are full-state hidden MSE.
+The hybrid matches the semantic-band policy (KL) and only the
+complement (unread MSE). It has **no live run**.
 
-It is also the one recipe that fixes what `gender-lm-v16` actually
-did wrong. Both aim at the same target — the real pole captions — so
-the target point is not the difference. The difference is that hidden
-MSE pins the whole state, including the part of it the semantic band
-does not read at `<|audio_start|>`, which on a close pair is where the
-axis lives. In the pair-exam cell that recipe copies 1.00 of the
-invisible block against semantic KL's 0.00, and it is the swing over
-the continuation that separates them, not the loss.
+`faithful_raw` — `--lm_target faithful --pole_mode hidden` — remains
+the 1.000 hidden-MSE baseline on both exam pairs. Hidden MSE pins
+the whole state, including the part of it the semantic band does
+not read at `<|audio_start|>`. The hybrid is the recipe that keeps
+v18's KL instead of replacing it.
 
 ```bash
 python conceptmod/textsliders/train_lm_slider_music3.py \
   --name gender-lm-v19 \
   --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml \
-  --lm_target faithful --pole_mode hidden \
+  --lm_target faithful --pole_mode semantic_kl_plus_hidden \
   --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \
   --no-early_stop --endreg_weight 1.0
 ```

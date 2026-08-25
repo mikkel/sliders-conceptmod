@@ -649,6 +649,114 @@ def lm_semantic_pole_loss(
     return pole
 
 
+def lm_readout_row_basis(
+    readout: torch.Tensor, *, rcond: float = 1e-6
+) -> torch.Tensor:
+    """Orthonormal basis for the row space of ``readout`` ``[V, D]``.
+
+    Columns of the result span the directions a next-token head can see.
+    The orthogonal complement is the unread / null space: live that is
+    most of the 3584-wide Music 3 state; on the pair-exam field it is
+    the delivery block. Rank-deficient rows (zero columns, repeated
+    adjectives) are dropped by ``rcond``.
+    """
+    matrix = readout.detach().to(dtype=torch.float32).transpose(0, 1)
+    q, r = torch.linalg.qr(matrix, mode="reduced")
+    if r.ndim != 2 or int(q.shape[1]) == 0:
+        return q
+    diag = torch.diagonal(r).abs()
+    scale = diag.max().clamp_min(1e-12)
+    keep = diag > (float(rcond) * scale)
+    if int(keep.sum()) == 0:
+        return q[:, :0]
+    return q[:, keep]
+
+
+def lm_unread_hidden(
+    hidden: torch.Tensor,
+    readout: torch.Tensor,
+    *,
+    basis: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Project ``hidden`` onto the null space of the readout rows.
+
+    ``hidden @ W.T`` is invariant to this residual, so a KL on the
+    semantic band cannot see it and gets no gradient on it. That is the
+    close-pair (gender-v16) failure: the singer / continuation axis
+    lives here.
+    """
+    q = basis if basis is not None else lm_readout_row_basis(readout)
+    q = q.to(dtype=hidden.dtype, device=hidden.device)
+    if int(q.shape[1]) == 0:
+        return hidden
+    return hidden - (hidden @ q) @ q.transpose(0, 1)
+
+
+def lm_unread_mse(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    readout: torch.Tensor,
+    *,
+    basis: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Hidden MSE on the unread residual only — not a rename of full MSE."""
+    q = basis if basis is not None else lm_readout_row_basis(readout)
+    return F.mse_loss(
+        lm_unread_hidden(pred, readout, basis=q),
+        lm_unread_hidden(tgt, readout, basis=q),
+    )
+
+
+def lm_semantic_kl_plus_hidden_loss(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    readout: torch.Tensor,
+    *,
+    pred_plus_logits: torch.Tensor | None = None,
+    pred_minus_logits: torch.Tensor | None = None,
+    tgt_plus_logits: torch.Tensor | None = None,
+    tgt_minus_logits: torch.Tensor | None = None,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+    unread_weight: float = 1.0,
+    basis: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Semantic-band KL plus MSE on the readout null space.
+
+    ``semantic_kl`` is energy-v18's on-sheet term: one next-token KL on
+    the rows of ``lm_head`` that decide the semantic band. It cannot see
+    the close-pair axis (gender-v16), which lives in those rows' null
+    space. The second term is the hidden residual on exactly that
+    complement — not full-state MSE, not a rename of ``faithful_raw`` /
+    ``hidden_beta1``. The two subspaces do not fight: KL matches the
+    policy energy-v18 already sang; the unread MSE pins the
+    singer / continuation dims KL cannot see.
+    """
+    def _logits(hidden: torch.Tensor, supplied: torch.Tensor | None) -> torch.Tensor:
+        if supplied is not None:
+            return supplied
+        return lm_next_token_logits(hidden, readout)
+
+    pole = lm_semantic_pole_loss(
+        _logits(pred_plus, pred_plus_logits),
+        _logits(pred_minus, pred_minus_logits),
+        _logits(tgt_plus, tgt_plus_logits),
+        _logits(tgt_minus, tgt_minus_logits),
+        hold=hold,
+        hold_weight=hold_weight,
+    )
+    weight = float(unread_weight)
+    if weight <= 0.0:
+        return pole
+    q = basis if basis is not None else lm_readout_row_basis(readout)
+    return pole + weight * (
+        lm_unread_mse(pred_plus, tgt_plus, readout, basis=q)
+        + lm_unread_mse(pred_minus, tgt_minus, readout, basis=q)
+    )
+
+
 def encoder_mse_loss(
     pred_pos: torch.Tensor,
     pred_neg: torch.Tensor,

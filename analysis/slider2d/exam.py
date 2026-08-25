@@ -95,6 +95,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_hold_dir,
     lm_next_token_logits,
     lm_pair_odd_sub_e,
+    lm_semantic_kl_plus_hidden_loss,
     lm_semantic_pole_loss,
     lm_slider_loss,
     lm_unit,
@@ -649,7 +650,7 @@ CELL_IS = {
 
 
 TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e")
-POLE_MODES = ("hidden", "semantic_kl")
+POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_plus_hidden")
 
 
 def hold_direction(field: PairField, leak_dir: torch.Tensor | None) -> torch.Tensor | None:
@@ -1036,6 +1037,20 @@ def fit_exam(
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
                 )
+            elif mode == "semantic_kl_plus_hidden":
+                term = lm_semantic_kl_plus_hidden_loss(
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    head.weight,
+                    pred_plus_logits=head.logits(pred_plus),
+                    pred_minus_logits=head.logits(pred_minus),
+                    tgt_plus_logits=head.logits(t_plus),
+                    tgt_minus_logits=head.logits(t_minus),
+                    hold=hold,
+                    hold_weight=lam if hold is not None else 0.0,
+                )
             else:
                 term = lm_semantic_pole_loss(
                     head.logits(pred_plus),
@@ -1309,6 +1324,10 @@ def recipes(field: PairField) -> list[tuple[str, dict]]:
         ("faithful_raw", {"pole_mode": "hidden", "teacher": "faithful"}),
         ("semantic_kl_midpoint", {"pole_mode": "semantic_kl", "teacher": "pair_odd"}),
         ("semantic_kl_poles", {"pole_mode": "semantic_kl", "teacher": "faithful"}),
+        (
+            "semantic_kl_plus_hidden",
+            {"pole_mode": "semantic_kl_plus_hidden", "teacher": "faithful"},
+        ),
     ]
     if e is not None:
         out += [
