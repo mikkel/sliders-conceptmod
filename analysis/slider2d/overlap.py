@@ -342,6 +342,11 @@ def score_overlap_policy(
             "live_fail": (
                 fit["cos_teacher"] < LIVE_COS_FAIL and fit["perc"] >= LIVE_PERC_FAIL
             ),
+            "looks_like_v12": (
+                fit["cos_teacher"] >= 0.90
+                and fit["loss"] <= 0.05
+                and fit["collapse"] <= -0.85
+            ),
             "slider_collapsed": metrics["cos_intended"] < 0.30,
             "history": history,
         }

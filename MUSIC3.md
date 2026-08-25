@@ -85,6 +85,9 @@ penalize `(h(±1)−h0) · ê`. Short `slider_positive` is a name / probe,
 not the teacher. If no ê is declared (clean pair, or `attributes`
 already pin the unused axis), hold is 0. See
 [docs/lm-live-cells.md](docs/lm-live-cells.md).
+Live energy-v14 hold failure on the CPU fixture (c+ vs slider-cos,
+high-D leftover, leftover-only ê vs pair_odd_sub_e):
+[docs/lm-live-signature.md](docs/lm-live-signature.md).
 
 **Gender vs energy.** The energetic×gender fixture set û from the pole
 names (`odd·û/||odd|| ≈ 0.95`), so project+hold looked leak-0 and hid

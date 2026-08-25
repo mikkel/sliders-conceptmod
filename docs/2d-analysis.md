@@ -86,4 +86,6 @@ See [lm-rich-2d.md](lm-rich-2d.md) for whether structured poles can
 keep slider-detail without unused mix / BPM / gender riding along.
 See [lm-hold-overlap.md](lm-hold-overlap.md) for hold-ê when ê is
 not unused gender (live energy leak captions that *are* energy).
+See [lm-live-signature.md](lm-live-signature.md) for trainer c+ vs
+slider-cos, high-D tiny leftover, and leftover-only ê vs pair_odd_sub_e.
 

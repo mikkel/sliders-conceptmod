@@ -107,4 +107,6 @@ Seed `0`, `200` Adam steps.
 
 Unused-ê is the wrong ê for live energy-v4 leak captions (they
 *are* energy). That cell is [lm-hold-overlap.md](lm-hold-overlap.md).
+Live energy-v14 (c+ vs slider-cos, high-D ê_⊥, synonym pin) is
+[lm-live-signature.md](lm-live-signature.md).
 
