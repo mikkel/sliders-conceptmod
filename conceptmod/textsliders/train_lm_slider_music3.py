@@ -4,20 +4,20 @@ Vocal identity is chosen in the AR stage, not the flow transformer. This trains
 LoRA on Qwen3Attention so a neutral caption + LoRA scale moves the prompt
 hidden state toward a female or male caption.
 
-Default ``--lm_target v9`` is slider-level alignment: ``--symmetric``
-polarity, then one mean ``|odd·û|/||odd||`` across every prompt row.
-If that mean is ≥ ``--project_align_min`` (default 0.50), every row
-uses ``lm_project_odd_axis`` onto the declared ``--slider_positive`` /
-``--slider_negative`` pair plus ``lm_ortho_hold``. Otherwise every row
-is pair-symmetric and hold is off. κ = 0.
+Default ``--lm_target v9`` is full pair-odd + hold-on-ê: ``--symmetric``
+polarity, ``a = ½(h+−h−)``, ``t± = h0 ± a``, κ = 0. Short
+``slider_positive`` is a name / probe, not the teacher — do not replace
+``a`` with ``(a·û)û``. If YAML/CLI declares a leak pair
+(``leak_positive`` / ``leak_negative``), penalize ``(h(±1)−h0) · ê``.
+If no ê is declared (clean pair, or ``attributes`` already pin the
+unused axis), hold is 0. That is the recipe that is right on both live
+CPU cells: gender-like (no ê, keep the singer) and energy-like (ê =
+unused mix/BPM/genre, leak-low, same teacher on every row).
 
-That is the recipe that is right on both live CPU cells: gender-like
-(short û at 0.20 → fallback, do not eat the singer) and energy-like
-(leaky poles, short û at 0.48/0.68 → project all four rows, no mixed
-teacher). A hard *per-row* 0.50 floor mixed live energy and is
-``--project_align_scope row`` only. Old always-project is
-``--lm_target v9_always``. Published Hub floor is ``--lm_target hub``
-and still leaks. See ``docs/lm-live-cells.md``.
+Old short-û project+hold is ``--lm_target v9_project`` (slider-level
+gate) or ``--lm_target v9_always``. Published Hub floor is
+``--lm_target hub`` and still leaks unused attr. See
+``docs/lm-live-cells.md``.
 
 Audio-end regularizer: a cut ends when the AR language model samples
 <|audio_end|>; LM LoRAs perturb those logits, and un-regularized sliders
@@ -58,9 +58,11 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from conceptmod.textsliders.slider_targets import (
+    LEAK_HOLD_WEIGHT,
     SLIDER_ALIGN_MIN,
     lm_anchor_kappa,
     lm_anchor_targets,
+    lm_axis_hold,
     lm_hidden_targets,
     lm_odd_align,
     lm_ortho_hold,
@@ -70,23 +72,26 @@ from conceptmod.textsliders.slider_targets import (
 )
 
 DEFAULT_MODEL = Path("/ml2/music/models/MiniMax-Music3")
-LM_RECIPES = ("v9", "v9_always", "hub", "symmetric", "faithful")
-V9_RECIPES = frozenset({"v9", "v9_always"})
+LM_RECIPES = ("v9", "v9_project", "v9_always", "hub", "symmetric", "faithful")
+PROJECT_RECIPES = frozenset({"v9_project", "v9_always"})
+V9_RECIPES = frozenset({"v9", "v9_project", "v9_always"})
 TARGET_REPLACE = ["Qwen3Attention"]
 
 # Row fields this trainer actually consumes (`attributes` is expanded away by
 # _expand_attributes). Anything else in the YAML - `action`, `guidance_scale`,
 # `batch_size`, `unconditional` - is only read by the transformer trainer.
-# Declared slider axis lives at YAML top-level (slider_positive / slider_negative)
-# or on the CLI; it is not a per-row field and is never inferred from (pos-neg).
+# Declared slider / leak axes live at YAML top-level
+# (slider_positive / slider_negative, leak_positive / leak_negative)
+# or on the CLI; they are not per-row fields and are never inferred
+# from a row's (pos-neg).
 _USED_ROW_KEYS = frozenset({"target", "positive", "negative", "neutral", "lyrics", "attributes"})
 
 
 def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
-    """Live trainer recipe. Default ``v9`` is slider-level project-or-fallback.
+    """Live trainer recipe. Default ``v9`` is full pair-odd + hold-on-ê.
 
-    ``--symmetric`` is the polarity step inside ``v9`` / ``v9_always`` /
-    ``hub`` / ``symmetric``. It is not a second loss.
+    ``--symmetric`` is the polarity step inside ``v9`` / ``v9_project`` /
+    ``v9_always`` / ``hub`` / ``symmetric``. It is not a second loss.
     """
     recipe = str(lm_target).strip().lower()
     if recipe not in LM_RECIPES:
@@ -111,10 +116,13 @@ def resolve_v9_gate(
     project_align_min: float | None,
     project_align_scope: str | None,
 ) -> tuple[float | None, str]:
-    """Default v9 is slider-level 0.50. ``v9_always`` never gates."""
+    """Project-path gate only. Default ``v9`` does not project.
+
+    ``v9_project`` is slider-level 0.50. ``v9_always`` never gates.
+    """
     if recipe == "v9_always":
         return None, "row"
-    if recipe == "v9":
+    if recipe == "v9_project":
         floor = SLIDER_ALIGN_MIN if project_align_min is None else float(project_align_min)
         scope = (project_align_scope or "slider").strip().lower()
         if scope not in ("slider", "row"):
@@ -139,13 +147,46 @@ def resolve_slider_axis_captions(
     return None
 
 
+def resolve_leak_axis_captions(
+    *,
+    leak_positive: str | None,
+    leak_negative: str | None,
+    prompts_meta: dict,
+) -> tuple[str, str] | None:
+    """Declared unused leak pair ê. CLI wins over YAML.
+
+    YAML names: ``leak_positive`` / ``leak_negative``, or ``leak: [pos, neg]``.
+    ``attributes`` is caption pinning (makes ``a`` clean) — not this axis.
+    Never infer ê from short ``slider_positive`` or a row's (pos−neg).
+    """
+    listed = prompts_meta.get("leak")
+    list_pos = list_neg = ""
+    if isinstance(listed, (list, tuple)) and len(listed) == 2:
+        list_pos, list_neg = str(listed[0] or ""), str(listed[1] or "")
+    elif listed not in (None, "", []):
+        raise ValueError("yaml leak must be [leak_positive, leak_negative]")
+    pos = (leak_positive or prompts_meta.get("leak_positive") or list_pos or "").strip()
+    neg = (leak_negative or prompts_meta.get("leak_negative") or list_neg or "").strip()
+    if pos and neg:
+        return pos, neg
+    if pos or neg:
+        raise ValueError("declared leak axis needs both leak_positive and leak_negative")
+    return None
+
+
 def resolve_lm_loss_weights(
     recipe: str,
     *,
     hold_weight: float | None,
     anchor_weight: float | None,
+    leak_declared: bool = False,
 ) -> tuple[float, float]:
-    hold = 1.0 if recipe in V9_RECIPES else 0.0
+    if recipe == "v9":
+        hold = LEAK_HOLD_WEIGHT if leak_declared else 0.0
+    elif recipe in PROJECT_RECIPES:
+        hold = 1.0
+    else:
+        hold = 0.0
     anchor = 0.3 if recipe == "hub" else 0.0
     if hold_weight is not None:
         hold = float(hold_weight)
@@ -175,14 +216,21 @@ def lm_train_targets(
     Anchors are set only for the published Hub floor recipe.
 
     ``should_project`` is the slider-level (or per-row) decision already
-    resolved by the caller. When omitted, ``project_align_min is None``
-    always-projects and a set floor is the per-row gate. The caller must
-    drop the orthogonal hold when this falls back — holding ⊥ the
-    rejected û still eats the pair.
+    resolved by the caller for ``v9_project`` / ``v9_always``. Default
+    ``v9`` never projects: teacher is the full pair-odd. When omitted
+    on the project path, ``project_align_min is None`` always-projects
+    and a set floor is the per-row gate. The caller must drop the
+    orthogonal hold when this falls back — holding ⊥ the rejected û
+    still eats the pair.
     """
-    if recipe in V9_RECIPES:
+    if recipe == "v9":
+        plus, minus = lm_hidden_targets(
+            pos, neg, neu, target_mode="symmetric", target_scale=target_scale
+        )
+        return plus, minus, None, None
+    if recipe in PROJECT_RECIPES:
         if slider_dir is None:
-            raise ValueError("lm_target=v9 requires a declared slider_dir")
+            raise ValueError("lm_target=v9_project requires a declared slider_dir")
         if should_project is None:
             decisions = lm_project_decisions(
                 [float(lm_odd_align(pos, neg, slider_dir))],
@@ -225,21 +273,28 @@ def lm_train_loss(
     *,
     neu: torch.Tensor | None = None,
     slider_dir: torch.Tensor | None = None,
+    leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     anchor_plus: torch.Tensor | None = None,
     anchor_minus: torch.Tensor | None = None,
     anchor_weight: float = 0.0,
 ) -> torch.Tensor:
-    """Live pole loss: ``lm_slider_loss`` plus optional ``lm_ortho_hold``.
+    """Live pole loss: ``lm_slider_loss`` plus optional hold.
 
-    No second lookalike. The live graph has no hold embedding; hold is the
-    residual orthogonal to the declared ``slider_dir``.
+    Default v9 holds a declared leak axis ``ê`` (``lm_axis_hold``).
+    The project path holds the residual orthogonal to ``slider_dir``.
+    The live graph has no hold embedding either way.
     """
     hold = None
     if float(hold_weight) > 0.0:
-        if neu is None or slider_dir is None:
-            raise ValueError("hold_weight>0 requires neu and a declared slider_dir")
-        hold = lm_ortho_hold(pred_plus, pred_minus, neu, slider_dir)
+        if neu is None:
+            raise ValueError("hold_weight>0 requires neu")
+        if leak_dir is not None:
+            hold = lm_axis_hold(pred_plus, pred_minus, neu, leak_dir)
+        elif slider_dir is not None:
+            hold = lm_ortho_hold(pred_plus, pred_minus, neu, slider_dir)
+        else:
+            raise ValueError("hold_weight>0 requires a declared leak_dir or slider_dir")
     return lm_slider_loss(
         pred_plus,
         pred_minus,
@@ -284,6 +339,9 @@ def _load_rows(path: Path) -> tuple[list[dict], dict]:
             "recommended_range": raw.get("recommended_range") or [-2.0, 2.0],
             "slider_positive": str(raw.get("slider_positive") or ""),
             "slider_negative": str(raw.get("slider_negative") or ""),
+            "leak_positive": str(raw.get("leak_positive") or ""),
+            "leak_negative": str(raw.get("leak_negative") or ""),
+            "leak": raw.get("leak"),
         }
         raw = raw.get("rows")
     if not isinstance(raw, list) or not raw:
@@ -455,20 +513,35 @@ def train(args: argparse.Namespace) -> Path:
         prompts_meta["minus_label"] = args.minus_label
 
     recipe = resolve_lm_recipe(lm_target=args.lm_target, symmetric=args.symmetric)
-    hold_w, anchor_w = resolve_lm_loss_weights(
-        recipe, hold_weight=args.hold_weight, anchor_weight=args.anchor_weight
-    )
     axis_captions = resolve_slider_axis_captions(
         slider_positive=args.slider_positive,
         slider_negative=args.slider_negative,
         prompts_meta=prompts_meta,
     )
-    if (recipe in V9_RECIPES or hold_w > 0.0) and axis_captions is None:
+    leak_captions = resolve_leak_axis_captions(
+        leak_positive=getattr(args, "leak_positive", None),
+        leak_negative=getattr(args, "leak_negative", None),
+        prompts_meta=prompts_meta,
+    )
+    hold_w, anchor_w = resolve_lm_loss_weights(
+        recipe,
+        hold_weight=args.hold_weight,
+        anchor_weight=args.anchor_weight,
+        leak_declared=leak_captions is not None,
+    )
+    if recipe in PROJECT_RECIPES and axis_captions is None:
         raise ValueError(
-            "lm_target=v9 (and any hold_weight>0) needs a declared slider axis: "
+            "lm_target=v9_project / v9_always needs a declared slider axis: "
             "--slider_positive / --slider_negative, or YAML slider_positive / "
             "slider_negative. Do not silently use a row's (pos-neg) — that is "
             "the unused-attribute leak."
+        )
+    if recipe == "v9" and hold_w > 0.0 and leak_captions is None and axis_captions is None:
+        raise ValueError(
+            "hold_weight>0 on --lm_target v9 needs a declared leak axis: "
+            "--leak_positive / --leak_negative, or YAML leak_positive / "
+            "leak_negative (or leak: [pos, neg]). Do not hold û_⊥ — that "
+            "eats a clean pair."
         )
     if recipe in V9_RECIPES and float(args.common_beta) != 0.0:
         print("note: lm_target=v9 is κ=0 (no even blend-back); ignoring --common_beta")
@@ -496,8 +569,9 @@ def train(args: argparse.Namespace) -> Path:
 
     beta = float(args.common_beta)
     slider_dir = None
+    leak_dir = None
+    axis_lyrics = str(rows[0].get("lyrics") or "")
     if axis_captions is not None:
-        axis_lyrics = str(rows[0].get("lyrics") or "")
         axis_pos_text = _assemble(axis_captions[0], axis_lyrics)
         axis_neg_text = _assemble(axis_captions[1], axis_lyrics)
         with torch.no_grad():
@@ -508,6 +582,19 @@ def train(args: argparse.Namespace) -> Path:
             f"declared slider axis: {axis_captions[0]!r} / {axis_captions[1]!r} "
             f"||û||={slider_dir.norm().item():.3f} (encoded once, not a row's pos-neg)"
         )
+    if leak_captions is not None:
+        leak_pos_text = _assemble(leak_captions[0], axis_lyrics)
+        leak_neg_text = _assemble(leak_captions[1], axis_lyrics)
+        with torch.no_grad():
+            leak_pos_h = _encode_static(lm, *_tokenize(tokenizer, leak_pos_text, device))
+            leak_neg_h = _encode_static(lm, *_tokenize(tokenizer, leak_neg_text, device))
+        leak_dir = leak_pos_h - leak_neg_h
+        print(
+            f"declared leak axis ê: {leak_captions[0]!r} / {leak_captions[1]!r} "
+            f"||ê||={leak_dir.norm().item():.3f} (hold (h(±1)−h0)·ê; teacher stays pair-odd)"
+        )
+    elif recipe == "v9":
+        print("note: no leak axis declared — v9 hold is off (teacher is full pair-odd)")
 
     encoded_rows = []
     for index, row in enumerate(rows):
@@ -540,11 +627,11 @@ def train(args: argparse.Namespace) -> Path:
         )
 
     aligns = [row["align"] if row["align"] is not None else 0.0 for row in encoded_rows]
-    if recipe in V9_RECIPES and slider_dir is not None:
+    if recipe in PROJECT_RECIPES and slider_dir is not None:
         decisions = lm_project_decisions(aligns, align_min, align_scope)
         mean_align = sum(aligns) / len(aligns)
         print(
-            f"v9 gate: scope={align_scope} floor={align_min} "
+            f"v9_project gate: scope={align_scope} floor={align_min} "
             f"mean |odd·û|/||odd||={mean_align:.3f} "
             f"rows={[round(a, 3) for a in aligns]} "
             f"project={decisions} "
@@ -552,6 +639,11 @@ def train(args: argparse.Namespace) -> Path:
         )
     else:
         decisions = [False] * len(encoded_rows)
+        if recipe == "v9":
+            print(
+                f"v9: teacher=full pair-odd, hold_ê={hold_w if leak_dir is not None else 0.0} "
+                f"(κ=0, no project onto short û)"
+            )
 
     row_data = []
     for encoded, should_project in zip(encoded_rows, decisions):
@@ -564,17 +656,26 @@ def train(args: argparse.Namespace) -> Path:
         target_cos = encoded["target_cos"]
         dropped = ""
         row_slider_dir = slider_dir
-        row_hold = hold_w
-        if encoded["align"] is not None:
+        row_leak_dir = leak_dir
+        row_hold = hold_w if (recipe != "v9" or leak_dir is not None) else 0.0
+        if recipe == "v9":
+            dropped = " teacher=odd"
+            if row_leak_dir is not None:
+                dropped += f" hold_ê={row_hold}"
+            else:
+                dropped += " hold_ê=0"
+            if encoded["align"] is not None:
+                dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
+        elif encoded["align"] is not None:
             dropped = f" odd·û/||odd||={encoded['align']:.3f}"
-            if recipe in V9_RECIPES and not should_project:
+            if recipe in PROJECT_RECIPES and not should_project:
                 dropped += (
                     f" < {align_scope} floor {align_min} "
                     "→ pair-symmetric (no project, no hold)"
                 )
                 row_slider_dir = None
                 row_hold = 0.0
-            elif recipe in V9_RECIPES and should_project:
+            elif recipe in PROJECT_RECIPES and should_project:
                 dropped += f" ≥ {align_scope} floor {align_min} → project+hold"
         print(
             f"row {index}: tokens={tokens['neutral'][0].shape[1]} "
@@ -594,7 +695,7 @@ def train(args: argparse.Namespace) -> Path:
             common_beta=beta,
             leakage_floor=args.leakage_floor,
             anchor_autocal=args.anchor_autocal,
-            should_project=should_project if recipe in V9_RECIPES else None,
+            should_project=should_project if recipe in PROJECT_RECIPES else None,
         )
         row_data.append(
             {
@@ -604,6 +705,7 @@ def train(args: argparse.Namespace) -> Path:
                 "tgt_minus": tgt_minus,
                 "neu_ref": neu_ref,
                 "slider_dir": row_slider_dir,
+                "leak_dir": row_leak_dir,
                 "hold_weight": row_hold,
                 "anchor_plus": anc_plus,
                 "anchor_minus": anc_minus,
@@ -741,6 +843,7 @@ def train(args: argparse.Namespace) -> Path:
             tgt_minus,
             neu=neu_ref,
             slider_dir=data.get("slider_dir"),
+            leak_dir=data.get("leak_dir"),
             hold_weight=float(data.get("hold_weight", hold_w)),
             anchor_plus=data.get("anchor_plus"),
             anchor_minus=data.get("anchor_minus"),
@@ -822,12 +925,14 @@ def train(args: argparse.Namespace) -> Path:
         "lm_target": recipe,
         "symmetric": bool(args.symmetric),
         "hold_weight": hold_w,
-        "project_align_min": align_min if recipe in V9_RECIPES else getattr(args, "project_align_min", None),
-        "project_align_scope": align_scope if recipe in V9_RECIPES else None,
+        "project_align_min": align_min if recipe in PROJECT_RECIPES else getattr(args, "project_align_min", None),
+        "project_align_scope": align_scope if recipe in PROJECT_RECIPES else None,
         "anchor_weight": anchor_w,
         "leakage_floor": args.leakage_floor,
         "slider_positive": axis_captions[0] if axis_captions else "",
         "slider_negative": axis_captions[1] if axis_captions else "",
+        "leak_positive": leak_captions[0] if leak_captions else "",
+        "leak_negative": leak_captions[1] if leak_captions else "",
         "common_beta": beta,
         "target_scale": float(args.target_scale),
         "planreg_weight": float(args.planreg_weight),
@@ -891,25 +996,26 @@ def parse_args(argv=None):
         "--lm_target",
         default="v9",
         choices=LM_RECIPES,
-        help="live target recipe (default v9 = slider-level align gate). v9: "
-        "--symmetric polarity, then one mean |odd·û|/||odd||; project+hold "
-        "every row or pair-symmetric every row (κ=0). v9_always: old "
-        "always-project. hub: published leakage_floor blend-back (still leaks). "
-        "symmetric / faithful: old poles without projection",
+        help="live target recipe (default v9 = full pair-odd + hold-on-ê). v9: "
+        "--symmetric polarity, t± = h0 ± a, κ=0; hold (h(±1)−h0)·ê when "
+        "leak_positive/leak_negative is declared. Short slider_positive is "
+        "not the teacher. v9_project: old slider-level |odd·û| gate. "
+        "v9_always: old always-project. hub: published leakage_floor "
+        "blend-back (still leaks). symmetric / faithful: old poles",
     )
     p.add_argument(
         "--symmetric",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="polarity step inside v9/hub/symmetric: tgt(±1) sit opposite around neu. "
-        "v9 then projects that odd teacher onto the declared slider axis",
+        "v9 keeps that full odd teacher; v9_project may project it onto û",
     )
     p.add_argument(
         "--slider_positive",
         default=None,
-        help="declared + slider caption encoded once as û (not a training row's pos). "
-        "Required for --lm_target v9 unless YAML slider_positive is set. "
-        "Do not omit this and expect (pos-neg) to be the axis — that is the leak",
+        help="declared + slider caption encoded once as û (name / probe, not the "
+        "v9 teacher). Required for --lm_target v9_project / v9_always unless "
+        "YAML slider_positive is set",
     )
     p.add_argument(
         "--slider_negative",
@@ -917,27 +1023,37 @@ def parse_args(argv=None):
         help="declared − slider caption; pair with --slider_positive",
     )
     p.add_argument(
+        "--leak_positive",
+        default=None,
+        help="declared unused leak caption encoded once as ê (mix / BPM / genre, "
+        "not the slider). YAML leak_positive or leak: [pos, neg] also work. "
+        "Omit when the pair is already clean or attributes pin the unused axis",
+    )
+    p.add_argument(
+        "--leak_negative",
+        default=None,
+        help="declared − leak caption; pair with --leak_positive",
+    )
+    p.add_argument(
         "--hold_weight",
         type=float,
         default=None,
-        help="weight on ||(h(±1)−h0)_⊥û||² (default 1.0 for v9, 0 otherwise). "
-        "The live graph has no hold embedding; this is the 2-D orthogonal residual",
+        help="v9: weight on ((h(±1)−h0)·ê)² (default 8 when ê is declared, else 0). "
+        "v9_project / v9_always: weight on ||(h(±1)−h0)_⊥û||² (default 1.0). "
+        "λ=1 is too weak when ê fights the full-odd teacher",
     )
     p.add_argument(
         "--project_align_min",
         type=float,
         default=None,
-        help="v9 alignment floor (default 0.50). Compared to the slider-level "
-        "mean |odd·û|/||odd|| unless --project_align_scope row. Ignored by "
-        "v9_always. See docs/lm-live-cells.md",
+        help="v9_project alignment floor (default 0.50). Ignored by default v9 "
+        "and by v9_always. See docs/lm-live-cells.md",
     )
     p.add_argument(
         "--project_align_scope",
         default=None,
         choices=("slider", "row"),
-        help="v9 gate aggregation (default slider). slider = one teacher for "
-        "the whole LoRA. row = per-row 0.50 (live energy mixed-teacher; not "
-        "the default)",
+        help="v9_project gate aggregation (default slider). Ignored by default v9",
     )
     p.add_argument(
         "--leakage_floor",

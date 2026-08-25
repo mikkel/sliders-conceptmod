@@ -113,10 +113,10 @@ intended concept, pair is junk” without another check.
 This cell is gender. Energy is **not** the leak-0 row above — that
 row still sets û from pole names (0.95). Live energy was 0.48 / 0.68
 and a hard per-row 0.50 gate mixed teachers. The one default that is
-right on both live cells is slider-level `--lm_target v9` (mean
-`|odd·û|/||odd||` ≥ 0.5, same teacher on
-every row). See [lm-live-cells.md](lm-live-cells.md). Old
-always-project is `--lm_target v9_always`. Hub still leaks unused
+right on both live cells is `--lm_target v9`: full pair-odd + hold
+along a declared leak axis ê (not short-û project). See
+[lm-live-cells.md](lm-live-cells.md). Old project is
+`--lm_target v9_project` / `v9_always`. Hub still leaks unused
 attr on a leaky pair.
 
 ## How to run

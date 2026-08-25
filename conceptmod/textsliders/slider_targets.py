@@ -8,14 +8,14 @@ Formulas are copied from:
 - ``_slider_loss`` and ``_target_delta`` in ``train_lora_music3.py``
 - LM raw vs ``--symmetric`` targets in ``train_lm_slider_music3.py``
 - Hub v9 LM recipe (sidecar ``target_mode`` / ``leakage_floor`` / ``anchor_*``)
-  plus the leak fix: project the odd teacher onto a declared slider
-  direction and hold the orthogonal residual (``project_odd`` / ``hold_weight``).
-  The live trainer default (``--lm_target v9``) is a **slider-level**
-  alignment gate: one mean ``|odd·û|/||odd||`` across every row, then
-  project+hold on all rows or pair-symmetric on all rows. A hard
-  *per-row* 0.50 floor mixes teachers on live energy (0.48 / 0.68).
-  ``--lm_target v9_always`` is the old always-project alias.
-  ``project_align_scope=row`` is the opt-in per-row gate (v12).
+  plus the leak fix. Default ``--lm_target v9`` is **full pair-odd**
+  ``a = ½(h+−h−)``, ``t± = h0 ± a``, κ = 0, and a hold along a declared
+  leak axis ``ê`` (YAML ``leak_positive`` / ``leak_negative``):
+  penalize ``(h(±1)−h0) · ê``. Short ``slider_positive`` is a name /
+  probe, not the teacher — do not replace ``a`` with ``(a·û)û``.
+  If no ``ê`` is declared (clean pair, or ``attributes`` already pin
+  the unused axis), hold is 0. ``--lm_target v9_project`` is the old
+  slider-level project+hold onto û; ``v9_always`` never gates.
 - Encoder MSE in ``train_encoder_music3.py``
 
 No Hub, no GPU, no model weights.
@@ -33,6 +33,12 @@ import torch.nn.functional as F
 # A slider-level floor in that gap is one teacher for the whole LoRA.
 # Per-row 0.50 splits energy (mixed teacher) and is not the default.
 SLIDER_ALIGN_MIN = 0.50
+
+# Soft hold along ê fights the full-odd teacher. λ=1 leaves energy leak
+# ~0.69 (odd·û ≈ 0.58 leftover). λ=8 is the first value that lands leak
+# ≤ 0.20 on that cell; +/− same-dir stays ~0 (live-good band ≲ 6%).
+LEAK_HOLD_WEIGHT = 8.0
+SAME_DIR_MAX = 0.06
 
 
 def sd_noise_target(
@@ -388,6 +394,49 @@ def lm_ortho_hold(
         return delta - (delta @ unit) * unit
 
     return 0.5 * (_ortho(pred_plus).pow(2).mean() + _ortho(pred_minus).pow(2).mean())
+
+
+def lm_axis_hold(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor,
+) -> torch.Tensor:
+    """Mean-squared residual *along* a declared leak axis ``ê``.
+
+    Penalize ``(h(±1) − h0) · ê``. Teacher stays the full pair-odd; this
+    term is what should eat unused mix / BPM / genre inside ``a``. Short
+    ``slider_positive`` is not this axis — do not hold ``û_⊥``.
+    """
+    unit = lm_unit(leak_dir)
+
+    def _along(pred: torch.Tensor) -> torch.Tensor:
+        delta = (pred - neu).flatten()
+        return (delta @ unit).pow(2)
+
+    return 0.5 * (_along(pred_plus) + _along(pred_minus))
+
+
+def leftover_bipolar(d_plus: torch.Tensor, d_minus: torch.Tensor) -> dict[str, float]:
+    """+/− leftover: ``leak_frac = cos(d+, d−)``, ``same_dir`` = even / (even+odd).
+
+    Live Hub / pair-symmetric sits around leak_frac ≈ −0.94 and same-dir 2–4%.
+    This is a bipolar check, not the unused-attr leak we optimize.
+    """
+    even = 0.5 * (d_plus + d_minus)
+    odd = 0.5 * (d_plus - d_minus)
+    even_n = float(even.norm())
+    odd_n = float(odd.norm())
+    return {
+        "leak_frac": float(
+            F.cosine_similarity(
+                d_plus.flatten().unsqueeze(0), d_minus.flatten().unsqueeze(0)
+            ).squeeze()
+        ),
+        "same_dir": even_n / (even_n + odd_n + 1e-8),
+        "even_norm": even_n,
+        "odd_norm": odd_n,
+    }
 
 
 def lm_slider_loss(

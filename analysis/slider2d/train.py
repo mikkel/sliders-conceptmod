@@ -7,13 +7,16 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn.functional as F
 
-from analysis.slider2d.field import E_SLIDER, Field2D, Prompt, PROMPTS, cosine, project
+from analysis.slider2d.field import E_ATTR, E_SLIDER, Field2D, Prompt, PROMPTS, cosine, project
 from conceptmod.textsliders.slider_targets import (
+    LEAK_HOLD_WEIGHT,
     encoder_mse_loss,
     expand_attributes_music3,
     expand_attributes_sd,
+    leftover_bipolar,
     lm_anchor_kappa,
     lm_anchor_targets,
+    lm_axis_hold,
     lm_hidden_targets,
     lm_ortho_hold,
     lm_project_odd_axis,
@@ -265,6 +268,7 @@ def train_lm(
     project_odd: bool = False,
     hold_weight: float = 0.0,
     slider_dir: torch.Tensor | None = None,
+    leak_dir: torch.Tensor | None = None,
     project_align_min: float | None = None,
     project_align_scope: str = "row",
     steps: int = 250,
@@ -285,7 +289,7 @@ def train_lm(
         neg = field.embed(pair.negative, t)
         neu = field.embed(pair.neutral, t)
         declared = slider_dir if slider_dir is not None else (
-            pair_slider_dir(pair) if (project_odd or hold_w > 0.0) else None
+            pair_slider_dir(pair) if (project_odd or (hold_w > 0.0 and leak_dir is None)) else None
         )
         align = float(lm_odd_align(pos, neg, declared)) if declared is not None else 0.0
         packed.append((pos, neg, neu, declared, pair))
@@ -319,9 +323,13 @@ def train_lm(
                 )
                 anchor_plus, anchor_minus = lm_anchor_targets(pos, neg, neu, kappa)
             hold = None
-            used_hold = hold_w if do_hold else 0.0
-            if used_hold > 0.0:
-                hold = lm_ortho_hold(pred_plus, pred_minus, neu, declared)
+            if leak_dir is not None and hold_w > 0.0:
+                used_hold = hold_w
+                hold = lm_axis_hold(pred_plus, pred_minus, neu, leak_dir)
+            else:
+                used_hold = hold_w if do_hold else 0.0
+                if used_hold > 0.0:
+                    hold = lm_ortho_hold(pred_plus, pred_minus, neu, declared)
             total = total + lm_slider_loss(
                 pred_plus,
                 pred_minus,
@@ -386,6 +394,7 @@ def score_residual(residual: Residual, action: str = "enhance") -> dict:
         "norm_minus": minus["norm"],
         "action": action,
         "want_sign": want,
+        **leftover_bipolar(d_plus, d_minus),
     }
 
 
@@ -518,6 +527,21 @@ def lm_v9_specs() -> list[MethodSpec]:
                 "symmetric": True,
                 "target_mode": "symmetric",
                 "with_attrs": False,
+                "project_odd": False,
+                "hold_weight": LEAK_HOLD_WEIGHT,
+                "leak_dir": E_ATTR,
+                "anchor_weight": 0.0,
+            },
+        ),
+        MethodSpec(
+            "lm_v9_project",
+            "lm",
+            "track_and_disentangle",
+            builder="lm",
+            kwargs={
+                "symmetric": True,
+                "target_mode": "symmetric",
+                "with_attrs": False,
                 "project_odd": True,
                 "hold_weight": 1.0,
                 "anchor_weight": 0.0,
@@ -531,6 +555,7 @@ def lm_v9_specs() -> list[MethodSpec]:
         extra_by_name["lm_symmetric_floor"],
         extra_by_name["lm_v9_hub"],
         extra_by_name["lm_v9"],
+        extra_by_name["lm_v9_project"],
         by_name["lm_raw_attrs"],
         by_name["m3_nmse_axis"],
     ]
@@ -566,6 +591,7 @@ def run_method(spec: MethodSpec, field: Field2D, *, steps: int = 250, seed: int 
             project_odd=spec.kwargs.get("project_odd", False),
             hold_weight=spec.kwargs.get("hold_weight", 0.0),
             slider_dir=spec.kwargs.get("slider_dir"),
+            leak_dir=spec.kwargs.get("leak_dir"),
             project_align_min=spec.kwargs.get("project_align_min"),
             project_align_scope=spec.kwargs.get("project_align_scope", "row"),
             steps=steps,

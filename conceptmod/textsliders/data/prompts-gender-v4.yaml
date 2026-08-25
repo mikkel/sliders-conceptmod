@@ -13,7 +13,9 @@
 plus_label: Female
 minus_label: Male
 recommended_range: [-2.0, 2.0]
-# Declared slider axis for --lm_target v9 (not plus_label, not a row's pos-neg).
+# Declared slider axis (name / probe). Default --lm_target v9 does not
+# project onto this pair. The structured poles are already the singer;
+# no leak axis — hold is 0. Do not set leak_positive to these shorts.
 slider_positive: "A woman is singing, her voice is feminine."
 slider_negative: "A man is singing, his voice is masculine."
 rows:

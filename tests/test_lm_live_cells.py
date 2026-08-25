@@ -1,4 +1,4 @@
-"""Live gender-like + energy-like 2-D cells, and the slider-level v9 default.
+"""Live gender-like + energy-like 2-D cells, and the hold-ê v9 default.
 
 Energy is not the old leak-0 cell. û must not be the pole names.
 """
@@ -29,6 +29,8 @@ from analysis.slider2d.mismatch import (
 )
 from analysis.slider2d.train import music3_pairs, pair_slider_dir
 from conceptmod.textsliders.slider_targets import (
+    LEAK_HOLD_WEIGHT,
+    SAME_DIR_MAX,
     SLIDER_ALIGN_MIN,
     lm_mean_odd_align,
     lm_odd_align,
@@ -182,6 +184,33 @@ def test_slider_level_passes_both_cells_same_path():
     assert energy["cos_intended"] > hub["cos_intended"]
 
 
+def test_hold_e_passes_both_cells_and_is_the_default():
+    table = live_table()
+    gender = next(r for r in table["gender"] if r["name"] == "hold_e")
+    energy = next(r for r in table["energy"] if r["name"] == "hold_e")
+    assert gender["pass"] is True
+    assert energy["pass"] is True
+    assert gender["mixed"] is False
+    assert energy["mixed"] is False
+    assert gender["decisions"] == [False]
+    assert energy["decisions"] == [False, False, False, False]
+    assert abs(energy["leak_ratio"]) <= 0.20
+    assert energy["cos_intended"] > 0.90
+    assert energy["strength_on_u"] >= 0.50
+    assert gender["cos_concept"] > 0.90
+    assert gender["strength"] > 0.80
+    assert gender["norm_plus"] == pytest.approx(gender["norm_odd"], abs=0.05)
+    assert energy.get("same_dir", 0.0) <= SAME_DIR_MAX
+    assert gender.get("same_dir", 0.0) <= SAME_DIR_MAX
+    hub = next(r for r in table["energy"] if r["name"] == "hub")
+    project = next(r for r in table["energy"] if r["name"] == "always_project_hold")
+    assert abs(energy["leak_ratio"]) < abs(hub["leak_ratio"])
+    assert energy["cos_intended"] > hub["cos_intended"]
+    # Project looks leak-0; NEW must not be that path (teacher stays odd).
+    assert project["decisions"] == [True, True, True, True]
+    assert energy["decisions"] != project["decisions"]
+
+
 def test_old_leak0_cell_always_project_still_clean():
     r = score_leak_policy("always_project_hold", project_odd=True, hold_weight=1.0)
     assert r["pass"] is True
@@ -208,7 +237,7 @@ def test_mean_odd_align_is_slider_level():
     assert mean == pytest.approx(0.58, abs=1e-6)
 
 
-def test_bare_trainer_is_slider_level_v9():
+def test_bare_trainer_is_hold_e_v9():
     args = parse_args(["--prompts_file", "prompts.yaml"])
     assert args.lm_target == "v9"
     assert resolve_lm_recipe(lm_target=args.lm_target, symmetric=True) == "v9"
@@ -217,20 +246,35 @@ def test_bare_trainer_is_slider_level_v9():
         project_align_min=args.project_align_min,
         project_align_scope=args.project_align_scope,
     )
-    assert floor == pytest.approx(SLIDER_ALIGN_MIN)
-    assert scope == "slider"
-    hold, anchor = resolve_lm_loss_weights("v9", hold_weight=None, anchor_weight=None)
-    assert hold == 1.0
+    assert floor is None
+    hold, anchor = resolve_lm_loss_weights(
+        "v9", hold_weight=None, anchor_weight=None, leak_declared=False
+    )
+    assert hold == 0.0
     assert anchor == 0.0
+    hold_e, _ = resolve_lm_loss_weights(
+        "v9", hold_weight=None, anchor_weight=None, leak_declared=True
+    )
+    assert hold_e == pytest.approx(LEAK_HOLD_WEIGHT)
     always_floor, always_scope = resolve_v9_gate(
         recipe="v9_always", project_align_min=0.50, project_align_scope="row"
     )
     assert always_floor is None
     assert resolve_lm_recipe(lm_target="v9_always", symmetric=True) == "v9_always"
+    assert resolve_lm_recipe(lm_target="v9_project", symmetric=True) == "v9_project"
+    project_floor, project_scope = resolve_v9_gate(
+        recipe="v9_project",
+        project_align_min=None,
+        project_align_scope=None,
+    )
+    assert project_floor == pytest.approx(SLIDER_ALIGN_MIN)
+    assert project_scope == "slider"
     row = parse_args(
         [
             "--prompts_file",
             "prompts.yaml",
+            "--lm_target",
+            "v9_project",
             "--project_align_scope",
             "row",
             "--project_align_min",
@@ -238,13 +282,14 @@ def test_bare_trainer_is_slider_level_v9():
         ]
     )
     r_floor, r_scope = resolve_v9_gate(
-        recipe="v9",
+        recipe="v9_project",
         project_align_min=row.project_align_min,
         project_align_scope=row.project_align_scope,
     )
     assert r_scope == "row"
     assert r_floor == pytest.approx(0.50)
     _ = always_scope
+    _ = scope
 
 
 def test_soft_per_row_blend_is_not_the_default():
