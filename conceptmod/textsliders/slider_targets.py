@@ -10,7 +10,7 @@ Formulas are copied from:
 - Hub v9 LM recipe (sidecar ``target_mode`` / ``leakage_floor`` / ``anchor_*``)
   plus the leak fix: project the odd teacher onto a declared slider
   direction and hold the orthogonal residual (``project_odd`` / ``hold_weight``).
-  This tree's GPU trainer still only has ``--symmetric``.
+  The live trainer defaults to this path (``--lm_target v9``).
 - Encoder MSE in ``train_encoder_music3.py``
 
 No Hub, no GPU, no model weights.
@@ -142,8 +142,8 @@ def resolve_lm_target_mode(
 ) -> str:
     """``faithful`` (v6 raw poles) or ``symmetric`` (v4/v9 polarity).
 
-    Sidecar name is ``target_mode``. The live trainer in this tree still
-    exposes the older ``--symmetric`` Boolean; either form is accepted.
+    Sidecar name is ``target_mode``. The live trainer still exposes
+    ``--symmetric`` as the polarity step inside ``--lm_target v9``.
     """
     if target_mode is None:
         return "symmetric" if symmetric else "faithful"

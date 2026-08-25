@@ -12,10 +12,9 @@ teacher onto the declared slider direction**, then holds the
 orthogonal residual. κ = 0 — no even blend-back. Ungated captions
 only; `--attributes` is not used.
 
-The live `train_lm_slider_music3.py` in this tree still only has
-`--symmetric` / `--common_beta`. The stand-in lives in
-`slider_targets.py`. Endreg / planreg / semantic-KL poles are
-AR-only and are not on this field.
+The live `train_lm_slider_music3.py` defaults to this recipe
+(`--lm_target v9`) and calls the same functions. Endreg / planreg /
+semantic-KL poles are AR-only and are not on this field.
 
 ## Verdict
 
