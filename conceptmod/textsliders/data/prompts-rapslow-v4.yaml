@@ -15,6 +15,13 @@
 plus_label: Rap
 minus_label: Slow
 recommended_range: [-2.0, 2.0]
+# Name / probe. pair_odd_sub_e needs û so it can subtract ê_⊥, not raw ê.
+slider_positive: "Fast rhythmic spoken rap."
+slider_negative: "Slow sung ballad, long held notes."
+# Leftover unused packed in one pair: genre + mix. Delivery / rap /
+# sung / slow is the slider — do not put it in ê.
+leak_positive: "Genre: hip-hop. Punchy dry mix."
+leak_negative: "Genre: ballad. Soft warm mix."
 rows:
   - target: "Global Metadata:\nGenre: pop. BPM 100. Medium energy, even mood, ordinary listening. Plain studio mix.\nVocal Details:\nOne vocalist, mid-tempo delivery that is partly sung, partly spoken. No backing vocals.\nArrangement:\nVerse and chorus with drums, bass and keys."
     positive: "Global Metadata:\nGenre: hip-hop rap. BPM 100. Confident and driving, head-nod swagger. Punchy dry mix, drums up front.\nVocal Details:\nOne vocalist rapping fast rhythmic spoken bars with a confident syncopated flow, dense wordy verses, quick internal rhymes. Spoken, not sung.\nArrangement:\nIntro: a two-bar drum break. Verse: punchy drums, tight hi-hats and deep 808 bass under nonstop bars. Chorus: the same beat with a chanted spoken hook."

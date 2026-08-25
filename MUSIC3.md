@@ -81,9 +81,11 @@ grid.
 `train_lm_slider_music3.py` now defaults to **`lm_v9`**: `--symmetric`
 polarity, full pair-odd `a = ½(h+−h−)`, `t± = h0 ± a`, κ = 0, and a
 hold along a declared leak axis ê (`leak_positive` / `leak_negative`):
-penalize `(h(±1)−h0) · ê`. Short `slider_positive` is a name / probe,
-not the teacher. If no ê is declared (clean pair, or `attributes`
-already pin the unused axis), hold is 0. See
+penalize `(h(±1)−h0) · ê`. Gender stays here (no ê, hold 0). Leaky
+axes use `--lm_target pair_odd_sub_e`: teacher is pair-odd minus
+`ê_⊥ = ê−(ê·û)û`. Short `slider_positive` is a name / probe, not the
+teacher. If no ê is declared (clean pair, or `attributes` already pin
+the unused axis), hold is 0. See
 [docs/lm-live-cells.md](docs/lm-live-cells.md).
 
 **Gender vs energy.** The energetic×gender fixture set û from the pole
@@ -833,18 +835,24 @@ $PY conceptmod/textsliders/train_lora_music3.py \
   --save_dir /ml2/music/sliders-conceptmod/models/energy-slider-v2
 ```
 
-Language-model slider (gender). `--lm_target v9` and `--endreg_weight 1.0`
-default on. Declare the slider axis — do not let energy project onto a
-row's `(pos−neg)`. Stop the studio first (bf16 LM is ~16 GB):
+Language-model slider. `--lm_target v9` (pair-odd, hold 0 when no ê)
+and `--endreg_weight 1.0` default on. Gender stays there: omit leak_*,
+do not invent junk ê, do not project onto short û. Leaky axes use
+`--lm_target pair_odd_sub_e` (pair-odd minus leftover `ê_⊥`). Stop
+the studio first (bf16 LM is ~16 GB):
 
 ```bash
 $PY conceptmod/textsliders/train_lm_slider_music3.py \
-  --name gender-lm-v9 \
+  --name gender-lm-v14 \
   --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml \
-  --slider_positive "A woman is singing, her voice is feminine." \
-  --slider_negative "A man is singing, his voice is masculine." \
-  --save_dir /ml2/music/sliders-conceptmod/models/gender-lm-v9 \
-  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --device 0
+  --save_dir /ml2/music/sliders-conceptmod/models/gender-lm-v14 \
+  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 --no-early_stop --device 0
+$PY conceptmod/textsliders/train_lm_slider_music3.py \
+  --name energy-lm-v14 \
+  --lm_target pair_odd_sub_e \
+  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \
+  --save_dir /ml2/music/sliders-conceptmod/models/energy-lm-v14 \
+  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 --no-early_stop --device 0
 ```
 
 Or run the sequential helper (skips existing last.safetensors and valid wavs).

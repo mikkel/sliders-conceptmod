@@ -10,9 +10,10 @@ polarity, ``a = ½(h+−h−)``, ``t± = h0 ± a``, κ = 0. Short
 ``a`` with ``(a·û)û``. If YAML/CLI declares a leak pair
 (``leak_positive`` / ``leak_negative``), penalize ``(h(±1)−h0) · ê``.
 If no ê is declared (clean pair, or ``attributes`` already pin the
-unused axis), hold is 0. That is the recipe that is right on both live
-CPU cells: gender-like (no ê, keep the singer) and energy-like (ê =
-unused mix/BPM/genre, leak-low, same teacher on every row).
+unused axis), hold is 0. Gender stays on this default: omit leak_*,
+hold 0. Leaky axes use ``--lm_target pair_odd_sub_e``: teacher is
+pair-odd minus ``ê_⊥ = ê−(ê·û)û`` (the λ→∞ hold limit, no stiffness).
+ê must be leftover unused (genre + BPM / mix), not a slider synonym.
 
 Old short-û project+hold is ``--lm_target v9_project`` (slider-level
 gate) or ``--lm_target v9_always``. Published Hub floor is
@@ -67,15 +68,17 @@ from conceptmod.textsliders.slider_targets import (
     lm_hidden_targets,
     lm_odd_align,
     lm_ortho_hold,
+    lm_pair_odd_sub_e,
     lm_project_decisions,
     lm_project_odd_axis,
     lm_slider_loss,
 )
 
 DEFAULT_MODEL = Path("/ml2/music/models/MiniMax-Music3")
-LM_RECIPES = ("v9", "v9_project", "v9_always", "hub", "symmetric", "faithful")
+LM_RECIPES = ("v9", "pair_odd_sub_e", "v9_project", "v9_always", "hub", "symmetric", "faithful")
 PROJECT_RECIPES = frozenset({"v9_project", "v9_always"})
 V9_RECIPES = frozenset({"v9", "v9_project", "v9_always"})
+SUB_E_RECIPES = frozenset({"pair_odd_sub_e"})
 TARGET_REPLACE = ["Qwen3Attention"]
 
 # Row fields this trainer actually consumes (`attributes` is expanded away by
@@ -91,13 +94,15 @@ _USED_ROW_KEYS = frozenset({"target", "positive", "negative", "neutral", "lyrics
 def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     """Live trainer recipe. Default ``v9`` is full pair-odd + hold-on-ê.
 
-    ``--symmetric`` is the polarity step inside ``v9`` / ``v9_project`` /
-    ``v9_always`` / ``hub`` / ``symmetric``. It is not a second loss.
+    ``--symmetric`` is the polarity step inside ``v9`` / ``pair_odd_sub_e`` /
+    ``v9_project`` / ``v9_always`` / ``hub`` / ``symmetric``. It is not a
+    second loss. ``pair_odd_sub_e`` is the leaky-axis teacher (pair-odd
+    minus ê_⊥); gender stays ``v9``.
     """
     recipe = str(lm_target).strip().lower()
     if recipe not in LM_RECIPES:
         raise ValueError(f"lm_target must be one of {LM_RECIPES}, got {lm_target!r}")
-    if recipe in V9_RECIPES and not symmetric:
+    if recipe in V9_RECIPES | SUB_E_RECIPES and not symmetric:
         raise ValueError(
             "lm_target=v9 keeps --symmetric as the polarity step; "
             "use --lm_target faithful --no-symmetric for raw poles"
@@ -188,6 +193,8 @@ def resolve_lm_loss_weights(
         hold = 1.0
     else:
         hold = 0.0
+    if recipe in SUB_E_RECIPES:
+        hold = 0.0
     anchor = 0.3 if recipe == "hub" else 0.0
     if hold_weight is not None:
         hold = float(hold_weight)
@@ -203,6 +210,7 @@ def lm_train_targets(
     *,
     recipe: str,
     slider_dir: torch.Tensor | None = None,
+    leak_dir: torch.Tensor | None = None,
     symmetric: bool = True,
     target_scale: float = 1.0,
     common_beta: float = 0.0,
@@ -227,6 +235,18 @@ def lm_train_targets(
     if recipe == "v9":
         plus, minus = lm_hidden_targets(
             pos, neg, neu, target_mode="symmetric", target_scale=target_scale
+        )
+        return plus, minus, None, None
+    if recipe == "pair_odd_sub_e":
+        if leak_dir is None:
+            raise ValueError("lm_target=pair_odd_sub_e requires a declared leak_dir")
+        if slider_dir is None:
+            raise ValueError(
+                "lm_target=pair_odd_sub_e requires a declared slider_dir "
+                "(ê_⊥ = ê−(ê·û)û; do not subtract raw ê)"
+            )
+        plus, minus = lm_pair_odd_sub_e(
+            pos, neg, neu, leak_dir, slider_dir=slider_dir, target_scale=target_scale
         )
         return plus, minus, None, None
     if recipe in PROJECT_RECIPES:
@@ -540,6 +560,21 @@ def train(args: argparse.Namespace) -> Path:
             "slider_negative. Do not silently use a row's (pos-neg) — that is "
             "the unused-attribute leak."
         )
+    if recipe == "pair_odd_sub_e":
+        if leak_captions is None:
+            raise ValueError(
+                "lm_target=pair_odd_sub_e needs a declared leftover leak axis: "
+                "--leak_positive / --leak_negative, or YAML leak_positive / "
+                "leak_negative (or leak: [pos, neg]). ê is leftover unused, "
+                "not a slider synonym."
+            )
+        if axis_captions is None:
+            raise ValueError(
+                "lm_target=pair_odd_sub_e needs a declared slider axis so it "
+                "can subtract ê_⊥ = ê−(ê·û)û, not raw ê: "
+                "--slider_positive / --slider_negative, or YAML slider_positive "
+                "/ slider_negative."
+            )
     if recipe == "v9" and hold_w > 0.0 and leak_captions is None and axis_captions is None:
         raise ValueError(
             "hold_weight>0 on --lm_target v9 needs a declared leak axis: "
@@ -547,8 +582,8 @@ def train(args: argparse.Namespace) -> Path:
             "leak_negative (or leak: [pos, neg]). Do not hold û_⊥ — that "
             "eats a clean pair."
         )
-    if recipe in V9_RECIPES and float(args.common_beta) != 0.0:
-        print("note: lm_target=v9 is κ=0 (no even blend-back); ignoring --common_beta")
+    if recipe in V9_RECIPES | SUB_E_RECIPES and float(args.common_beta) != 0.0:
+        print("note: lm_target=v9 / pair_odd_sub_e is κ=0 (no even blend-back); ignoring --common_beta")
     align_min, align_scope = resolve_v9_gate(
         recipe=recipe,
         project_align_min=getattr(args, "project_align_min", None),
@@ -593,10 +628,14 @@ def train(args: argparse.Namespace) -> Path:
             leak_pos_h = _encode_static(lm, *_tokenize(tokenizer, leak_pos_text, device))
             leak_neg_h = _encode_static(lm, *_tokenize(tokenizer, leak_neg_text, device))
         leak_dir = leak_pos_h - leak_neg_h
+        if recipe == "pair_odd_sub_e":
+            hold_note = "teacher=pair_odd − ê_⊥, ê_⊥=ê−(ê·û)û; hold 0"
+        else:
+            hold_note = "hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd"
         print(
             f"declared leak axis ê: {leak_captions[0]!r} / {leak_captions[1]!r} "
             f"||ê||={leak_dir.norm().item():.3f} "
-            f"(hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd)"
+            f"({hold_note})"
         )
     elif recipe == "v9":
         print("note: no leak axis declared — v9 hold is off (teacher is full pair-odd)")
@@ -649,6 +688,11 @@ def train(args: argparse.Namespace) -> Path:
                 f"v9: teacher=full pair-odd, hold_ê={hold_w if leak_dir is not None else 0.0} "
                 f"(κ=0, no project onto short û)"
             )
+        elif recipe == "pair_odd_sub_e":
+            print(
+                "pair_odd_sub_e: teacher=pair-odd − ê_⊥, hold_ê=0 "
+                "(λ→∞ hold limit; no project onto short û)"
+            )
 
     row_data = []
     for encoded, should_project in zip(encoded_rows, decisions):
@@ -662,13 +706,19 @@ def train(args: argparse.Namespace) -> Path:
         dropped = ""
         row_slider_dir = slider_dir
         row_leak_dir = leak_dir
-        row_hold = hold_w if (recipe != "v9" or leak_dir is not None) else 0.0
+        row_hold = hold_w if (recipe not in {"v9", "pair_odd_sub_e"} or leak_dir is not None) else 0.0
+        if recipe == "pair_odd_sub_e":
+            row_hold = 0.0
         if recipe == "v9":
             dropped = " teacher=odd"
             if row_leak_dir is not None:
                 dropped += f" hold_ê={row_hold}"
             else:
                 dropped += " hold_ê=0"
+            if encoded["align"] is not None:
+                dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
+        elif recipe == "pair_odd_sub_e":
+            dropped = " teacher=pair_odd_sub_e hold_ê=0"
             if encoded["align"] is not None:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
         elif encoded["align"] is not None:
@@ -695,6 +745,7 @@ def train(args: argparse.Namespace) -> Path:
             neu_ref,
             recipe=recipe,
             slider_dir=slider_dir,
+            leak_dir=leak_dir,
             symmetric=args.symmetric,
             target_scale=float(args.target_scale),
             common_beta=beta,
@@ -1003,8 +1054,10 @@ def parse_args(argv=None):
         choices=LM_RECIPES,
         help="live target recipe (default v9 = full pair-odd + hold-on-ê). v9: "
         "--symmetric polarity, t± = h0 ± a, κ=0; hold (h(±1)−h0)·ê_⊥û when "
-        "leak_positive/leak_negative is declared. Short slider_positive is "
-        "not the teacher. v9_project: old slider-level |odd·û| gate. "
+        "leak_positive/leak_negative is declared. Gender stays here "
+        "(no ê, hold 0). pair_odd_sub_e: leaky-axis teacher = pair-odd "
+        "minus ê_⊥ (λ→∞ hold, hold 0). Short slider_positive is not the "
+        "teacher. v9_project: old slider-level |odd·û| gate. "
         "v9_always: old always-project. hub: published leakage_floor "
         "blend-back (still leaks). symmetric / faithful: old poles",
     )
@@ -1044,8 +1097,9 @@ def parse_args(argv=None):
         type=float,
         default=None,
         help="v9: weight on ((h(±1)−h0)·ê)² (default 8 when ê is declared, else 0). "
+        "pair_odd_sub_e: default 0 (ê_⊥ is already out of the teacher). "
         "v9_project / v9_always: weight on ||(h(±1)−h0)_⊥û||² (default 1.0). "
-        "λ=1 is too weak when ê fights the full-odd teacher",
+        "Do not scale λ by D; prefer pair_odd_sub_e on leftover ê",
     )
     p.add_argument(
         "--project_align_min",

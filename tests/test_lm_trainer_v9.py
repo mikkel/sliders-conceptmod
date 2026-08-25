@@ -22,8 +22,10 @@ from conceptmod.textsliders.slider_targets import (
     lm_hidden_targets,
     lm_hold_dir,
     lm_ortho_hold,
+    lm_pair_odd_sub_e,
     lm_project_odd_axis,
     lm_slider_loss,
+    lm_unit,
 )
 from conceptmod.textsliders.train_lm_slider_music3 import (
     lm_train_loss,
@@ -72,6 +74,14 @@ def test_bare_parse_defaults_to_v9_and_symmetric():
     assert p_scope == "slider"
     always = parse_args(["--prompts_file", "prompts.yaml", "--lm_target", "v9_always"])
     assert always.lm_target == "v9_always"
+    sub = parse_args(["--prompts_file", "prompts.yaml", "--lm_target", "pair_odd_sub_e"])
+    assert sub.lm_target == "pair_odd_sub_e"
+    assert resolve_lm_recipe(lm_target="pair_odd_sub_e", symmetric=True) == "pair_odd_sub_e"
+    sub_hold, sub_anchor = resolve_lm_loss_weights(
+        "pair_odd_sub_e", hold_weight=None, anchor_weight=None, leak_declared=True
+    )
+    assert sub_hold == 0.0
+    assert sub_anchor == 0.0
     always_floor, _ = resolve_v9_gate(
         recipe="v9_always", project_align_min=0.50, project_align_scope="row"
     )
@@ -85,6 +95,8 @@ def test_v9_requires_symmetric_polarity():
         resolve_lm_recipe(lm_target="v9_always", symmetric=False)
     with pytest.raises(ValueError, match="polarity step"):
         resolve_lm_recipe(lm_target="v9_project", symmetric=False)
+    with pytest.raises(ValueError, match="polarity step"):
+        resolve_lm_recipe(lm_target="pair_odd_sub_e", symmetric=False)
 
 
 def test_axis_is_declared_not_plus_minus_or_row_odd():
@@ -284,8 +296,10 @@ def test_documented_prompt_files_declare_the_axis():
     assert energy["slider_negative"].lower().startswith("extremely quiet")
     assert not gender.get("leak_positive")
     assert not gender.get("leak_negative")
-    assert "mix" in energy["leak_positive"].lower() or "bpm" in energy["leak_positive"].lower()
-    assert "mix" in energy["leak_negative"].lower() or "bpm" in energy["leak_negative"].lower()
+    leftover = f"{energy['leak_positive']} {energy['leak_negative']}".lower()
+    assert "bpm" in leftover and "mix" in leftover
+    for banned in ("slammed", "sparse", "loud", "quiet", "dense", "airy"):
+        assert banned not in leftover
     assert energy["leak_positive"] != energy["slider_positive"]
     # Display labels are not the axis.
     assert gender["slider_positive"] != gender["plus_label"]
@@ -346,3 +360,85 @@ def test_v9_targets_do_not_require_slider_dir():
         lm_train_loss(
             neu, neu, neu, neu, neu=neu, slider_dir=None, leak_dir=None, hold_weight=1.0
         )
+
+
+def test_pair_odd_sub_e_drops_e_perp_not_raw_e():
+    pos, neg, neu = _ungated_pair()
+    leftover = torch.tensor([0.4, 0.9])
+    plus, minus, anc_p, anc_m = lm_train_targets(
+        pos, neg, neu, recipe="pair_odd_sub_e", slider_dir=E_SLIDER, leak_dir=leftover
+    )
+    expected_plus, expected_minus = lm_pair_odd_sub_e(
+        pos, neg, neu, leftover, slider_dir=E_SLIDER
+    )
+    assert torch.allclose(plus, expected_plus)
+    assert torch.allclose(minus, expected_minus)
+    assert anc_p is None and anc_m is None
+    held = lm_hold_dir(leftover, slider_dir=E_SLIDER, mode="slider")
+    assert held is not None
+    odd = plus - neu
+    assert abs(float(odd @ lm_unit(held))) < 1e-6
+    pair_odd = lm_hidden_targets(pos, neg, neu, target_mode="symmetric")
+    assert not torch.allclose(plus, pair_odd[0])
+    raw_unit = lm_unit(leftover)
+    raw_axis = (pos - neg) / 2.0
+    raw_odd = raw_axis - (raw_axis @ raw_unit) * raw_unit
+    assert not torch.allclose(odd, raw_odd)
+
+
+def test_pair_odd_sub_e_needs_leak_and_slider():
+    pos, neg, neu = _ungated_pair()
+    leftover = torch.tensor([0.0, 1.0])
+    with pytest.raises(ValueError, match="declared leak_dir"):
+        lm_train_targets(pos, neg, neu, recipe="pair_odd_sub_e", slider_dir=E_SLIDER)
+    with pytest.raises(ValueError, match="declared slider_dir"):
+        lm_train_targets(pos, neg, neu, recipe="pair_odd_sub_e", leak_dir=leftover)
+
+
+def test_pair_odd_sub_e_matches_highd_teacher():
+    from analysis.slider2d.highd import energy_field, leftover_only_e, teacher_poles
+
+    field = energy_field()
+    axis = leftover_only_e(field)
+    pos, neg, neu = field.poles()
+    expected_plus, expected_minus = teacher_poles(
+        field, teacher="pair_odd_sub_e", leak_dir=axis
+    )
+    plus, minus, _, _ = lm_train_targets(
+        pos, neg, neu, recipe="pair_odd_sub_e", slider_dir=field.short_u(), leak_dir=axis
+    )
+    assert torch.allclose(plus, expected_plus, atol=1e-6)
+    assert torch.allclose(minus, expected_minus, atol=1e-6)
+    pair_odd_plus, _ = teacher_poles(field, teacher="pair_odd")
+    assert not torch.allclose(plus, pair_odd_plus)
+    raw_plus, _ = teacher_poles(field, teacher="pair_odd_sub_raw_e", leak_dir=axis)
+    assert not torch.allclose(plus, raw_plus)
+
+
+def test_leaky_v4_yamls_declare_leftover_not_slider():
+    root = Path(__file__).resolve().parents[1] / "conceptmod" / "textsliders" / "data"
+    leaky = {
+        "prompts-energy-v4.yaml": ("slammed", "sparse", "loud", "quiet", "dense", "airy"),
+        "prompts-tempo-v4.yaml": ("fast", "slow", "frantic", "bpm"),
+        "prompts-distortion-v4.yaml": ("distort", "overdrive", "fuzz", "acoustic", "unplugged"),
+        "prompts-rapslow-v4.yaml": ("rap", "sung", "spoken", "slow"),
+        "prompts-breath-v4.yaml": ("inhale", "breath", "airless", "mouth air"),
+        "prompts-rhyme-v4.yaml": ("rhyme", "couplet", "verse", "aabb"),
+        "prompts-triphop-v4.yaml": ("trip-hop", "dusty", "glossy", "vinyl", "radio"),
+    }
+    for name, banned in leaky.items():
+        blob = yaml.safe_load((root / name).read_text())
+        assert blob.get("slider_positive") and blob.get("slider_negative")
+        leak = resolve_leak_axis_captions(
+            leak_positive=None, leak_negative=None, prompts_meta=blob
+        )
+        assert leak is not None
+        leftover = f"{leak[0]} {leak[1]}".lower()
+        slider = f"{blob['slider_positive']} {blob['slider_negative']}".lower()
+        assert leftover != slider
+        for word in banned:
+            assert word not in leftover, f"{name} leftover contains {word!r}"
+    live = yaml.safe_load((root / "prompts-live-v4.yaml").read_text())
+    assert not live.get("leak_positive")
+    gender = yaml.safe_load((root / "prompts-gender-v4.yaml").read_text())
+    assert not gender.get("leak_positive")
