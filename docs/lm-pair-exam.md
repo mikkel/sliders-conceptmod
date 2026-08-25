@@ -215,8 +215,7 @@ pair diverges, and drops below the
 0.78. `faithful` + KL keeps the full
 swing across the whole sweep. The falsifiable claim is the ordering
 and the direction, not the number: the number is a property of this
-readout. The boolean pass column is shown but not used as the flip
-point, because near a gate it flips on and off with the sampling.
+readout.
 
 ![divergence](lm-pair-exam/divergence.png)
 

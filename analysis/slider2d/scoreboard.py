@@ -1,18 +1,26 @@
-"""Compile every scored 2-D / high-D / sheet recipe into one gated table.
+"""Compile every scored 2-D / high-D / sheet / pair-exam recipe into one table.
 
-Each existing cell answers a different question: leftover leak, short-û
-strength, richness, high-D stiffness, lyric sheet. None of them is the
-whole score. This module does not invent a loss. It reuses the live
-``score_*`` runners, copies their real numbers, and applies one compiled
-gate:
+Each cell in this repo answers a different question: leftover leak,
+short-û strength, richness, high-D stiffness, the lyric sheet, and now the
+pole pair itself. None of them is the whole score. This module does not
+invent a loss. It reuses the live ``score_*`` runners, copies their real
+numbers, and joins them.
 
-    leftover leak is small
-    AND (when a sheet readout exists) the student stays on-sheet
-        with the caption's concept swing intact
+A recipe is not one row of one table. It is a **recipe × pair** grid, and
+the three live runs of 2026-08-25 are what forced that:
+``--lm_target faithful --pole_mode semantic_kl`` is the live energy win
+(``energy-lm-v18``) and the live gender garble (``gender-lm-v16``) — the
+same recipe, a different pair. So a recipe WORKS here only if every pair it
+has a reading on passes, and ``works-on-some-pairs`` names which.
 
-Pair-odd cosine and ±1 collapse are copied into the table as log
-columns. They are not inputs to the gate. That is the #22 result:
-``cos(d+, a) = 1`` is the recipe that garbles most.
+Never scored, on any cell:
+
+- pair-odd cosine and ±1 collapse. That is the #22 result — ``cos(d+, a) =
+  1`` is the recipe that garbles most.
+- the pole loss and ``p%`` / ``n%``. That is the 2026-08-25 result — of the
+  three live runs, the one with the smallest loss (0.0091), the best
+  ``c+`` (0.854) and the lowest ``p%`` (0.523) is one of the two that
+  garbled.
 
 CPU only. No Hub, no GPU, no Music 3 weights. Does not change the live
 trainer default.
@@ -22,6 +30,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from analysis.slider2d.exam import (
+    EXAM_COHERENCE,
+    EXAM_LEAK_LOCK,
+    EXAM_MATCH_KEPT,
+    EXAM_ROLL_OFF_MAX,
+    EXAM_ROLL_OVERLAP,
+    EXAM_ROLL_SWING,
+    LIVE_EXAM,
+    LIVE_ROW,
+    exam_table,
+    live_exam_rows,
+)
 from analysis.slider2d.faithful import score_leak_lm
 from analysis.slider2d.highd import (
     energy_field,
@@ -61,9 +81,43 @@ COMPILED_CONCEPT_COS = 0.90
 COMPILED_STRENGTH_FLOOR = 0.50
 
 WORKS = "works"
-WORKS_GENDER_ONLY = "works-on-gender-only"
+WORKS_SOME = "works-on-some-pairs"
 FAILS = "fails"
-VERDICT_ORDER = {WORKS: 0, WORKS_GENDER_ONLY: 1, FAILS: 2}
+UNSCORED = "unscored"
+VERDICT_ORDER = {WORKS: 0, WORKS_SOME: 1, FAILS: 2, UNSCORED: 3}
+
+# The cells a recipe can be read on, in the order the table shows them.
+# The three ``exam_*`` cells are the pair-exam cell; the two ``sheet_*``
+# cells are #22's single-token readout.
+CELL_ORDER = (
+    "exam_divergent",
+    "exam_close",
+    "exam_unused_e",
+    "sheet_leftover",
+    "sheet_gender",
+)
+CELL_LABEL = {
+    "exam_divergent": "divergent pair (energy-v4)",
+    "exam_close": "close pair (gender-v4)",
+    "exam_unused_e": "unpinned attribute in `a` (#22's energy-like cell)",
+    "sheet_leftover": "#22 sheet, unused-ê field",
+    "sheet_gender": "#22 sheet, clean-pair field",
+}
+# Board recipe -> the exam recipe of the same name, per cell. Recipes with
+# no entry get no exam reading rather than a guessed one.
+EXAM_ALIAS = {
+    # ``lm_hidden_targets(symmetric, β=1)`` is exactly ``(pos, neg)``.
+    "hidden_beta1": "faithful_raw",
+    # The data fix is ``faithful`` + hidden MSE with the unused attribute
+    # pinned in the captions, so it inherits ``faithful_raw``'s pairs and
+    # drops the leak the sheet cell charges ``faithful_raw`` for.
+    "faithful_attrs": "faithful_raw",
+    # v9 on a clean pair with hold 0: the shipped gender recipe.
+    "gender_like_no_e": "pair_odd_midpoint",
+}
+EXAM_ONLY_CELLS = {
+    "gender_like_no_e": ("exam_close",),
+}
 
 # Sheet recipe names on the leftover (energy-like) cell.
 SHEET_LEFTOVER = {
@@ -205,32 +259,65 @@ def cell_works(
 
 def compiled_verdict(
     *,
-    leftover_works: bool | None,
-    gender_works: bool | None,
+    cells: dict[str, bool | None],
     pair_odd_cos: float | None = None,
+    loss: float | None = None,
+    pperc: float | None = None,
 ) -> str:
-    """Join the leftover cell and the gender-like cell.
+    """Join every cell a recipe has a reading on.
 
-    ``pair_odd_cos`` is accepted and ignored so a caller cannot
-    accidentally feed the logged lock into the compiled score.
+    WORKS means every readable cell passes. ``works-on-some-pairs`` means
+    at least one passes and at least one does not — which is the honest
+    verdict for ``semantic_kl_poles``, live's energy win and gender garble
+    at once.
+
+    ``pair_odd_cos``, ``loss`` and ``pperc`` are accepted and ignored so a
+    caller cannot accidentally feed a Goodhart column into the score.
     """
-    del pair_odd_cos
-    if leftover_works is True:
+    del pair_odd_cos, loss, pperc
+    readings = [v for v in cells.values() if v is not None]
+    if not readings:
+        return UNSCORED
+    if all(readings):
         return WORKS
-    if gender_works is True:
-        return WORKS_GENDER_ONLY
+    if any(readings):
+        return WORKS_SOME
     return FAILS
 
 
+def failing_cells(cells: dict[str, bool | None]) -> list[str]:
+    return [name for name in CELL_ORDER if cells.get(name) is False]
+
+
+def passing_cells(cells: dict[str, bool | None]) -> list[str]:
+    return [name for name in CELL_ORDER if cells.get(name) is True]
+
+
 def sort_rows(rows: list[dict]) -> list[dict]:
-    """Works first, then gender-only, then fails; then leak, then on-sheet."""
+    """Verdict, then how many cells fail, then leak, then on-sheet."""
 
     def key(row: dict) -> tuple:
+        cells = row.get("cells", {})
         leak = row.get("leftover_leak")
         sheet = row.get("on_sheet")
         leak_key = float(leak) if _finite(leak) else 1e9
         sheet_key = -float(sheet) if _finite(sheet) else 1e9
-        return (VERDICT_ORDER[row["compiled"]], leak_key, sheet_key, row["id"])
+        exam_failed = len([c for c in failing_cells(cells) if c.startswith("exam_")])
+        exam_passed = -len([c for c in passing_cells(cells) if c.startswith("exam_")])
+        overlaps = [v for v in (row.get("exam_overlap") or {}).values() if v is not None]
+        worst = -min(overlaps) if overlaps else 0.0
+        read = -len([v for v in cells.values() if v is not None])
+        return (
+            VERDICT_ORDER[row["compiled"]],
+            exam_failed,
+            exam_passed,
+            worst,
+            read,
+            len(failing_cells(cells)),
+            leak_key,
+            sheet_key,
+            row["id"],
+        )
 
     return sorted(rows, key=key)
 
@@ -245,10 +332,48 @@ def _pick(row: dict | None, key: str, default: Any = None) -> Any:
     return row.get(key, default)
 
 
+def exam_cells_for(recipe_id: str, exam: dict[str, list[dict]] | None) -> dict:
+    """Look this recipe up in each pair-exam cell, or ``None`` if absent."""
+    out: dict[str, bool | None] = {
+        "exam_divergent": None,
+        "exam_close": None,
+        "exam_unused_e": None,
+    }
+    rows: dict[str, dict] = {}
+    if not exam:
+        return {"cells": out, "rows": rows}
+    name = EXAM_ALIAS.get(recipe_id, recipe_id)
+    allowed = EXAM_ONLY_CELLS.get(recipe_id)
+    for cell, key in (
+        ("divergent", "exam_divergent"),
+        ("close", "exam_close"),
+        ("unused_e", "exam_unused_e"),
+    ):
+        if allowed is not None and key not in allowed:
+            continue
+        found = next((r for r in exam.get(cell, []) if r["name"] == name), None)
+        if found is None:
+            continue
+        out[key] = bool(found["pass"])
+        rows[key] = found
+    return {"cells": out, "rows": rows}
+
+
+def predicts_for(recipe_id: str) -> dict[str, str]:
+    """Which live run each (recipe, cell) is the exam for."""
+    name = EXAM_ALIAS.get(recipe_id, recipe_id)
+    return {
+        f"exam_{cell}": run
+        for run, (recipe, cell) in LIVE_ROW.items()
+        if recipe == name and recipe_id == name
+    }
+
+
 def _row(
     recipe_id: str,
     label: str,
     *,
+    exam: dict[str, list[dict]] | None = None,
     leftover: dict | None = None,
     gender: dict | None = None,
     leftover_leak: float | None = None,
@@ -340,10 +465,16 @@ def _row(
     if not gender and leftover:
         gender_pass = False if leftover_pass is False else gender_pass
 
+    found = exam_cells_for(recipe_id, exam)
+    cells: dict[str, bool | None] = dict(found["cells"])
+    cells["sheet_leftover"] = leftover_pass
+    cells["sheet_gender"] = gender_pass if gender else None
+    exam_rows = found["rows"]
     verdict = compiled_verdict(
-        leftover_works=leftover_pass,
-        gender_works=gender_pass,
+        cells=cells,
         pair_odd_cos=pair_odd_cos,
+        loss=loss,
+        pperc=_pick(exam_rows.get("exam_divergent"), "pperc"),
     )
     c_plus_distinct = (
         trainer_c_plus
@@ -363,6 +494,25 @@ def _row(
         "id": recipe_id,
         "label": label,
         "compiled": verdict,
+        "cells": cells,
+        "cells_failed": failing_cells(cells),
+        "cells_passed": passing_cells(cells),
+        "predicts": predicts_for(recipe_id),
+        "exam_reason": {
+            key: row["reason"] for key, row in exam_rows.items() if row.get("reason")
+        },
+        "exam_near_gate": {
+            key: row["near_gate"] for key, row in exam_rows.items() if row.get("near_gate")
+        },
+        "exam_overlap": {
+            key: row["roll_overlap"] for key, row in exam_rows.items()
+        },
+        "exam_swing": {key: row["roll_swing_kept"] for key, row in exam_rows.items()},
+        "exam_flags": {
+            key: "KL-small / hidden-far"
+            for key, row in exam_rows.items()
+            if row.get("kl_small_hidden_far")
+        },
         "leftover_works": leftover_pass,
         "gender_works": gender_pass,
         "leftover_leak": leftover_leak,
@@ -387,25 +537,27 @@ def _row(
         "pole_cos": pole_cos,
         "fixture": fixture,
         "notes": notes,
-        "gates": {
-            "leak_lock": COMPILED_LEAK_LOCK,
-            "sheet_lock": COMPILED_SHEET_LOCK,
-            "garble_max": COMPILED_GARBLE_MAX,
-            "argmax_lock": COMPILED_ARGMAX_LOCK,
-            "swing_floor": COMPILED_SWING_FLOOR,
-        },
+        "gates": gates_blob(),
     }
 
 
-def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: int = 0) -> list[dict]:
+def collect_scoreboard(
+    *,
+    sheet_steps: int = 400,
+    other_steps: int = 200,
+    exam_steps: int = 400,
+    seed: int = 0,
+) -> list[dict]:
     """Run the existing fixtures and join them into one table.
 
     Sheet recipes use the sheet cell (the only fixture that can see
     on-sheet mass). Hidden-geometry recipes keep their native leftover
     leak and inherit the sheet row of the same teacher when one exists,
     because the sheet is a property of the *target point*, not of the
-    hidden width.
+    hidden width. On top of that, every recipe the pair-exam cell can
+    express gets a reading on each of its three pairs.
     """
+    exam = exam_table(steps=exam_steps, seed=seed)
     gender_sheet = _sheet_map(gender_cell(steps=sheet_steps, seed=seed))
     leftover_sheet = _sheet_map(leaky_cell(steps=sheet_steps, seed=seed))
     leftover_sheet["v9_hold_e_l1"] = score_sheet(
@@ -535,6 +687,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "faithful_raw",
             "faithful / v6 raw poles",
+            exam=exam,
             leftover=sheet_left("v6_faithful"),
             gender=sheet_gen("v6_faithful"),
             leftover_leak=sheet_left("v6_faithful").get("leak_tok"),
@@ -544,6 +697,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "faithful_attrs",
             "faithful + attributes / pin unused",
+            exam=exam,
             leftover={
                 **sheet_gen("v6_faithful"),
                 "leak_tok": float(faithful_attrs["leak_ratio"]),
@@ -561,6 +715,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "pair_odd_midpoint",
             "pair-odd / v9 hidden midpoint",
+            exam=exam,
             leftover=sheet_left("v9_hidden"),
             gender=sheet_gen("v9_hidden"),
             leftover_leak=sheet_left("v9_hidden").get("leak_tok"),
@@ -570,6 +725,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "hidden_beta1",
             "pair-odd β=1 / symmetric --common_beta 1",
+            exam=exam,
             leftover={
                 **sheet_left("v6_faithful"),
                 "leak_tok": sheet_left("v6_faithful").get("leak_tok"),
@@ -582,6 +738,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "hub",
             "hub (published floor + anchor)",
+            exam=exam,
             leftover={
                 **sheet_left("v9_hidden"),
                 "leak_tok": float(live_energy["hub"]["leak_ratio"]),
@@ -605,6 +762,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "hold_e_raw_l1",
             "hold-ê raw λ=1",
+            exam=exam,
             leftover={
                 **sheet_left("v9_hidden"),
                 "leak_tok": float(hold_raw_l1["leak_ratio"]),
@@ -623,6 +781,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "hold_e_raw_l8",
             "hold-ê raw λ=8 (leftover ê)",
+            exam=exam,
             leftover={
                 **sheet_left("v9_hold_e"),
                 "leak_tok": float(hold_raw_l8["leak_ratio"]),
@@ -640,6 +799,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "hold_e_perp_l1",
             "hold-ê ê_⊥û λ=1",
+            exam=exam,
             leftover={
                 **sheet_left("v9_hold_e_l1"),
                 "leak_tok": float(hold_perp_l1["leak_ratio"]),
@@ -656,6 +816,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "hold_e_perp_l8",
             "hold-ê ê_⊥û λ=8 (live v9)",
+            exam=exam,
             leftover=sheet_left("v9_hold_e"),
             gender=sheet_gen("v9_hidden"),
             leftover_leak=sheet_left("v9_hold_e").get("leak_tok"),
@@ -669,6 +830,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "hold_e_raw_synonym_l8",
             "hold-ê raw λ=8 (synonym ê)",
+            exam=exam,
             leftover={
                 **sheet_left("v9_hidden"),
                 "leak_tok": float(hold_raw_syn_l8["leak_ratio"]),
@@ -685,6 +847,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "pair_odd_sub_e",
             "pair_odd_sub_e (#20, midpoint − ê_⊥)",
+            exam=exam,
             leftover=sheet_left("v15_pair_odd_sub_e"),
             gender=sheet_gen("v9_hidden"),
             leftover_leak=sheet_left("v15_pair_odd_sub_e").get("leak_tok"),
@@ -698,6 +861,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "faithful_sub_e",
             "faithful_sub_e (ê-cleaned real poles, hidden MSE)",
+            exam=exam,
             leftover=sheet_left("faithful_sub_e"),
             leftover_leak=sheet_left("faithful_sub_e").get("leak_tok"),
             fixture="sheet leftover",
@@ -706,6 +870,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "semantic_kl_midpoint",
             "semantic_kl onto midpoint",
+            exam=exam,
             leftover=sheet_left("kl_on_midpoint"),
             gender=sheet_gen("kl_on_midpoint"),
             leftover_leak=sheet_left("kl_on_midpoint").get("leak_tok"),
@@ -715,6 +880,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "semantic_kl_poles",
             "semantic_kl onto real poles",
+            exam=exam,
             leftover=sheet_left("v16_semantic_kl"),
             gender=sheet_gen("v16_semantic_kl"),
             leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
@@ -724,6 +890,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "semantic_kl_sub_e",
             "semantic_kl onto ê-cleaned poles",
+            exam=exam,
             leftover=sheet_left("v16_semantic_kl_sub_e"),
             leftover_leak=sheet_left("v16_semantic_kl_sub_e").get("leak_tok"),
             fixture="sheet leftover",
@@ -732,6 +899,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "project_short_u",
             "project short û",
+            exam=exam,
             leftover={
                 **sheet_left("v9_hidden"),
                 "leak_ratio": float(project_short["leak_ratio"]),
@@ -757,6 +925,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "project_rich_u",
             "project rich û (oracle intended span)",
+            exam=exam,
             leftover={
                 **sheet_left("v9_hidden"),
                 "leak_ratio": float(project_rich["leak_ratio"]),
@@ -774,6 +943,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "gender_like_no_e",
             "gender-like (no ê, hold 0)",
+            exam=exam,
             leftover=None,
             gender={
                 **sheet_gen("v9_hidden"),
@@ -799,6 +969,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "leftover_hold_l1",
             "energy-like leftover hold-ê λ=1 (high-D)",
+            exam=exam,
             leftover={
                 **sheet_left("v9_hold_e_l1"),
                 "leftover_leak": float(highd_l1["leftover_leak"]),
@@ -820,6 +991,7 @@ def collect_scoreboard(*, sheet_steps: int = 400, other_steps: int = 200, seed: 
         _row(
             "leftover_hold_l8",
             "energy-like leftover hold-ê λ=8 (high-D)",
+            exam=exam,
             leftover={
                 **sheet_left("v9_hold_e"),
                 "leftover_leak": float(highd_l8["leftover_leak"]),
@@ -852,17 +1024,35 @@ def gates_blob() -> dict:
         "concept_cos": COMPILED_CONCEPT_COS,
         "strength_floor": COMPILED_STRENGTH_FLOOR,
         "rich_kept_min": RICH_KEPT_MIN,
+        "exam_overlap": EXAM_ROLL_OVERLAP,
+        "exam_match_kept": EXAM_MATCH_KEPT,
+        "exam_off_caption": EXAM_ROLL_OFF_MAX,
+        "exam_coherence": EXAM_COHERENCE,
+        "exam_swing": EXAM_ROLL_SWING,
+        "exam_leak_lock": EXAM_LEAK_LOCK,
         "pair_odd_cos_scored": False,
         "collapse_scored": False,
+        "pole_loss_scored": False,
+        "perc_scored": False,
         "prose": (
-            "A method WORKS only if leftover leak is small "
-            f"(≤ {COMPILED_LEAK_LOCK}) AND, when a sheet readout exists, "
-            f"on-sheet kept ≥ {COMPILED_SHEET_LOCK}, off-sheet mass ≤ "
-            f"{COMPILED_GARBLE_MAX}, argmax-on-sheet = {COMPILED_ARGMAX_LOCK:g}, "
-            f"and concept swing kept ≥ {COMPILED_SWING_FLOOR}. "
-            "High pair-odd cos and ±1 collapse are logged, never scored. "
-            "works-on-gender-only means the gender-like cell (no leftover ê) "
-            "passes that same gate and the leftover cell does not."
+            "A recipe WORKS only if **every pair it has a reading on** passes. "
+            "On a pair-exam cell that means the student's own continuation stays "
+            f"on the pole caption's words (overlap ≥ {EXAM_ROLL_OVERLAP}, "
+            f"position-wise agreement ≥ {EXAM_MATCH_KEPT} of the pole's own "
+            f"self-agreement), sings nothing off-caption (≤ {EXAM_ROLL_OFF_MAX}), "
+            f"never alternates between the two songs (≥ {EXAM_COHERENCE}), keeps "
+            f"the pole pair's audible swing (≥ {EXAM_ROLL_SWING}). Unused-attribute "
+            f"leak is scored on the #22 sheet cells (≤ {EXAM_LEAK_LOCK}), which read "
+            "one token and can see an attribute tilt the pair-exam rollout averages "
+            "away. On a #22 sheet cell it means leftover leak ≤ "
+            f"{COMPILED_LEAK_LOCK}, on-sheet kept ≥ {COMPILED_SHEET_LOCK}, "
+            f"off-sheet mass ≤ {COMPILED_GARBLE_MAX}, argmax-on-sheet = "
+            f"{COMPILED_ARGMAX_LOCK:g} and concept swing kept ≥ "
+            f"{COMPILED_SWING_FLOOR}. Pair-odd cos, ±1 collapse, the pole loss "
+            "and p%/n% are logged and never scored. works-on-some-pairs means "
+            "the recipe passes on at least one pair and fails on another — the "
+            "verdict the 2026-08-25 live exam forces, because the same recipe is "
+            "the energy win and the gender garble."
         ),
     }
 
@@ -885,11 +1075,29 @@ def compile_sheet_row(leftover: dict, gender: dict | None = None) -> dict:
     )
 
 
+def live_exam_report(*, exam_steps: int = 400, seed: int = 0) -> list[dict]:
+    """The three 2026-08-25 runs against the fixture row that predicts each.
+
+    This is the exam the board is graded on. Every row names the live run,
+    the pair it was trained on, what the cell predicts, and what the ears
+    actually said.
+    """
+    rows = live_exam_rows(exam_table(steps=exam_steps, seed=seed))
+    order = list(LIVE_EXAM)
+    return sorted(rows, key=lambda r: order.index(r["run"]))
+
+
 def floatable_row(row: dict) -> dict:
     out = {}
     for key, value in row.items():
-        if key == "gates":
+        if key in ("gates", "cells", "predicts", "exam_reason", "exam_flags"):
             out[key] = value
+            continue
+        if key in ("cells_failed", "cells_passed"):
+            out[key] = list(value)
+            continue
+        if key in ("exam_near_gate", "exam_overlap", "exam_swing"):
+            out[key] = {k: (list(v) if isinstance(v, list) else v) for k, v in value.items()}
             continue
         if isinstance(value, (int, float, str, bool)) or value is None:
             out[key] = value

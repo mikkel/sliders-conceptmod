@@ -135,6 +135,32 @@ midpoint stays ½(h++h−)). **Neither is the default** — default remains
 `--no-early_stop` stays the train-card choice — those gates are the
 pair-odd lock; do not retune them to KL.
 
+**Neither is the pole loss either, and neither is `p%`.** Those v16
+cards ran on 2026-08-25 and the listens split three ways:
+`energy-lm-v18` (`faithful` + `semantic_kl`, energy-v4) sounds good;
+`energy-lm-v16` (`faithful_sub_e` + `semantic_kl`, same yaml) is random
+words; `gender-lm-v16` (`faithful` + `semantic_kl`, gender-v4) is
+garbled lyrics — and `gender-lm-v16` printed the *smallest* pole loss
+(0.0091), the *best* `c+` (0.854) and the *lowest* `p%` (0.523) of the
+three. Two of the three are the same recipe on different prompt files,
+so what separates them is the **pair**:
+
+- energy-v4's poles are two different tracks, so its declared
+  `leak_positive: "Pop-punk mix, BPM 168."` restates most of `a` rather
+  than a leftover, and `faithful_sub_e` (`mid ± â`) lands both ends on
+  a midpoint of two songs. Do not `sub_e` a divergent pair.
+- gender-v4's poles are one song with one attribute moved, so almost
+  all of `a` is vocal delivery — content the *semantic band* barely
+  reads at `<|audio_start|>`. A semantic-KL loss has zero gradient
+  there, reaches its floor anyway, and the hidden never arrives. Prefer
+  `--pole_mode hidden` on close pairs.
+
+See [docs/lm-pair-exam.md](docs/lm-pair-exam.md) for the CPU cell that
+reproduces all three listens and
+[docs/lm-2d-scoreboard.md](docs/lm-2d-scoreboard.md) for the compiled
+board and the next card (`gender-lm-v19`: `--lm_target faithful
+--pole_mode hidden`).
+
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
 Published Hub floor is `--lm_target hub` and still leaks — not the default.

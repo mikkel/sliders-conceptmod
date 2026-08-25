@@ -29,6 +29,7 @@ from analysis.slider2d.exam import (
     EXAM_ROLL_SWING,
     LIVE_EXAM,
     LIVE_PAIR_COS,
+    LIVE_ROW,
     divergence_sweep,
     exam_table,
     first_above,
@@ -58,22 +59,46 @@ def _verdict(row: dict) -> str:
 
 
 def plot_pairs(table: dict[str, list[dict]], path: Path) -> None:
+    """Only the failures and the live-exam rows get a label.
+
+    Everything that passes lands in one corner, so naming all of it
+    reduces the panel to a smudge.
+    """
     fig, ax = plt.subplots(figsize=(8.2, 5.0))
     marks = {"divergent": "o", "close": "s", "unused_e": "^"}
+    named = {recipe for recipe, _cell in LIVE_ROW.values()}
     for cell, rows in table.items():
-        xs = [r["roll_overlap"] for r in rows]
+        xs = [r["roll_match_kept"] for r in rows]
         ys = [r["roll_swing_kept"] for r in rows]
         colors = ["#1e8449" if r["pass"] else "#c0392b" for r in rows]
-        ax.scatter(xs, ys, c=colors, marker=marks[cell], s=54, zorder=3, label=cell)
+        ax.scatter(
+            xs,
+            ys,
+            c=colors,
+            marker=marks[cell],
+            s=58,
+            zorder=3,
+            edgecolors="white",
+            linewidths=0.6,
+        )
+        ax.scatter([], [], c="#7f8c8d", marker=marks[cell], s=58, label=cell)
         for row, x, y in zip(rows, xs, ys):
-            ax.annotate(row["name"], (x, y), fontsize=6.2, xytext=(4, 3), textcoords="offset points")
-    ax.axvline(EXAM_ROLL_OVERLAP, color="#7f8c8d", ls=":", lw=0.9)
+            if row["pass"] and row["name"] not in named:
+                continue
+            ax.annotate(
+                row["name"],
+                (x, y),
+                fontsize=6.6,
+                xytext=(5, 4),
+                textcoords="offset points",
+            )
+    ax.axvline(EXAM_MATCH_KEPT, color="#7f8c8d", ls=":", lw=0.9)
     ax.axhline(EXAM_ROLL_SWING, color="#7f8c8d", ls=":", lw=0.9)
-    ax.set_xlabel("continuation overlap with the pole's own words")
+    ax.set_xlabel("same words as the pole, over the pole's own cross-draw agreement")
     ax.set_ylabel("audible swing kept over the rollout")
-    ax.set_title("green passes every gate; shape is the pair")
+    ax.set_title("green passes every gate, red fails one; shape is the pair")
     ax.grid(alpha=0.25)
-    ax.legend(fontsize=8, title="pair")
+    ax.legend(fontsize=8, title="pair", loc="lower right")
     fig.tight_layout()
     fig.savefig(path, dpi=140)
     plt.close(fig)
@@ -99,6 +124,13 @@ def plot_divergence(sweep: list[dict], path: Path) -> None:
         label="share of the visible axis ê eats",
     )
     ax.axhline(EXAM_ROLL_SWING, color="#7f8c8d", ls=":", lw=0.9)
+    ax.axvline(
+        CELLS["divergent"]().divergence(),
+        color="#2c3e50",
+        ls="-.",
+        lw=0.9,
+        label="energy-v4 sits here",
+    )
     ax.set_xlabel("divergence — share of ‖a‖ that is one track versus the other")
     ax.set_ylabel("swing kept  /  axis eaten")
     ax.set_title("subtracting a genre/BPM ê costs nothing at 0 and the slider at 0.78")
@@ -116,6 +148,13 @@ def plot_visible(sweep: list[dict], path: Path) -> None:
     ax.plot(xs, [r["mse_swing"] for r in sweep], "s-", color="#1e8449", label="hidden MSE, swing kept")
     ax.plot(xs, [r["kl_loss"] for r in sweep], "^--", color="#7f8c8d", label="KL loss at the end")
     ax.axhline(EXAM_ROLL_SWING, color="#7f8c8d", ls=":", lw=0.9)
+    ax.axvline(
+        CELLS["close"]().visible_share(),
+        color="#2c3e50",
+        ls="-.",
+        lw=0.9,
+        label="gender-v4 sits here",
+    )
     ax.set_xlabel("visible share of ‖a‖ — how much of the axis the scored token reads")
     ax.set_ylabel("swing kept  /  loss")
     ax.set_title("the KL loss is ~0 across the whole sweep; the slider is not")

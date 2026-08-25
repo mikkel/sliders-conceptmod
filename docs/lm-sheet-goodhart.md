@@ -318,6 +318,14 @@ as much as the caption and the midpoint do here.
 
 - [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — one compiled table of
   every scored 2-D / high-D / sheet recipe, with this cell's gate.
+- [lm-pair-exam.md](lm-pair-exam.md) — the two properties of a *pair*
+  this cell has no coordinate for, scored over a rollout. It is where
+  the 2026-08-25 live runs are graded, and it says which of this cell's
+  two fields is the right stand-in for which yaml: the unused-ê field
+  here is a same-song pair with an unpinned attribute, and energy-v4 is
+  not that. Leak is still scored here, on the one token; that cell's
+  rollout averages an attribute tilt away and reproduces these
+  `leak_tok` numbers from its own readout as a cross-check.
 - [lm-v9-2d.md](lm-v9-2d.md) — the pair-odd teacher and hold-ê on the
   orthonormal 2-D field, where a perfect lock is the success metric.
 - [lm-faithful-2d.md](lm-faithful-2d.md) — why raw-pole MSE (v6) was
