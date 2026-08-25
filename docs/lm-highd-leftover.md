@@ -217,6 +217,10 @@ Now a cell:
 - λ·D/2 as the stiffness that acts, and λ's irrelevance at live width.
 - leftover-only ê × λ ∈ {0.3, 1, 8} against `pair_odd_sub_e`.
 
+The lyric-garble / off-sheet next-token sheet is a different
+cell: [lm-lyric-garble.md](lm-lyric-garble.md). High pair-odd cos
+is not lock-healthy there.
+
 Still not a cell:
 
 - **the ±1 break as a consequence of ê / λ / D.** It is not one. It

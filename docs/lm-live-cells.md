@@ -112,5 +112,8 @@ Unused-ê is the wrong ê for live energy-v4 leak captions (they
 Both cells here are orthonormal 2-D, so λ=8 is a stiffness of 8 and
 the short û *is* the concept. At live width λ=8 is `4·D`, the concept
 sits partly off û, and trainer c+ has a ceiling below gender's 0.97:
-[lm-highd-leftover.md](lm-highd-leftover.md).
+[lm-highd-leftover.md](lm-highd-leftover.md). Pair-odd cos ~0.96 is
+also not lock-healthy: hidden MSE onto the synthetic midpoint can
+sing off the caption sheet. That cell is
+[lm-lyric-garble.md](lm-lyric-garble.md).
 
