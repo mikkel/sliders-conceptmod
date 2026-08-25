@@ -234,7 +234,8 @@ Still not a cell:
   place no caption occupies. That needs a next-token readout:
   [lm-sheet-goodhart.md](lm-sheet-goodhart.md), which borrows this
   cell's `bend` to reproduce the gender-lm-v4 log and then reads the
-  policy at the same fit.
+  policy at the same fit. The compiled join of leftover leak + sheet
+  is [lm-2d-scoreboard.md](lm-2d-scoreboard.md).
 
 ## How to run
 
