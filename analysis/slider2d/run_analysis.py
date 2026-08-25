@@ -221,10 +221,13 @@ def write_report(results: list[MethodResult], blob: dict, path: Path) -> None:
         "See [tf-leak.md](tf-leak.md) for whether that gender leak is a Music 3 TF",
         "trainer bug (it is not) or caption BPM sitting inside `pos − neg` (it is).",
         "See [lm-v9-2d.md](lm-v9-2d.md) for the LM recipe on this same field:",
-        "published Hub v9 (`leakage_floor` + anchor) still leaks; the default",
-        "`lm_v9` projects the odd teacher onto the declared slider direction",
-        "(κ=0 + orthogonal hold) and is right on slider, leak, and collapse",
-        "without `--attributes`.",
+        "published Hub v9 (`leakage_floor` + anchor) still leaks; short-û",
+        "project is leak-0 here because û *is* the pole names. That hid both",
+        "live failures. Gender-like and energy-like cells are",
+        "[lm-live-cells.md](lm-live-cells.md). Default `--lm_target v9` is now",
+        "full pair-odd + hold-on-ê, not short-û project.",
+        "See [lm-faithful-2d.md](lm-faithful-2d.md) for whether v6 faithful",
+        "(raw-pole MSE) can be fixed on this field while remaining faithful.",
         "",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

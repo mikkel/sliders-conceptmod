@@ -47,7 +47,8 @@ collapse **right** — same leak as `--symmetric`.
 - `lm_raw` / v6 `target_mode: faithful`: poles are raw `pos`/`neg`.
   ±1 cos=0.253 (even-mode collapse).
   Leak 1.692 — both poles sit above quiet `song`
-  *and* `energetic` already leaks male.
+  *and* `energetic` already leaks male. Hold-ê on this teacher is
+  [lm-faithful-2d.md](lm-faithful-2d.md); it is not the default.
 - `lm_symmetric` / v4 polarity: `tgt(±1) = neu ± (pos−neg)/2`.
   Collapse **right** (-1.000). Leak
   0.342 remains — it lives in the odd teacher.
