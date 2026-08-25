@@ -82,6 +82,8 @@ live failures. Gender-like and energy-like cells are
 full pair-odd + hold-on-ê, not short-û project.
 See [lm-faithful-2d.md](lm-faithful-2d.md) for whether v6 faithful
 (raw-pole MSE) can be fixed on this field while remaining faithful.
+See [lm-rich-2d.md](lm-rich-2d.md) for whether structured poles can
+keep slider-detail without unused mix / BPM / gender riding along.
 See [lm-hold-overlap.md](lm-hold-overlap.md) for hold-ê when ê is
 not unused gender (live energy leak captions that *are* energy).
 

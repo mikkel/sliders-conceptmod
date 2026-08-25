@@ -111,6 +111,7 @@ is 0. Old `(a·û)û` project is `--lm_target v9_project`.
   (v6 had those; v9 turns planreg and collapse off).
 - Real Music 3 hidden geometry, Hub weights, v7 prompt yamls.
 - Caption-BPM leak (that is a TF pair fact; see tf-leak.md).
+- Richer structured poles vs unused junk: [lm-rich-2d.md](lm-rich-2d.md).
 
 ## How to run
 

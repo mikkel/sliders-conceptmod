@@ -1,7 +1,9 @@
 # Can faithful / v6 be fixed on the 2-D field?
 
 Same energetic×gender geometry as [2d-analysis.md](2d-analysis.md)
-and [lm-v9-2d.md](lm-v9-2d.md). Teacher for `faithful` is the raw
+and [lm-v9-2d.md](lm-v9-2d.md). Richer structured poles (slider
+synonyms vs unused junk) are [lm-rich-2d.md](lm-rich-2d.md).
+Teacher for `faithful` is the raw
 poles: MSE to `h+` / `h−` (`--lm_target faithful` / v6). This scores
 every honest knob that keeps that teacher, then the non-faithful
 comparables. CPU only. No Hub, no GPU, no Music 3 weights.
@@ -107,7 +109,8 @@ so the poles no longer contain ê.
 
 ```bash
 PYTHONPATH=. python analysis/slider2d/run_lm_faithful.py --out docs/lm-faithful-2d
-PYTHONPATH=. pytest tests/test_lm_faithful_2d.py tests/test_lm_v9_2d.py -q
+PYTHONPATH=. python analysis/slider2d/run_lm_rich.py --out docs/lm-rich-2d
+PYTHONPATH=. pytest tests/test_lm_faithful_2d.py tests/test_lm_v9_2d.py tests/test_lm_rich_2d.py -q
 ```
 
 CPU only. No Hub, no GPU, no Music 3 weights.

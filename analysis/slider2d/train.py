@@ -59,11 +59,12 @@ class Residual:
         return params
 
     @classmethod
-    def create(cls, kind: str) -> "Residual":
+    def create(cls, kind: str, dim: int = 2) -> "Residual":
         if kind not in ("odd", "odd_even"):
             raise ValueError(kind)
-        w_odd = torch.zeros(2, requires_grad=True)
-        w_even = torch.zeros(2, requires_grad=True) if kind == "odd_even" else None
+        size = int(dim)
+        w_odd = torch.zeros(size, requires_grad=True)
+        w_even = torch.zeros(size, requires_grad=True) if kind == "odd_even" else None
         return cls(kind, w_odd, w_even)
 
     def snapshot(self) -> "Residual":
@@ -166,7 +167,7 @@ def train_sd(
     ``prompt_util``. Geometry here matches XL / SD3 / Flux / Cascade, and the
     SD1 *intent* (uncond as the opposite pole).
     """
-    residual = Residual.create("odd")
+    residual = Residual.create("odd", dim=infer_dim(field, pairs))
     xs = field.train_points()
     ts = field.timesteps()
 
@@ -215,7 +216,7 @@ def train_music3(
     seed: int = 0,
     mag_weight: float = 0.25,
 ) -> Residual:
-    residual = Residual.create("odd")
+    residual = Residual.create("odd", dim=infer_dim(field, pairs))
     xs = field.train_points()
     ts = field.timesteps()
 
@@ -249,6 +250,39 @@ def train_music3(
     return _optimize(residual, loss_fn, steps, lr, seed)
 
 
+def infer_dim(field, pairs: list[Pair] | None = None, t: float = 0.5) -> int:
+    """Hidden-space width of a field embed. Field2D is 2; rich cells may be 4."""
+    if pairs:
+        return int(field.embed(pairs[0].neutral, t).numel())
+    return int(field.embed("song", t).numel())
+
+
+def as_dirs(direction: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...] | None) -> list[torch.Tensor]:
+    if direction is None:
+        return []
+    if isinstance(direction, (list, tuple)):
+        return [d for d in direction if d is not None]
+    return [direction]
+
+
+def subtract_axis(h: torch.Tensor, h0: torch.Tensor, direction: torch.Tensor) -> torch.Tensor:
+    """``h − ((h−h0)·ê)ê``. Drops one unused axis, keeps every other component."""
+    unit = direction.flatten() / direction.flatten().norm().clamp_min(1e-8)
+    delta = (h - h0).flatten()
+    return (h.flatten() - (delta @ unit) * unit).view_as(h)
+
+
+def subtract_axes(
+    h: torch.Tensor,
+    h0: torch.Tensor,
+    directions: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...] | None,
+) -> torch.Tensor:
+    out = h
+    for direction in as_dirs(directions):
+        out = subtract_axis(out, h0, direction)
+    return out
+
+
 def pair_slider_dir(pair: Pair) -> torch.Tensor:
     """Declared energetic↔calm axis from caption polarity, not leaked embeds."""
     polarity = float(pair.positive.slider) - float(pair.negative.slider)
@@ -269,7 +303,8 @@ def train_lm(
     project_odd: bool = False,
     hold_weight: float = 0.0,
     slider_dir: torch.Tensor | None = None,
-    leak_dir: torch.Tensor | None = None,
+    leak_dir: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...] | None = None,
+    subtract_dir: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...] | None = None,
     project_align_min: float | None = None,
     project_align_scope: str = "row",
     steps: int = 250,
@@ -277,7 +312,7 @@ def train_lm(
     seed: int = 0,
     common_beta: float = 0.0,
 ) -> Residual:
-    residual = Residual.create("odd_even")
+    residual = Residual.create("odd_even", dim=infer_dim(field, pairs))
     t = 0.5
     mode = resolve_lm_target_mode(symmetric=symmetric, target_mode=target_mode)
     weight = float(anchor_weight)
@@ -289,6 +324,9 @@ def train_lm(
         pos = field.embed(pair.positive, t)
         neg = field.embed(pair.negative, t)
         neu = field.embed(pair.neutral, t)
+        if subtract_dir is not None:
+            pos = subtract_axes(pos, neu, subtract_dir)
+            neg = subtract_axes(neg, neu, subtract_dir)
         declared = slider_dir if slider_dir is not None else (
             pair_slider_dir(pair) if (project_odd or (hold_w > 0.0 and leak_dir is None)) else None
         )
@@ -325,16 +363,19 @@ def train_lm(
                 anchor_plus, anchor_minus = lm_anchor_targets(pos, neg, neu, kappa)
             hold = None
             if leak_dir is not None and hold_w > 0.0:
-                hold_axis = lm_hold_dir(
-                    leak_dir,
-                    slider_dir=slider_dir if slider_dir is not None else declared,
-                    mode="slider",
-                )
-                if hold_axis is not None:
+                hold = None
+                used_hold = 0.0
+                for axis in as_dirs(leak_dir):
+                    hold_axis = lm_hold_dir(
+                        axis,
+                        slider_dir=slider_dir if slider_dir is not None else declared,
+                        mode="slider",
+                    )
+                    if hold_axis is None:
+                        continue
+                    term = lm_axis_hold(pred_plus, pred_minus, neu, hold_axis)
+                    hold = term if hold is None else hold + term
                     used_hold = hold_w
-                    hold = lm_axis_hold(pred_plus, pred_minus, neu, hold_axis)
-                else:
-                    used_hold = 0.0
             else:
                 used_hold = hold_w if do_hold else 0.0
                 if used_hold > 0.0:
@@ -364,7 +405,7 @@ def train_encoder(
     lr: float = 0.08,
     seed: int = 0,
 ) -> Residual:
-    residual = Residual.create("odd_even")
+    residual = Residual.create("odd_even", dim=infer_dim(field, pairs))
     t = 0.5
 
     def loss_fn(res: Residual) -> torch.Tensor:
