@@ -18,6 +18,9 @@ Formulas are copied from:
   Short ``slider_positive`` is a name / probe, not the teacher — do
   not replace ``a`` with ``(a·û)û``. If no ``ê`` is declared (clean
   pair, or ``attributes`` already pin the unused axis), hold is 0.
+  ``--lm_target pair_odd_sub_e`` is the leaky-axis teacher: drop
+  ``ê_⊥`` out of pair-odd first (the λ→∞ hold limit, no stiffness).
+  Subtract ``ê_⊥``, not raw ê. Gender stays ``v9`` with no ê / hold 0.
   ``--lm_target v9_project`` is the old slider-level project+hold
   onto û; ``v9_always`` never gates.
 - Encoder MSE in ``train_encoder_music3.py``
@@ -358,6 +361,35 @@ def lm_teachers_mixed(decisions: Sequence[bool]) -> bool:
     """True when some rows project and others fall back (mixed teacher)."""
     kinds = {bool(d) for d in decisions}
     return len(kinds) > 1
+
+
+def lm_pair_odd_sub_e(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor,
+    target_scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Pair-odd teacher with the hold axis removed.
+
+        a = (pos − neg) / 2
+        ê_⊥ = ê − (ê·û)û          # same axis ``lm_axis_hold`` uses
+        â = a − (a · ê̂_⊥) ê̂_⊥
+        tgt(±1) = neu ± â · target_scale
+
+    This is the λ→∞ hold equilibrium in one step: no ``λ·D/2``
+    stiffness. Subtract ``ê_⊥``, not raw ê — raw ê takes û with it.
+    If ê is already parallel to û, ``ê_⊥`` vanishes and the teacher
+    stays full pair-odd (hold would have been off).
+    """
+    axis = (pos - neg) / 2.0 * float(target_scale)
+    held = lm_hold_dir(leak_dir, slider_dir=slider_dir, mode="slider")
+    if held is not None:
+        unit = lm_unit(held)
+        axis = axis - ((axis.flatten() @ unit) * unit).view_as(axis)
+    return neu + axis, neu - axis
 
 
 def lm_project_odd_axis(

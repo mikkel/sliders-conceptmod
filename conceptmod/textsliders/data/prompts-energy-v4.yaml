@@ -15,16 +15,16 @@ plus_label: Loud
 minus_label: Quiet
 recommended_range: [-2.0, 2.0]
 # Declared slider axis (name / probe). Default --lm_target v9 does not
-# project onto this pair — it is not the teacher.
+# project onto this pair — it is not the teacher. Leaky-axis v14 uses
+# --lm_target pair_odd_sub_e (pair-odd minus ê_⊥); keep these shorts.
 slider_positive: "Extremely high energy, aggressive and loud."
 slider_negative: "Extremely quiet and calm, almost silent."
-# Opposite-energy leftover (slammed/168/pop-punk vs airy/52/lullaby).
-# This ê overlaps the slider and the pair-odd — it is a pole synonym,
-# not unused gender. Hold uses ê_⊥ = ê − (ê·û)û so it cannot punch û.
-# Same-energy different-mix captions would already be unused-ê.
+# Leftover unused packed in one pair: genre + mix + BPM. No density /
+# loudness / delivery / gain (no slammed / sparse / loud / quiet).
+# Those words are the slider. pair_odd_sub_e subtracts ê_⊥ = ê−(ê·û)û.
 # attributes already pin gender; that is not ê.
-leak_positive: "Dense slammed mix, BPM 168, pop-punk."
-leak_negative: "Sparse airy mix, BPM 52, ambient lullaby."
+leak_positive: "Pop-punk mix, BPM 168."
+leak_negative: "Ambient lullaby mix, BPM 52."
 rows:
   - target: "Global Metadata:\nGenre: pop. BPM 110. Medium energy, even mood, neither aggressive nor quiet. Balanced studio mix.\nVocal Details:\nOne clear lead vocal, ordinary timbre, even phrasing, no backing vocals. Sung, not rapped.\nArrangement:\nVerse and chorus with drums, bass and guitar at a comfortable level."
     positive: "Global Metadata:\nGenre: pop-punk. BPM 168. Extremely high energy, aggressive and euphoric, a packed room going off. Dense slammed mix, everything loud.\nVocal Details:\nOne shouted lead vocal at full throat, gang shouts answering every hook, everyone yelling. Sung, not rapped.\nArrangement:\nIntro: a four-count stick click straight into full band. Verse: pounding drums, driving downstroked power chords and roaring bass. Chorus: double-time smashing cymbals, stacked gang vocals, the whole band slamming."

@@ -16,6 +16,13 @@
 plus_label: Fast
 minus_label: Slow
 recommended_range: [-2.0, 2.0]
+# Name / probe. pair_odd_sub_e needs û so it can subtract ê_⊥, not raw ê.
+slider_positive: "Extremely fast, frantic and racing."
+slider_negative: "Extremely slow, dragged and suspended."
+# Leftover unused: genre. BPM / fast / slow is the slider — do not put
+# it in ê. One pair. Train with --lm_target pair_odd_sub_e (hold 0).
+leak_positive: "Genre: drum and bass pop."
+leak_negative: "Genre: ballad."
 rows:
   - target: "Global Metadata:\nGenre: pop. BPM 110. Mid-tempo groove, neither rushed nor dragging, ordinary listening. Plain studio mix.\nVocal Details:\nOne lead singer, ordinary timbre, comfortable phrasing on the beat. Sung, not rapped.\nArrangement:\nVerse and chorus with drums on a comfortable backbeat, bass and guitar."
     positive: "Global Metadata:\nGenre: drum and bass pop. BPM 180. Extremely fast, frantic and racing, hyper-speed momentum. Tight urgent mix.\nVocal Details:\nOne lead singer in quick clipped phrases, words tumbling out double-time to keep up. Sung, not rapped.\nArrangement:\nIntro: a snare roll accelerating into the beat. Verse: frantic double-time drums, sprinting breakbeats and a pumping bassline. Chorus: hyperactive hi-hats and stabbing synths racing the vocal forward."

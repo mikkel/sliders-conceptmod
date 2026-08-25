@@ -2,8 +2,9 @@
 
 Existing hold-ê cells PASS because they set ê = unused gender,
 orthogonal to energetic. Live energy-v4 already declares
-`slider_positive` = loud energy and `leak_positive` =
-"Dense slammed mix, BPM 168, pop-punk." — that ê *is* energy.
+`slider_positive` = loud energy. The old `leak_positive` =
+"Dense slammed mix, BPM 168, pop-punk." *was* energy (a pole
+synonym). Live leftover ê is mix+BPM only.
 This cell makes `ê·û` a knob on the same energy-like poles
 (aligns `[0.48, 0.48, 0.68, 0.68]`).
 
@@ -13,11 +14,11 @@ CPU only. No Hub, no GPU, no Music 3 weights.
 
 Raw hold at λ=8 **reproduces the live miss** when ê is a pole synonym or the slider: at `ê·û=1` slider cos +0.080, leak +12.495, c+ +0.849, perc 52%, loss 0.452. At `ê·û=0.5` (ê·â=+0.995 ≈ 1) c+ +0.798, perc 89%, loss 1.270 — the 2-D shrink-in-place of `student = teacher/(1+λ)`, not a locked ~0.01 loss. Unused-only ê still locks (slider +0.988, leak +0.154).
 
-**Allowed ê is leftover unused, not a synonym of the poles or of `slider_positive`.** Energy-v4 leak captions are the wrong ê (opposite-energy restates the structured poles; mean |odd·û|/||odd|| = 0.58, so `ê·û≈0.5` is ê≈â). Hold in the trainer should use `ê_⊥ = ê − (ê·û)û`, not `ê − (ê·â)â`. At the live-like ρ=0.5 cell, ê⊥û locks (slider +0.988, leak +0.154); ê⊥â turns hold off (slider +0.584, leak +1.388). Same-energy different-mix captions are already unused-ê (slider +0.988, leak +0.154). Do not revert to Hub or short-û project.
+**Allowed ê is leftover unused, not a synonym of the poles or of `slider_positive`.** Energy-v4 now packs leftover mix+BPM in one pair (`Pop-punk mix, BPM 168` / `Ambient lullaby mix, BPM 52`) — no slammed/sparse/loud/quiet. The old opposite-energy pair was the wrong ê (restated the structured poles; mean |odd·û|/||odd|| = 0.58, so `ê·û≈0.5` is ê≈â). Live leaky axes use `--lm_target pair_odd_sub_e` (subtract `ê_⊥ = ê − (ê·û)û` from pair-odd). Hold in the v9 path should use `ê_⊥`, not `ê − (ê·â)â`. At the live-like ρ=0.5 cell, ê⊥û locks (slider +0.988, leak +0.154); ê⊥â turns hold off (slider +0.584, leak +1.388). Same-energy different-mix captions are already unused-ê (slider +0.988, leak +0.154). Do not revert to Hub or short-û project.
 
 ## Geometry
 
-Opposite-energy leak (current yaml):
+Opposite-energy leak (the old synonym ê):
 
 ```
 ê(ρ) = ρ û + √(1−ρ²) unused

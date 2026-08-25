@@ -16,6 +16,13 @@
 plus_label: Trip-hop
 minus_label: Pop
 recommended_range: [-2.0, 2.0]
+# Name / probe. pair_odd_sub_e needs û so it can subtract ê_⊥, not raw ê.
+slider_positive: "Dusty nocturnal trip-hop, vinyl crackle."
+slider_negative: "Glossy radio pop, bright and polished."
+# Leftover unused: BPM only. Genre / dusty / glossy is the slider —
+# do not put it in ê. Train with --lm_target pair_odd_sub_e.
+leak_positive: "BPM 84."
+leak_negative: "BPM 128."
 rows:
   - target: "Global Metadata:\nGenre: pop. BPM 110. Medium energy, even mood, an ordinary radio afternoon. Ordinary studio mix, neither dusty nor glossy.\nVocal Details:\nOne lead singer, bright ordinary timbre, plain phrasing, no backing vocals. Sung, not rapped.\nArrangement:\nVerse and chorus with clean drums, electric guitar and bass."
     positive: "Global Metadata:\nGenre: trip-hop. BPM 84. Dark and nocturnal, smoke curling under a streetlamp, dark minor keys. Dusty spacious mix with vinyl crackle and long delay tails.\nVocal Details:\nOne smoky intimate lead vocal, half-whispered and close, hazy behind the beat. Sung, not rapped.\nArrangement:\nIntro: vinyl crackle and a lone filtered bass. Verse: slow dusty breakbeats, filtered wah bass and murky electric piano. Chorus: the break thickens under spacious delayed guitar stabs."
