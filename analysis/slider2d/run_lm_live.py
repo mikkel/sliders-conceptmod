@@ -208,6 +208,11 @@ def write_report(table: dict, blob: dict, path: Path) -> None:
         "Unused-ê is the wrong ê for live energy-v4 leak captions (they",
         "*are* energy). That cell is [lm-hold-overlap.md](lm-hold-overlap.md).",
         "",
+        "Both cells here are orthonormal 2-D, so λ=8 is a stiffness of 8 and",
+        "the short û *is* the concept. At live width λ=8 is `4·D`, the concept",
+        "sits partly off û, and trainer c+ has a ceiling below gender's 0.97:",
+        "[lm-highd-leftover.md](lm-highd-leftover.md).",
+        "",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

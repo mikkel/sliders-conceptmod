@@ -95,6 +95,18 @@ loud/calm û at **0.48 and 0.68**; leftover mix/BPM/genre is ~42% of
 project is `--lm_target v9_project` / `v9_always`. Hub still leaks
 unused attr.
 
+**Reading a hold-ê run.** `--hold_weight` is not comparable between the
+2-D cells and a live hidden state: `F.mse_loss` averages over the width
+and `lm_axis_hold` does not, so the fit keeps `a_ê/(1 + λ·D/2)`. λ=8 is
+a stiffness of 8 on a 2-D cell and `4·D` live, where λ ∈ {0.3, 1, 8}
+all land on the same residual — λ buys conditioning, not less leak, and
+`λ·(a·ê̂)²` is where a `loss 278` comes from. Trainer `c+` also has a
+ceiling of `√(1−p²)` with `p = |â·ê̂_⊥|`: a hold that works cannot print
+gender's 0.97, so a low `c+` inside that closed form is the hold doing
+its job. What ê's wording changes is whether `ê_⊥` is unused leftover
+or the concept off short û. `collapse` is the one number ê / λ / D
+cannot move — see [docs/lm-highd-leftover.md](docs/lm-highd-leftover.md).
+
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
 Published Hub floor is `--lm_target hub` and still leaks — not the default.
