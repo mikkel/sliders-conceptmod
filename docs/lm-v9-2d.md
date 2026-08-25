@@ -98,6 +98,10 @@ capacity from walking onto the unused axis.
 
 ## What this field cannot see
 
+- **Declared û ≠ pole names.** This field sets û from energetic↔calm
+  polarity, so project-odd is nearly identity on the intended axis
+  (`|odd·û|/||odd|| ≈ 0.95`) and cannot reproduce gender-v1. That
+  failure is the mismatch cell in [lm-v9-mismatch.md](lm-v9-mismatch.md).
 - AR endreg / planreg / `pole_mode: semantic_kl` / `collapse_weight`
   (v6 had those; v9 turns planreg and collapse off).
 - Real Music 3 hidden geometry, Hub weights, v7 prompt yamls.

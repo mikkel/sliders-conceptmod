@@ -10,7 +10,10 @@ Formulas are copied from:
 - Hub v9 LM recipe (sidecar ``target_mode`` / ``leakage_floor`` / ``anchor_*``)
   plus the leak fix: project the odd teacher onto a declared slider
   direction and hold the orthogonal residual (``project_odd`` / ``hold_weight``).
-  The live trainer defaults to this path (``--lm_target v9``).
+  The live trainer defaults to this path (``--lm_target v9``). An opt-in
+  ``project_align_min`` refuses to project when ``|odd·û|/||odd||`` is
+  below a floor (gender-v1: the short declared û kept 0.20 of a clean pair).
+  That flag does **not** change the v9 default.
 - Encoder MSE in ``train_encoder_music3.py``
 
 No Hub, no GPU, no model weights.
@@ -253,6 +256,42 @@ def lm_perfect_fit_collapse(
 def lm_unit(direction: torch.Tensor) -> torch.Tensor:
     flat = direction.flatten()
     return flat / flat.norm().clamp_min(1e-8)
+
+
+def lm_odd_align(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    slider_dir: torch.Tensor,
+) -> torch.Tensor:
+    """|odd · û| / ||odd|| with ``odd = (pos − neg) / 2`` and û unit(slider_dir).
+
+    Live gender-v1 logged 0.20 on the short declared captions. The energetic
+    2-D leak cell is ~0.95 because û is the pole polarity (energetic↔calm).
+    This is *not* a cosine of d+ after the fit — it is the teacher overlap
+    that decides how much of the pair project-odd will keep.
+    """
+    odd = ((pos - neg) / 2.0).flatten()
+    unit = lm_unit(slider_dir)
+    return (odd @ unit).abs() / odd.norm().clamp_min(1e-8)
+
+
+def lm_should_project_odd(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    slider_dir: torch.Tensor,
+    project_align_min: float | None,
+) -> tuple[bool, torch.Tensor]:
+    """Whether v9 should project the odd teacher onto û.
+
+    ``project_align_min is None`` keeps today's default (always project).
+    Otherwise project only when ``|odd·û|/||odd||`` ≥ the floor. The live
+    trainer must also drop the orthogonal hold when this returns False —
+    holding ⊥ the rejected û still eats the pair.
+    """
+    align = lm_odd_align(pos, neg, slider_dir)
+    if project_align_min is None:
+        return True, align
+    return bool(float(align) >= float(project_align_min)), align
 
 
 def lm_project_odd_axis(

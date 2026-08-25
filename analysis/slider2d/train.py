@@ -17,6 +17,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_hidden_targets,
     lm_ortho_hold,
     lm_project_odd_axis,
+    lm_should_project_odd,
     lm_slider_loss,
     music3_axis_delta,
     music3_pole_delta,
@@ -262,6 +263,8 @@ def train_lm(
     anchor_autocal: bool = True,
     project_odd: bool = False,
     hold_weight: float = 0.0,
+    slider_dir: torch.Tensor | None = None,
+    project_align_min: float | None = None,
     steps: int = 250,
     lr: float = 0.08,
     seed: int = 0,
@@ -280,9 +283,21 @@ def train_lm(
             pos = field.embed(pair.positive, t)
             neg = field.embed(pair.negative, t)
             neu = field.embed(pair.neutral, t)
-            slider_dir = pair_slider_dir(pair) if (project_odd or hold_w > 0.0) else None
-            if project_odd:
-                tgt_plus, tgt_minus = lm_project_odd_axis(pos, neg, neu, slider_dir)
+            declared = slider_dir if slider_dir is not None else (
+                pair_slider_dir(pair) if (project_odd or hold_w > 0.0) else None
+            )
+            do_project = bool(project_odd)
+            do_hold = hold_w > 0.0
+            if do_project and declared is not None:
+                should, _align = lm_should_project_odd(
+                    pos, neg, declared, project_align_min
+                )
+                if not should:
+                    # Hold ⊥ the rejected û still eats the pair (gender-v1).
+                    do_project = False
+                    do_hold = False
+            if do_project:
+                tgt_plus, tgt_minus = lm_project_odd_axis(pos, neg, neu, declared)
             else:
                 tgt_plus, tgt_minus = lm_hidden_targets(
                     pos, neg, neu, target_mode=mode, common_beta=common_beta
@@ -300,8 +315,9 @@ def train_lm(
                 )
                 anchor_plus, anchor_minus = lm_anchor_targets(pos, neg, neu, kappa)
             hold = None
-            if hold_w > 0.0:
-                hold = lm_ortho_hold(pred_plus, pred_minus, neu, slider_dir)
+            used_hold = hold_w if do_hold else 0.0
+            if used_hold > 0.0:
+                hold = lm_ortho_hold(pred_plus, pred_minus, neu, declared)
             total = total + lm_slider_loss(
                 pred_plus,
                 pred_minus,
@@ -311,7 +327,7 @@ def train_lm(
                 anchor_minus=anchor_minus,
                 anchor_weight=weight,
                 hold=hold,
-                hold_weight=hold_w,
+                hold_weight=used_hold,
             )
             n += 1
         return total / n
@@ -545,6 +561,8 @@ def run_method(spec: MethodSpec, field: Field2D, *, steps: int = 250, seed: int 
             anchor_autocal=spec.kwargs.get("anchor_autocal", True),
             project_odd=spec.kwargs.get("project_odd", False),
             hold_weight=spec.kwargs.get("hold_weight", 0.0),
+            slider_dir=spec.kwargs.get("slider_dir"),
+            project_align_min=spec.kwargs.get("project_align_min"),
             steps=steps,
             seed=seed,
         )

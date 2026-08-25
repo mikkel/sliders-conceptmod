@@ -13,6 +13,7 @@ import torch
 import yaml
 
 from analysis.slider2d.field import E_SLIDER, Field2D
+from analysis.slider2d.mismatch import LIVE_GENDER_V1_ALIGN, MismatchField2D
 from conceptmod.textsliders.slider_targets import (
     lm_anchor_kappa,
     lm_anchor_targets,
@@ -47,6 +48,10 @@ def test_bare_parse_defaults_to_v9_and_symmetric():
     assert hold == 1.0
     assert anchor == 0.0
     assert args.leakage_floor is None
+    assert args.project_align_min is None
+    gated = parse_args(["--prompts_file", "prompts.yaml", "--project_align_min", "0.50"])
+    assert gated.lm_target == "v9"
+    assert gated.project_align_min == pytest.approx(0.50)
 
 
 def test_v9_requires_symmetric_polarity():
@@ -168,6 +173,36 @@ def test_documented_prompt_files_declare_the_axis():
     # Display labels are not the axis.
     assert gender["slider_positive"] != gender["plus_label"]
     assert energy["slider_positive"] != energy["plus_label"]
+
+
+def test_project_align_min_does_not_change_v9_default_targets():
+    pos, neg, neu = _ungated_pair()
+    plus, minus, _, _ = lm_train_targets(pos, neg, neu, recipe="v9", slider_dir=E_SLIDER)
+    gated = lm_train_targets(
+        pos, neg, neu, recipe="v9", slider_dir=E_SLIDER, project_align_min=0.50
+    )
+    assert torch.allclose(plus, gated[0])
+    assert torch.allclose(minus, gated[1])
+
+
+def test_project_align_min_falls_back_to_pair_symmetric():
+    field = MismatchField2D()
+    pos, neg, neu = field.rich_pair()
+    projected = lm_project_odd_axis(pos, neg, neu, field.declared_u)
+    always = lm_train_targets(pos, neg, neu, recipe="v9", slider_dir=field.declared_u)
+    assert torch.allclose(always[0], projected[0])
+    fallback = lm_train_targets(
+        pos, neg, neu, recipe="v9", slider_dir=field.declared_u, project_align_min=0.50
+    )
+    symmetric = lm_hidden_targets(pos, neg, neu, target_mode="symmetric")
+    assert torch.allclose(fallback[0], symmetric[0])
+    assert torch.allclose(fallback[1], symmetric[1])
+    assert not torch.allclose(fallback[0], projected[0])
+    from conceptmod.textsliders.slider_targets import lm_odd_align
+
+    assert float(lm_odd_align(pos, neg, field.declared_u)) == pytest.approx(
+        LIVE_GENDER_V1_ALIGN, abs=1e-6
+    )
 
 
 def test_v9_targets_require_declared_dir():

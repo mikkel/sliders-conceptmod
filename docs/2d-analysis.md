@@ -78,5 +78,6 @@ See [lm-v9-2d.md](lm-v9-2d.md) for the LM recipe on this same field:
 published Hub v9 (`leakage_floor` + anchor) still leaks; the default
 `lm_v9` projects the odd teacher onto the declared slider direction
 (κ=0 + orthogonal hold) and is right on slider, leak, and collapse
-without `--attributes`.
+without `--attributes`. This field **cannot** see gender-v1: û here
+*is* the pole names. The mismatch cell is [lm-v9-mismatch.md](lm-v9-mismatch.md).
 

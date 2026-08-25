@@ -84,6 +84,14 @@ target: `--symmetric` polarity, then project the odd teacher onto a
 hold the orthogonal residual. κ = 0. Retrain as-is with only `--symmetric`
 would still leak — that odd teacher is `(pos−neg)/2`.
 
+**Gender vs energy.** The energetic×gender fixture sets û from the pole
+names, so project+hold looks leak-0 and hid gender-v1: a clean pair
+projected onto a short declared û with `odd·û/||odd|| = 0.20`. That
+cell is `docs/lm-v9-mismatch.md`. `--lm_target v9` still always-projects.
+Opt-in `--project_align_min 0.50` falls back to pair-symmetric when the
+short û barely overlaps the poles. Gender wants Hub / symmetric-on-pair;
+energy can keep project+hold.
+
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
 Published Hub floor is `--lm_target hub` and still leaks — not the default.
