@@ -24,7 +24,11 @@ import torch
 
 from analysis.slider2d.field import E_SLIDER, Field2D, Prompt, cosine
 from analysis.slider2d.train import Pair, Residual, music3_pairs, pair_slider_dir, train_lm
-from conceptmod.textsliders.slider_targets import lm_odd_align
+from conceptmod.textsliders.slider_targets import (
+    lm_odd_align,
+    lm_project_decisions,
+    lm_teachers_mixed,
+)
 
 
 # Live gender-v1 train log: short declared captions vs the structured pair.
@@ -187,6 +191,7 @@ def train_mismatch(
     hold_weight: float = 0.0,
     slider_dir: torch.Tensor | None = None,
     project_align_min: float | None = None,
+    project_align_scope: str = "row",
     steps: int = 200,
     seed: int = 0,
 ) -> Residual:
@@ -200,6 +205,7 @@ def train_mismatch(
         hold_weight=hold_weight,
         slider_dir=slider_dir,
         project_align_min=project_align_min,
+        project_align_scope=project_align_scope,
         steps=steps,
         seed=seed,
     )
@@ -212,18 +218,27 @@ def score_mismatch_policy(
     hold_weight: float = 0.0,
     use_short_u: bool = True,
     project_align_min: float | None = None,
+    project_align_scope: str = "row",
+    leakage_floor: float | None = None,
+    anchor_weight: float = 0.0,
     field: MismatchField2D | None = None,
     steps: int = 200,
     seed: int = 0,
 ) -> dict:
     field = field or MismatchField2D()
     declared = field.declared_u if use_short_u else None
-    residual = train_mismatch(
+    residual = train_lm(
         field,
+        mismatch_pairs(),
+        symmetric=True,
+        target_mode="symmetric",
         project_odd=project_odd,
         hold_weight=hold_weight,
         slider_dir=declared,
         project_align_min=project_align_min,
+        project_align_scope=project_align_scope,
+        leakage_floor=leakage_floor,
+        anchor_weight=anchor_weight,
         steps=steps,
         seed=seed,
     )
@@ -232,10 +247,21 @@ def score_mismatch_policy(
     metrics = score_against_odd(residual, odd, junk=field.junk)
     used_u = field.declared_u if use_short_u else field.concept
     align = float(lm_odd_align(pos, neg, used_u))
+    if declared is None or not project_odd:
+        decisions = [False]
+    else:
+        decisions = lm_project_decisions([align], project_align_min, project_align_scope)
     metrics.update(
         {
             "name": name,
             "odd_align": align,
+            "cos_intended": metrics["cos_concept"],
+            "strength_on_u": metrics["strength"],
+            "row_aligns": [align],
+            "mean_align": align,
+            "decisions": decisions,
+            "mixed": lm_teachers_mixed(decisions),
+            "n_rows": 1,
             "axis": mismatch_verdicts(metrics),
             "pass": mismatch_all_right(metrics),
         }

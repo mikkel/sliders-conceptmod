@@ -29,6 +29,7 @@ from conceptmod.textsliders.train_lm_slider_music3 import (
     resolve_lm_loss_weights,
     resolve_lm_recipe,
     resolve_slider_axis_captions,
+    resolve_v9_gate,
 )
 
 
@@ -48,15 +49,29 @@ def test_bare_parse_defaults_to_v9_and_symmetric():
     assert hold == 1.0
     assert anchor == 0.0
     assert args.leakage_floor is None
-    assert args.project_align_min is None
+    floor, scope = resolve_v9_gate(
+        recipe="v9",
+        project_align_min=args.project_align_min,
+        project_align_scope=args.project_align_scope,
+    )
+    assert floor == pytest.approx(0.50)
+    assert scope == "slider"
     gated = parse_args(["--prompts_file", "prompts.yaml", "--project_align_min", "0.50"])
     assert gated.lm_target == "v9"
     assert gated.project_align_min == pytest.approx(0.50)
+    always = parse_args(["--prompts_file", "prompts.yaml", "--lm_target", "v9_always"])
+    assert always.lm_target == "v9_always"
+    always_floor, _ = resolve_v9_gate(
+        recipe="v9_always", project_align_min=0.50, project_align_scope="row"
+    )
+    assert always_floor is None
 
 
 def test_v9_requires_symmetric_polarity():
     with pytest.raises(ValueError, match="polarity step"):
         resolve_lm_recipe(lm_target="v9", symmetric=False)
+    with pytest.raises(ValueError, match="polarity step"):
+        resolve_lm_recipe(lm_target="v9_always", symmetric=False)
 
 
 def test_axis_is_declared_not_plus_minus_or_row_odd():
@@ -189,14 +204,18 @@ def test_project_align_min_falls_back_to_pair_symmetric():
     field = MismatchField2D()
     pos, neg, neu = field.rich_pair()
     projected = lm_project_odd_axis(pos, neg, neu, field.declared_u)
-    always = lm_train_targets(pos, neg, neu, recipe="v9", slider_dir=field.declared_u)
+    always = lm_train_targets(pos, neg, neu, recipe="v9_always", slider_dir=field.declared_u)
     assert torch.allclose(always[0], projected[0])
     fallback = lm_train_targets(
         pos, neg, neu, recipe="v9", slider_dir=field.declared_u, project_align_min=0.50
     )
+    slider_level = lm_train_targets(
+        pos, neg, neu, recipe="v9", slider_dir=field.declared_u, should_project=False
+    )
     symmetric = lm_hidden_targets(pos, neg, neu, target_mode="symmetric")
     assert torch.allclose(fallback[0], symmetric[0])
     assert torch.allclose(fallback[1], symmetric[1])
+    assert torch.allclose(slider_level[0], symmetric[0])
     assert not torch.allclose(fallback[0], projected[0])
     from conceptmod.textsliders.slider_targets import lm_odd_align
 

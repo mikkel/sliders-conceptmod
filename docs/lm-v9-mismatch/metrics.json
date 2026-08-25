@@ -34,6 +34,17 @@
       "concept_kept": 0.999971290430574,
       "name": "pair_symmetric",
       "odd_align": 1.0,
+      "cos_intended": 1.0,
+      "strength_on_u": 0.9999712705612183,
+      "row_aligns": [
+        1.0
+      ],
+      "mean_align": 1.0,
+      "decisions": [
+        false
+      ],
+      "mixed": false,
+      "n_rows": 1,
       "axis": {
         "slider": "right",
         "leak": "right",
@@ -63,6 +74,17 @@
       "concept_kept": 0.04000048925477309,
       "name": "always_project_hold",
       "odd_align": 0.20000001788139343,
+      "cos_intended": 0.20000702142715454,
+      "strength_on_u": 0.19999542832374573,
+      "row_aligns": [
+        0.20000001788139343
+      ],
+      "mean_align": 0.20000001788139343,
+      "decisions": [
+        true
+      ],
+      "mixed": false,
+      "n_rows": 1,
       "axis": {
         "slider": "needs_help",
         "leak": "needs_help",
@@ -92,6 +114,17 @@
       "concept_kept": 0.999971290430574,
       "name": "gated_align",
       "odd_align": 0.20000001788139343,
+      "cos_intended": 1.0,
+      "strength_on_u": 0.9999712705612183,
+      "row_aligns": [
+        0.20000001788139343
+      ],
+      "mean_align": 0.20000001788139343,
+      "decisions": [
+        false
+      ],
+      "mixed": false,
+      "n_rows": 1,
       "axis": {
         "slider": "right",
         "leak": "right",
@@ -121,6 +154,17 @@
       "concept_kept": 0.999971290430574,
       "name": "u_is_pair_odd",
       "odd_align": 1.0,
+      "cos_intended": 1.0,
+      "strength_on_u": 0.9999712705612183,
+      "row_aligns": [
+        1.0
+      ],
+      "mean_align": 1.0,
+      "decisions": [
+        false
+      ],
+      "mixed": false,
+      "n_rows": 1,
       "axis": {
         "slider": "right",
         "leak": "right",

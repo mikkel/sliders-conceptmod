@@ -1,0 +1,522 @@
+{
+  "steps": 200,
+  "seed": 0,
+  "live_gender_align": 0.2,
+  "live_energy_aligns": [
+    0.48,
+    0.48,
+    0.68,
+    0.68
+  ],
+  "measured_energy_aligns": [
+    0.48000001907348633,
+    0.48000001907348633,
+    0.6800000071525574,
+    0.6800000071525574
+  ],
+  "slider_align_min": 0.5,
+  "bare_train_energy": "python conceptmod/textsliders/train_lm_slider_music3.py --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml",
+  "bare_train_gender": "python conceptmod/textsliders/train_lm_slider_music3.py --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml",
+  "table": {
+    "gender": [
+      {
+        "cell": "gender",
+        "policy": "hub",
+        "leak": 0.0,
+        "strength": 0.9999712705612183,
+        "cos_intended": 1.0,
+        "mixed": false,
+        "pass": true,
+        "norm_plus": 1.1999655961990356,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 1.0
+      },
+      {
+        "cell": "gender",
+        "policy": "always_project_hold",
+        "leak": 4.8987992954542525,
+        "strength": 0.19999542832374573,
+        "cos_intended": 0.20000702142715454,
+        "mixed": false,
+        "pass": false,
+        "norm_plus": 0.23999452590942383,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 0.20000001788139343
+      },
+      {
+        "cell": "gender",
+        "policy": "gated_row_0.50",
+        "leak": 0.0,
+        "strength": 0.9999712705612183,
+        "cos_intended": 1.0,
+        "mixed": false,
+        "pass": true,
+        "norm_plus": 1.1999655961990356,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 0.20000001788139343
+      },
+      {
+        "cell": "gender",
+        "policy": "slider_align_0.50",
+        "leak": 0.0,
+        "strength": 0.9999712705612183,
+        "cos_intended": 1.0,
+        "mixed": false,
+        "pass": true,
+        "norm_plus": 1.1999655961990356,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 0.20000001788139343
+      }
+    ],
+    "energy": [
+      {
+        "cell": "energy",
+        "policy": "hub",
+        "leak": 1.3882940274125817,
+        "strength": 0.99237060546875,
+        "cos_intended": 0.5844696164131165,
+        "mixed": false,
+        "pass": false,
+        "norm_plus": 1.1908447742462158,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 0.5800000131130219
+      },
+      {
+        "cell": "energy",
+        "policy": "always_project_hold",
+        "leak": 0.0,
+        "strength": 0.5800104141235352,
+        "cos_intended": 1.0,
+        "mixed": false,
+        "pass": true,
+        "norm_plus": 0.696012556552887,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 0.5800000131130219
+      },
+      {
+        "cell": "energy",
+        "policy": "gated_row_0.50",
+        "leak": 0.6049890241653667,
+        "strength": 0.6778959035873413,
+        "cos_intended": 0.8556039929389954,
+        "mixed": true,
+        "pass": false,
+        "norm_plus": 0.8134751319885254,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 0.5800000131130219
+      },
+      {
+        "cell": "energy",
+        "policy": "slider_align_0.50",
+        "leak": 0.0,
+        "strength": 0.5800104141235352,
+        "cos_intended": 1.0,
+        "mixed": false,
+        "pass": true,
+        "norm_plus": 0.696012556552887,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 0.5800000131130219
+      }
+    ],
+    "energy_cheat": {
+      "cell": "energy",
+      "policy": "u_is_pole_odd",
+      "leak": 1.827641942505164,
+      "strength": 1.000024676322937,
+      "cos_intended": 0.48000016808509827,
+      "mixed": false,
+      "pass": false,
+      "norm_plus": 1.200029730796814,
+      "norm_odd": 1.2000000476837158,
+      "odd_align": 1.0
+    }
+  },
+  "gender": [
+    {
+      "delta_plus": [
+        1.1999655961990356,
+        0.0
+      ],
+      "delta_minus": [
+        -1.1999655961990356,
+        0.0
+      ],
+      "cos_concept": 1.0,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1999655961990356,
+      "norm_minus": 1.1999655961990356,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9999712705612183,
+      "proj_concept": 1.1999655961990356,
+      "proj_junk": 0.0,
+      "leak_ratio": 0.0,
+      "concept_kept": 0.999971290430574,
+      "name": "hub",
+      "odd_align": 1.0,
+      "cos_intended": 1.0,
+      "strength_on_u": 0.9999712705612183,
+      "row_aligns": [
+        1.0
+      ],
+      "mean_align": 1.0,
+      "decisions": [
+        false
+      ],
+      "mixed": false,
+      "n_rows": 1,
+      "axis": {
+        "slider": "right",
+        "leak": "right",
+        "collapse": "right",
+        "strength": "right"
+      },
+      "pass": true
+    },
+    {
+      "delta_plus": [
+        0.04800058901309967,
+        0.23514530062675476
+      ],
+      "delta_minus": [
+        -0.04800058901309967,
+        -0.23514530062675476
+      ],
+      "cos_concept": 0.20000702142715454,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.23999452590942383,
+      "norm_minus": 0.23999452590942383,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.19999542832374573,
+      "proj_concept": 0.04800058901309967,
+      "proj_junk": 0.23514530062675476,
+      "leak_ratio": 4.8987992954542525,
+      "concept_kept": 0.04000048925477309,
+      "name": "always_project_hold",
+      "odd_align": 0.20000001788139343,
+      "cos_intended": 0.20000702142715454,
+      "strength_on_u": 0.19999542832374573,
+      "row_aligns": [
+        0.20000001788139343
+      ],
+      "mean_align": 0.20000001788139343,
+      "decisions": [
+        true
+      ],
+      "mixed": false,
+      "n_rows": 1,
+      "axis": {
+        "slider": "needs_help",
+        "leak": "needs_help",
+        "collapse": "right",
+        "strength": "needs_help"
+      },
+      "pass": false
+    },
+    {
+      "delta_plus": [
+        1.1999655961990356,
+        0.0
+      ],
+      "delta_minus": [
+        -1.1999655961990356,
+        0.0
+      ],
+      "cos_concept": 1.0,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1999655961990356,
+      "norm_minus": 1.1999655961990356,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9999712705612183,
+      "proj_concept": 1.1999655961990356,
+      "proj_junk": 0.0,
+      "leak_ratio": 0.0,
+      "concept_kept": 0.999971290430574,
+      "name": "gated_row_0.50",
+      "odd_align": 0.20000001788139343,
+      "cos_intended": 1.0,
+      "strength_on_u": 0.9999712705612183,
+      "row_aligns": [
+        0.20000001788139343
+      ],
+      "mean_align": 0.20000001788139343,
+      "decisions": [
+        false
+      ],
+      "mixed": false,
+      "n_rows": 1,
+      "axis": {
+        "slider": "right",
+        "leak": "right",
+        "collapse": "right",
+        "strength": "right"
+      },
+      "pass": true
+    },
+    {
+      "delta_plus": [
+        1.1999655961990356,
+        0.0
+      ],
+      "delta_minus": [
+        -1.1999655961990356,
+        0.0
+      ],
+      "cos_concept": 1.0,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1999655961990356,
+      "norm_minus": 1.1999655961990356,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9999712705612183,
+      "proj_concept": 1.1999655961990356,
+      "proj_junk": 0.0,
+      "leak_ratio": 0.0,
+      "concept_kept": 0.999971290430574,
+      "name": "slider_align_0.50",
+      "odd_align": 0.20000001788139343,
+      "cos_intended": 1.0,
+      "strength_on_u": 0.9999712705612183,
+      "row_aligns": [
+        0.20000001788139343
+      ],
+      "mean_align": 0.20000001788139343,
+      "decisions": [
+        false
+      ],
+      "mixed": false,
+      "n_rows": 1,
+      "axis": {
+        "slider": "right",
+        "leak": "right",
+        "collapse": "right",
+        "strength": "right"
+      },
+      "pass": true
+    }
+  ],
+  "energy": [
+    {
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700891494751
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700891494751
+      ],
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0000001192092896,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700891494751,
+      "leak_ratio": 1.3882940274125817,
+      "row_aligns": [
+        0.48000001907348633,
+        0.48000001907348633,
+        0.6800000071525574,
+        0.6800000071525574
+      ],
+      "mean_align": 0.5800000131130219,
+      "decisions": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "mixed": false,
+      "n_rows": 4,
+      "name": "hub",
+      "odd_align": 0.5800000131130219,
+      "axis": {
+        "slider": "needs_help",
+        "leak": "needs_help",
+        "collapse": "right",
+        "strength": "right",
+        "mixed": "right"
+      },
+      "pass": false
+    },
+    {
+      "delta_plus": [
+        0.696012556552887,
+        0.0
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        0.0
+      ],
+      "cos_intended": 1.0,
+      "cos_concept": 1.0,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.696012556552887,
+      "norm_minus": 0.696012556552887,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5800104141235352,
+      "strength_on_u": 1.0000180006027222,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.0,
+      "leak_ratio": 0.0,
+      "row_aligns": [
+        0.48000001907348633,
+        0.48000001907348633,
+        0.6800000071525574,
+        0.6800000071525574
+      ],
+      "mean_align": 0.5800000131130219,
+      "decisions": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "mixed": false,
+      "n_rows": 4,
+      "name": "always_project_hold",
+      "odd_align": 0.5800000131130219,
+      "axis": {
+        "slider": "right",
+        "leak": "right",
+        "collapse": "right",
+        "strength": "right",
+        "mixed": "right"
+      },
+      "pass": true
+    },
+    {
+      "delta_plus": [
+        0.696012556552887,
+        0.42107996344566345
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.42107996344566345
+      ],
+      "cos_intended": 0.8556039929389954,
+      "cos_concept": 0.8556039929389954,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.8134751319885254,
+      "norm_minus": 0.8134751319885254,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.6778959035873413,
+      "strength_on_u": 1.1687860488891602,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.42107996344566345,
+      "leak_ratio": 0.6049890241653667,
+      "row_aligns": [
+        0.48000001907348633,
+        0.48000001907348633,
+        0.6800000071525574,
+        0.6800000071525574
+      ],
+      "mean_align": 0.5800000131130219,
+      "decisions": [
+        false,
+        false,
+        true,
+        true
+      ],
+      "mixed": true,
+      "n_rows": 4,
+      "name": "gated_row_0.50",
+      "odd_align": 0.5800000131130219,
+      "axis": {
+        "slider": "needs_help",
+        "leak": "needs_help",
+        "collapse": "right",
+        "strength": "right",
+        "mixed": "needs_help"
+      },
+      "pass": false
+    },
+    {
+      "delta_plus": [
+        0.696012556552887,
+        0.0
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        0.0
+      ],
+      "cos_intended": 1.0,
+      "cos_concept": 1.0,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.696012556552887,
+      "norm_minus": 0.696012556552887,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5800104141235352,
+      "strength_on_u": 1.0000180006027222,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.0,
+      "leak_ratio": 0.0,
+      "row_aligns": [
+        0.48000001907348633,
+        0.48000001907348633,
+        0.6800000071525574,
+        0.6800000071525574
+      ],
+      "mean_align": 0.5800000131130219,
+      "decisions": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "mixed": false,
+      "n_rows": 4,
+      "name": "slider_align_0.50",
+      "odd_align": 0.5800000131130219,
+      "axis": {
+        "slider": "right",
+        "leak": "right",
+        "collapse": "right",
+        "strength": "right",
+        "mixed": "right"
+      },
+      "pass": true
+    }
+  ],
+  "energy_cheat": {
+    "delta_plus": [
+      0.5760144591331482,
+      1.052748203277588
+    ],
+    "delta_minus": [
+      -0.5760144591331482,
+      -1.052748203277588
+    ],
+    "cos_intended": 0.48000016808509827,
+    "cos_concept": 0.48000016808509827,
+    "cos_plus_minus": -1.0000001192092896,
+    "norm_plus": 1.200029730796814,
+    "norm_minus": 1.200029730796814,
+    "norm_odd": 1.2000000476837158,
+    "strength": 1.000024676322937,
+    "strength_on_u": 2.0833847522735596,
+    "proj_intended": 0.5760144591331482,
+    "proj_unused": 1.052748203277588,
+    "leak_ratio": 1.827641942505164,
+    "row_aligns": [
+      1.0
+    ],
+    "mean_align": 1.0,
+    "decisions": [
+      true
+    ],
+    "mixed": false,
+    "n_rows": 1,
+    "name": "u_is_pole_odd",
+    "odd_align": 1.0,
+    "axis": {
+      "slider": "needs_help",
+      "leak": "needs_help",
+      "collapse": "right",
+      "strength": "right",
+      "mixed": "right"
+    },
+    "pass": false
+  }
+}

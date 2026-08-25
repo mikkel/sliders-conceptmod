@@ -17,7 +17,8 @@ from conceptmod.textsliders.slider_targets import (
     lm_hidden_targets,
     lm_ortho_hold,
     lm_project_odd_axis,
-    lm_should_project_odd,
+    lm_odd_align,
+    lm_project_decisions,
     lm_slider_loss,
     music3_axis_delta,
     music3_pole_delta,
@@ -265,6 +266,7 @@ def train_lm(
     hold_weight: float = 0.0,
     slider_dir: torch.Tensor | None = None,
     project_align_min: float | None = None,
+    project_align_scope: str = "row",
     steps: int = 250,
     lr: float = 0.08,
     seed: int = 0,
@@ -276,26 +278,28 @@ def train_lm(
     weight = float(anchor_weight)
     hold_w = float(hold_weight)
 
+    packed = []
+    aligns: list[float] = []
+    for pair in pairs:
+        pos = field.embed(pair.positive, t)
+        neg = field.embed(pair.negative, t)
+        neu = field.embed(pair.neutral, t)
+        declared = slider_dir if slider_dir is not None else (
+            pair_slider_dir(pair) if (project_odd or hold_w > 0.0) else None
+        )
+        align = float(lm_odd_align(pos, neg, declared)) if declared is not None else 0.0
+        packed.append((pos, neg, neu, declared, pair))
+        aligns.append(align)
+    if project_odd:
+        decisions = lm_project_decisions(aligns, project_align_min, project_align_scope)
+    else:
+        decisions = [False] * len(packed)
+
     def loss_fn(res: Residual) -> torch.Tensor:
         total = residual.w_odd.new_zeros(())
         n = 0
-        for pair in pairs:
-            pos = field.embed(pair.positive, t)
-            neg = field.embed(pair.negative, t)
-            neu = field.embed(pair.neutral, t)
-            declared = slider_dir if slider_dir is not None else (
-                pair_slider_dir(pair) if (project_odd or hold_w > 0.0) else None
-            )
-            do_project = bool(project_odd)
-            do_hold = hold_w > 0.0
-            if do_project and declared is not None:
-                should, _align = lm_should_project_odd(
-                    pos, neg, declared, project_align_min
-                )
-                if not should:
-                    # Hold ⊥ the rejected û still eats the pair (gender-v1).
-                    do_project = False
-                    do_hold = False
+        for (pos, neg, neu, declared, _pair), do_project in zip(packed, decisions):
+            do_hold = hold_w > 0.0 and bool(do_project) and declared is not None
             if do_project:
                 tgt_plus, tgt_minus = lm_project_odd_axis(pos, neg, neu, declared)
             else:
@@ -563,6 +567,7 @@ def run_method(spec: MethodSpec, field: Field2D, *, steps: int = 250, seed: int 
             hold_weight=spec.kwargs.get("hold_weight", 0.0),
             slider_dir=spec.kwargs.get("slider_dir"),
             project_align_min=spec.kwargs.get("project_align_min"),
+            project_align_scope=spec.kwargs.get("project_align_scope", "row"),
             steps=steps,
             seed=seed,
         )
