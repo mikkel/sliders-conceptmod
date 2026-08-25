@@ -1,0 +1,6820 @@
+{
+  "steps": 200,
+  "seed": 0,
+  "overlaps": [
+    0.0,
+    0.3,
+    0.5,
+    0.7,
+    0.9,
+    1.0
+  ],
+  "lambdas": [
+    0.0,
+    1.0,
+    8.0,
+    32.0
+  ],
+  "live_energy_aligns": [
+    0.48,
+    0.48,
+    0.68,
+    0.68
+  ],
+  "mean_odd_dot_u": 0.5844553709030151,
+  "leak_hold_weight": 8.0,
+  "geometry": [
+    {
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false
+    },
+    {
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.30000001192092896,
+      "hold_dot_odd": 0.9493874907493591,
+      "hold_off": false
+    },
+    {
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.5,
+      "hold_dot_odd": 0.9949430227279663,
+      "hold_off": false
+    },
+    {
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.699999988079071,
+      "hold_dot_odd": 0.9885927438735962,
+      "hold_off": false
+    },
+    {
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.9000000357627869,
+      "hold_dot_odd": 0.8797022104263306,
+      "hold_off": false
+    },
+    {
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 1.0,
+      "hold_dot_u": 1.0,
+      "hold_dot_odd": 0.5844553709030151,
+      "hold_off": false
+    }
+  ],
+  "sweep": [
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.0_l0_raw",
+      "hold_weight": 0.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.8214775919914246,
+      "cos_concept": 0.8214775919914246,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.8472690582275391,
+      "norm_minus": 0.8472690582275391,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.7060575485229492,
+      "strength_on_u": 1.2173405885696411,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.48314741253852844,
+      "leak_ratio": 0.6941647834483692,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.8472690582275391,
+      "cos_teacher": 0.9356379210948944,
+      "collapse": -1.0,
+      "perc": 0.41522370278835297,
+      "loss": 0.48872746527194977,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.0_l1_raw",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.49015653133392334,
+          "cos_teacher": 0.9242522716522217,
+          "collapse": -1.0,
+          "perc": 0.42378756403923035
+        },
+        {
+          "step": 100,
+          "loss": 0.48874081671237946,
+          "cos_teacher": 0.9353631138801575,
+          "collapse": -1.0,
+          "perc": 0.41706888377666473
+        },
+        {
+          "step": 150,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9357221126556396,
+          "collapse": -1.0,
+          "perc": 0.415098637342453
+        },
+        {
+          "step": 200,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9356379210948944,
+          "collapse": -1.0,
+          "perc": 0.41522370278835297
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.48314741253852844
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.48314741253852844
+      ]
+    },
+    {
+      "cos_intended": 0.8214775919914246,
+      "cos_concept": 0.8214775919914246,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.8472690582275391,
+      "norm_minus": 0.8472690582275391,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.7060575485229492,
+      "strength_on_u": 1.2173405885696411,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.48314741253852844,
+      "leak_ratio": 0.6941647834483692,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.8472690582275391,
+      "cos_teacher": 0.9356379210948944,
+      "collapse": -1.0,
+      "perc": 0.41522370278835297,
+      "loss": 0.48872746527194977,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.0_l1_slider",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.49015653133392334,
+          "cos_teacher": 0.9242522716522217,
+          "collapse": -1.0,
+          "perc": 0.42378756403923035
+        },
+        {
+          "step": 100,
+          "loss": 0.48874081671237946,
+          "cos_teacher": 0.9353631138801575,
+          "collapse": -1.0,
+          "perc": 0.41706888377666473
+        },
+        {
+          "step": 150,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9357221126556396,
+          "collapse": -1.0,
+          "perc": 0.415098637342453
+        },
+        {
+          "step": 200,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9356379210948944,
+          "collapse": -1.0,
+          "perc": 0.41522370278835297
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.48314741253852844
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.48314741253852844
+      ]
+    },
+    {
+      "cos_intended": 0.5844621658325195,
+      "cos_concept": 0.5844621658325195,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908239126205444,
+      "norm_minus": 1.1908239126205444,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923532009124756,
+      "strength_on_u": 1.7109538316726685,
+      "proj_intended": 0.6959915161132812,
+      "proj_unused": 0.9662594795227051,
+      "leak_ratio": 1.3883207528670891,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908239126205444,
+      "cos_teacher": 0.9923769533634186,
+      "collapse": -1.0,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 0.5844553709030151,
+      "hold_dot_u": -0.8114259243011475,
+      "hold_dot_odd": -5.960464477539063e-08,
+      "hold_off": false,
+      "name": "opposite_o0.0_l1_odd",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.0249091824516654,
+          "cos_teacher": 0.992375910282135,
+          "collapse": -1.0,
+          "perc": 0.13150906562805176
+        },
+        {
+          "step": 100,
+          "loss": 0.02190088853240013,
+          "cos_teacher": 0.9923768937587738,
+          "collapse": -1.0,
+          "perc": 0.12332445755600929
+        },
+        {
+          "step": 150,
+          "loss": 0.021870839409530163,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323987856507301
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959915161132812,
+        0.9662594795227051
+      ],
+      "delta_minus": [
+        -0.6959915161132812,
+        -0.9662594795227051
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.0_l8_raw",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.0_l8_slider",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ]
+    },
+    {
+      "cos_intended": 0.5844568610191345,
+      "cos_concept": 0.5844568610191345,
+      "cos_plus_minus": -0.9999998807907104,
+      "norm_plus": 1.1908237934112549,
+      "norm_minus": 1.1908237934112549,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923531413078308,
+      "strength_on_u": 1.7109535932540894,
+      "proj_intended": 0.6959851384162903,
+      "proj_unused": 0.9662638902664185,
+      "leak_ratio": 1.3883398122289616,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -0.9999998807907104,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908237934112549,
+      "cos_teacher": 0.9923768937587738,
+      "collapse": -0.9999998807907104,
+      "perc": 0.12323985621333122,
+      "loss": 0.021870809607207775,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 0.5844553709030151,
+      "hold_dot_u": -0.8114259243011475,
+      "hold_dot_odd": -5.960464477539063e-08,
+      "hold_off": false,
+      "name": "opposite_o0.0_l8_odd",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025405708700418472,
+          "cos_teacher": 0.9923715889453888,
+          "collapse": -1.0,
+          "perc": 0.1325073391199112
+        },
+        {
+          "step": 100,
+          "loss": 0.02190321311354637,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.12333099916577339
+        },
+        {
+          "step": 150,
+          "loss": 0.02187088131904602,
+          "cos_teacher": 0.9923770129680634,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12324005737900734
+        },
+        {
+          "step": 200,
+          "loss": 0.021870809607207775,
+          "cos_teacher": 0.9923768937587738,
+          "collapse": -0.9999998807907104,
+          "perc": 0.12323985621333122
+        }
+      ],
+      "delta_plus": [
+        0.6959851384162903,
+        0.9662638902664185
+      ],
+      "delta_minus": [
+        -0.6959851384162903,
+        -0.9662638902664185
+      ]
+    },
+    {
+      "cos_intended": 0.9991163015365601,
+      "cos_concept": 0.9991163015365601,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6966281533241272,
+      "norm_minus": 0.6966281533241272,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5805234313011169,
+      "strength_on_u": 1.0009024143218994,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.029279934242367744,
+      "leak_ratio": 0.04206811148163787,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6966281533241272,
+      "cos_teacher": 0.6133324503898621,
+      "collapse": -1.0,
+      "perc": 0.7872711420059204,
+      "loss": 0.9272897243499756,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.0_l32_raw",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9285311102867126,
+          "cos_teacher": 0.6104943156242371,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7884554266929626
+        },
+        {
+          "step": 100,
+          "loss": 0.9272946715354919,
+          "cos_teacher": 0.6132128238677979,
+          "collapse": -1.0,
+          "perc": 0.7874472141265869
+        },
+        {
+          "step": 150,
+          "loss": 0.9272896647453308,
+          "cos_teacher": 0.6133269667625427,
+          "collapse": -1.0000001192092896,
+          "perc": 0.787281721830368
+        },
+        {
+          "step": 200,
+          "loss": 0.9272897243499756,
+          "cos_teacher": 0.6133324503898621,
+          "collapse": -1.0,
+          "perc": 0.7872711420059204
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.029279934242367744
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.029279934242367744
+      ]
+    },
+    {
+      "cos_intended": 0.9991163015365601,
+      "cos_concept": 0.9991163015365601,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6966281533241272,
+      "norm_minus": 0.6966281533241272,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5805234313011169,
+      "strength_on_u": 1.0009024143218994,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.029279934242367744,
+      "leak_ratio": 0.04206811148163787,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6966281533241272,
+      "cos_teacher": 0.6133324503898621,
+      "collapse": -1.0,
+      "perc": 0.7872711420059204,
+      "loss": 0.9272897243499756,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.0_l32_slider",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9285311102867126,
+          "cos_teacher": 0.6104943156242371,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7884554266929626
+        },
+        {
+          "step": 100,
+          "loss": 0.9272946715354919,
+          "cos_teacher": 0.6132128238677979,
+          "collapse": -1.0,
+          "perc": 0.7874472141265869
+        },
+        {
+          "step": 150,
+          "loss": 0.9272896647453308,
+          "cos_teacher": 0.6133269667625427,
+          "collapse": -1.0000001192092896,
+          "perc": 0.787281721830368
+        },
+        {
+          "step": 200,
+          "loss": 0.9272897243499756,
+          "cos_teacher": 0.6133324503898621,
+          "collapse": -1.0,
+          "perc": 0.7872711420059204
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.029279934242367744
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.029279934242367744
+      ]
+    },
+    {
+      "cos_intended": 0.5844557881355286,
+      "cos_concept": 0.5844557881355286,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908315420150757,
+      "norm_minus": 1.1908315420150757,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923595786094666,
+      "strength_on_u": 1.7109647989273071,
+      "proj_intended": 0.6959883570671082,
+      "proj_unused": 0.966271162033081,
+      "leak_ratio": 1.388343839861783,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908315420150757,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 0.5844553709030151,
+      "hold_dot_u": -0.8114259243011475,
+      "hold_dot_odd": -5.960464477539063e-08,
+      "hold_off": false,
+      "name": "opposite_o0.0_l32_odd",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.026097589172422886,
+          "cos_teacher": 0.992376297712326,
+          "collapse": -0.9999999403953552,
+          "perc": 0.13449621945619583
+        },
+        {
+          "step": 100,
+          "loss": 0.021903816610574722,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12333183363080025
+        },
+        {
+          "step": 150,
+          "loss": 0.021870946511626244,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324022874236107
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.6959883570671082,
+        0.966271162033081
+      ],
+      "delta_minus": [
+        -0.6959883570671082,
+        -0.966271162033081
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.30000001192092896,
+      "hold_dot_odd": 0.9493874907493591,
+      "hold_off": false,
+      "name": "opposite_o0.3_l0_raw",
+      "hold_weight": 0.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.7766021490097046,
+      "cos_concept": 0.7766021490097046,
+      "cos_plus_minus": -1.0000001192092896,
+      "norm_plus": 0.6778596639633179,
+      "norm_minus": 0.6778596639633179,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5648830533027649,
+      "strength_on_u": 0.9739362597465515,
+      "proj_intended": 0.5264272689819336,
+      "proj_unused": 0.4270457625389099,
+      "leak_ratio": 0.811215109074098,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0000001192092896,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6778596639633179,
+      "cos_teacher": 0.9577237367630005,
+      "collapse": -1.0000001192092896,
+      "perc": 0.4854668229818344,
+      "loss": 0.6609767973423004,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.30000001192092896,
+      "hold_dot_odd": 0.9493874907493591,
+      "hold_off": false,
+      "name": "opposite_o0.3_l1_raw",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.6621857285499573,
+          "cos_teacher": 0.9514429867267609,
+          "collapse": -1.0,
+          "perc": 0.5053134113550186
+        },
+        {
+          "step": 100,
+          "loss": 0.66098552942276,
+          "cos_teacher": 0.9576674699783325,
+          "collapse": -1.0,
+          "perc": 0.48705635964870453
+        },
+        {
+          "step": 150,
+          "loss": 0.6609768271446228,
+          "cos_teacher": 0.957732617855072,
+          "collapse": -1.0,
+          "perc": 0.4854247123003006
+        },
+        {
+          "step": 200,
+          "loss": 0.6609767973423004,
+          "cos_teacher": 0.9577237367630005,
+          "collapse": -1.0000001192092896,
+          "perc": 0.4854668229818344
+        }
+      ],
+      "delta_plus": [
+        0.5264272689819336,
+        0.4270457625389099
+      ],
+      "delta_minus": [
+        -0.5264272689819336,
+        -0.4270457625389099
+      ]
+    },
+    {
+      "cos_intended": 0.8214775919914246,
+      "cos_concept": 0.8214775919914246,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.8472690582275391,
+      "norm_minus": 0.8472690582275391,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.7060575485229492,
+      "strength_on_u": 1.2173405885696411,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.48314741253852844,
+      "leak_ratio": 0.6941647834483692,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.8472690582275391,
+      "cos_teacher": 0.9356379210948944,
+      "collapse": -1.0,
+      "perc": 0.41522370278835297,
+      "loss": 0.48872746527194977,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 0.9539391994476318,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.3_l1_slider",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.49015653133392334,
+          "cos_teacher": 0.9242522716522217,
+          "collapse": -1.0,
+          "perc": 0.42378756403923035
+        },
+        {
+          "step": 100,
+          "loss": 0.48874081671237946,
+          "cos_teacher": 0.9353631138801575,
+          "collapse": -1.0,
+          "perc": 0.41706888377666473
+        },
+        {
+          "step": 150,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9357221126556396,
+          "collapse": -1.0,
+          "perc": 0.415098637342453
+        },
+        {
+          "step": 200,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9356379210948944,
+          "collapse": -1.0,
+          "perc": 0.41522370278835297
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.48314741253852844
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.48314741253852844
+      ]
+    },
+    {
+      "cos_intended": 0.5844621658325195,
+      "cos_concept": 0.5844621658325195,
+      "cos_plus_minus": -1.0000001192092896,
+      "norm_plus": 1.1908239126205444,
+      "norm_minus": 1.1908239126205444,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923532009124756,
+      "strength_on_u": 1.7109538316726685,
+      "proj_intended": 0.6959915161132812,
+      "proj_unused": 0.9662595391273499,
+      "leak_ratio": 1.3883208385069894,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0000001192092896,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908239126205444,
+      "cos_teacher": 0.992376983165741,
+      "collapse": -1.0000001192092896,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 0.31410717964172363,
+      "hold_dot_u": -0.8114259243011475,
+      "hold_dot_odd": -1.7881393432617188e-07,
+      "hold_off": false,
+      "name": "opposite_o0.3_l1_odd",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.024909180589020252,
+          "cos_teacher": 0.992375910282135,
+          "collapse": -0.9999999403953552,
+          "perc": 0.13150905817747116
+        },
+        {
+          "step": 100,
+          "loss": 0.02190088853240013,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.1233244501054287
+        },
+        {
+          "step": 150,
+          "loss": 0.021870838478207588,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323987483978271
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959915161132812,
+        0.9662595391273499
+      ],
+      "delta_minus": [
+        -0.6959915161132812,
+        -0.9662595391273499
+      ]
+    },
+    {
+      "cos_intended": 0.9998136758804321,
+      "cos_concept": 0.9998136758804321,
+      "cos_plus_minus": -1.0000001192092896,
+      "norm_plus": 0.3945944309234619,
+      "norm_minus": 0.3945944309234619,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.32882869243621826,
+      "strength_on_u": 0.5669459700584412,
+      "proj_intended": 0.39452090859413147,
+      "proj_unused": 0.007617369294166565,
+      "leak_ratio": 0.01930789708518101,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0000001192092896,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.3945944309234619,
+      "cos_teacher": 0.5954365283250809,
+      "collapse": -1.0000001192092896,
+      "perc": 0.8456152677536011,
+      "loss": 1.158059298992157,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.30000001192092896,
+      "hold_dot_odd": 0.9493874907493591,
+      "hold_off": false,
+      "name": "opposite_o0.3_l8_raw",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 1.1584206819534302,
+          "cos_teacher": 0.578814834356308,
+          "collapse": -0.9999998807907104,
+          "perc": 0.8499232828617096
+        },
+        {
+          "step": 100,
+          "loss": 1.1580615043640137,
+          "cos_teacher": 0.5942746698856354,
+          "collapse": -1.0,
+          "perc": 0.8460160195827484
+        },
+        {
+          "step": 150,
+          "loss": 1.1580593585968018,
+          "cos_teacher": 0.5955944359302521,
+          "collapse": -0.9999999403953552,
+          "perc": 0.8455837368965149
+        },
+        {
+          "step": 200,
+          "loss": 1.158059298992157,
+          "cos_teacher": 0.5954365283250809,
+          "collapse": -1.0000001192092896,
+          "perc": 0.8456152677536011
+        }
+      ],
+      "delta_plus": [
+        0.39452090859413147,
+        0.007617369294166565
+      ],
+      "delta_minus": [
+        -0.39452090859413147,
+        -0.007617369294166565
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 0.9539391994476318,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.3_l8_slider",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ]
+    },
+    {
+      "cos_intended": 0.5844568014144897,
+      "cos_concept": 0.5844568014144897,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908236742019653,
+      "norm_minus": 1.1908236742019653,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923530220985413,
+      "strength_on_u": 1.7109534740447998,
+      "proj_intended": 0.6959850192070007,
+      "proj_unused": 0.9662638902664185,
+      "leak_ratio": 1.388340050025747,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908236742019653,
+      "cos_teacher": 0.9923769533634186,
+      "collapse": -1.0,
+      "perc": 0.12323984876275063,
+      "loss": 0.021870807744562626,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 0.31410717964172363,
+      "hold_dot_u": -0.8114259243011475,
+      "hold_dot_odd": -1.7881393432617188e-07,
+      "hold_off": false,
+      "name": "opposite_o0.3_l8_odd",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025405721738934517,
+          "cos_teacher": 0.9923715591430664,
+          "collapse": -0.9999998807907104,
+          "perc": 0.13250738382339478
+        },
+        {
+          "step": 100,
+          "loss": 0.02190321311354637,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.12333099916577339
+        },
+        {
+          "step": 150,
+          "loss": 0.021870882250368595,
+          "cos_teacher": 0.9923768639564514,
+          "collapse": -0.9999999403953552,
+          "perc": 0.12324005737900734
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959850192070007,
+        0.9662638902664185
+      ],
+      "delta_minus": [
+        -0.6959850192070007,
+        -0.9662638902664185
+      ]
+    },
+    {
+      "cos_intended": 0.9773252606391907,
+      "cos_concept": 0.9773252606391907,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.3756133019924164,
+      "norm_minus": 0.3756133019924164,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.3130110800266266,
+      "strength_on_u": 0.5396742820739746,
+      "proj_intended": 0.3670963644981384,
+      "proj_unused": -0.0795336663722992,
+      "leak_ratio": -0.21665609332434993,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.3756133019924164,
+      "cos_teacher": 0.39634428918361664,
+      "collapse": -1.0,
+      "perc": 0.921076238155365,
+      "loss": 1.2613491415977478,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.30000001192092896,
+      "hold_dot_odd": 0.9493874907493591,
+      "hold_off": false,
+      "name": "opposite_o0.3_l32_raw",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 1.2616812586784363,
+          "cos_teacher": 0.3878658413887024,
+          "collapse": -0.9999999403953552,
+          "perc": 0.9234752953052521
+        },
+        {
+          "step": 100,
+          "loss": 1.2613548040390015,
+          "cos_teacher": 0.3960685133934021,
+          "collapse": -1.0,
+          "perc": 0.9213126599788666
+        },
+        {
+          "step": 150,
+          "loss": 1.2613492012023926,
+          "cos_teacher": 0.3963058441877365,
+          "collapse": -1.0,
+          "perc": 0.9210935831069946
+        },
+        {
+          "step": 200,
+          "loss": 1.2613491415977478,
+          "cos_teacher": 0.39634428918361664,
+          "collapse": -1.0,
+          "perc": 0.921076238155365
+        }
+      ],
+      "delta_plus": [
+        0.3670963644981384,
+        -0.0795336663722992
+      ],
+      "delta_minus": [
+        -0.3670963644981384,
+        0.0795336663722992
+      ]
+    },
+    {
+      "cos_intended": 0.9991163015365601,
+      "cos_concept": 0.9991163015365601,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6966281533241272,
+      "norm_minus": 0.6966281533241272,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5805234313011169,
+      "strength_on_u": 1.0009024143218994,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.029279934242367744,
+      "leak_ratio": 0.04206811148163787,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6966281533241272,
+      "cos_teacher": 0.6133324503898621,
+      "collapse": -1.0,
+      "perc": 0.7872711420059204,
+      "loss": 0.9272897243499756,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 0.9539391994476318,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.3_l32_slider",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9285311102867126,
+          "cos_teacher": 0.6104943156242371,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7884554266929626
+        },
+        {
+          "step": 100,
+          "loss": 0.9272946715354919,
+          "cos_teacher": 0.6132128238677979,
+          "collapse": -1.0,
+          "perc": 0.7874472141265869
+        },
+        {
+          "step": 150,
+          "loss": 0.9272896647453308,
+          "cos_teacher": 0.6133269667625427,
+          "collapse": -1.0000001192092896,
+          "perc": 0.787281721830368
+        },
+        {
+          "step": 200,
+          "loss": 0.9272897243499756,
+          "cos_teacher": 0.6133324503898621,
+          "collapse": -1.0,
+          "perc": 0.7872711420059204
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.029279934242367744
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.029279934242367744
+      ]
+    },
+    {
+      "cos_intended": 0.5844557881355286,
+      "cos_concept": 0.5844557881355286,
+      "cos_plus_minus": -1.0000001192092896,
+      "norm_plus": 1.1908314228057861,
+      "norm_minus": 1.1908314228057861,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.992359459400177,
+      "strength_on_u": 1.710964560508728,
+      "proj_intended": 0.6959882974624634,
+      "proj_unused": 0.966271162033081,
+      "leak_ratio": 1.3883439587599604,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0000001192092896,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908314228057861,
+      "cos_teacher": 0.992376983165741,
+      "collapse": -1.0000001192092896,
+      "perc": 0.12323985248804092,
+      "loss": 0.021870807744562626,
+      "overlap": 0.3,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.30000001192092896,
+      "e_dot_odd": 0.9493874907493591,
+      "hold_norm": 0.31410717964172363,
+      "hold_dot_u": -0.8114259243011475,
+      "hold_dot_odd": -1.7881393432617188e-07,
+      "hold_off": false,
+      "name": "opposite_o0.3_l32_odd",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.02609757613390684,
+          "cos_teacher": 0.992376297712326,
+          "collapse": -0.9999999403953552,
+          "perc": 0.13449616730213165
+        },
+        {
+          "step": 100,
+          "loss": 0.021903817541897297,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12333182990550995
+        },
+        {
+          "step": 150,
+          "loss": 0.021870947442948818,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -0.9999999403953552,
+          "perc": 0.12324022874236107
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12323985248804092
+        }
+      ],
+      "delta_plus": [
+        0.6959882974624634,
+        0.966271162033081
+      ],
+      "delta_minus": [
+        -0.6959882974624634,
+        -0.966271162033081
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.5,
+      "hold_dot_odd": 0.9949430227279663,
+      "hold_off": false,
+      "name": "opposite_o0.5_l0_raw",
+      "hold_weight": 0.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.6615028381347656,
+      "cos_concept": 0.6615028381347656,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6043540239334106,
+      "norm_minus": 0.6043540239334106,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5036283135414124,
+      "strength_on_u": 0.8683246970176697,
+      "proj_intended": 0.3997819125652313,
+      "proj_unused": 0.4532308578491211,
+      "leak_ratio": 1.133695227990627,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6043540239334106,
+      "cos_teacher": 0.9875556826591492,
+      "collapse": -1.0,
+      "perc": 0.5086994469165802,
+      "loss": 0.7237822413444519,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.5,
+      "hold_dot_odd": 0.9949430227279663,
+      "hold_off": false,
+      "name": "opposite_o0.5_l1_raw",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.7259732186794281,
+          "cos_teacher": 0.9885694682598114,
+          "collapse": -0.9999999403953552,
+          "perc": 0.534625381231308
+        },
+        {
+          "step": 100,
+          "loss": 0.7237841486930847,
+          "cos_teacher": 0.9874752163887024,
+          "collapse": -1.0,
+          "perc": 0.5079897791147232
+        },
+        {
+          "step": 150,
+          "loss": 0.7237823307514191,
+          "cos_teacher": 0.9875537157058716,
+          "collapse": -1.0,
+          "perc": 0.5088521987199783
+        },
+        {
+          "step": 200,
+          "loss": 0.7237822413444519,
+          "cos_teacher": 0.9875556826591492,
+          "collapse": -1.0,
+          "perc": 0.5086994469165802
+        }
+      ],
+      "delta_plus": [
+        0.3997819125652313,
+        0.4532308578491211
+      ],
+      "delta_minus": [
+        -0.3997819125652313,
+        -0.4532308578491211
+      ]
+    },
+    {
+      "cos_intended": 0.8214775919914246,
+      "cos_concept": 0.8214775919914246,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.8472690582275391,
+      "norm_minus": 0.8472690582275391,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.7060575485229492,
+      "strength_on_u": 1.2173405885696411,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.48314741253852844,
+      "leak_ratio": 0.6941647834483692,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.8472690582275391,
+      "cos_teacher": 0.9356379210948944,
+      "collapse": -1.0,
+      "perc": 0.41522370278835297,
+      "loss": 0.48872746527194977,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 0.8660253882408142,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.5_l1_slider",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.49015653133392334,
+          "cos_teacher": 0.9242522716522217,
+          "collapse": -1.0,
+          "perc": 0.42378756403923035
+        },
+        {
+          "step": 100,
+          "loss": 0.48874081671237946,
+          "cos_teacher": 0.9353631138801575,
+          "collapse": -1.0,
+          "perc": 0.41706888377666473
+        },
+        {
+          "step": 150,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9357221126556396,
+          "collapse": -1.0,
+          "perc": 0.415098637342453
+        },
+        {
+          "step": 200,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9356379210948944,
+          "collapse": -1.0,
+          "perc": 0.41522370278835297
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.48314741253852844
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.48314741253852844
+      ]
+    },
+    {
+      "cos_intended": 0.5844616889953613,
+      "cos_concept": 0.5844616889953613,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908237934112549,
+      "norm_minus": 1.1908237934112549,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923531413078308,
+      "strength_on_u": 1.7109535932540894,
+      "proj_intended": 0.6959908604621887,
+      "proj_unused": 0.9662598371505737,
+      "leak_ratio": 1.3883225745603627,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908237934112549,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 0.10044030100107193,
+      "hold_dot_u": -0.8114266395568848,
+      "hold_dot_odd": -1.3709068298339844e-06,
+      "hold_off": false,
+      "name": "opposite_o0.5_l1_odd",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.02490921225398779,
+          "cos_teacher": 0.9923759698867798,
+          "collapse": -1.0000001192092896,
+          "perc": 0.13150914013385773
+        },
+        {
+          "step": 100,
+          "loss": 0.021900889463722706,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.123324453830719
+        },
+        {
+          "step": 150,
+          "loss": 0.021870838478207588,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12323987856507301
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959908604621887,
+        0.9662598371505737
+      ],
+      "delta_minus": [
+        -0.6959908604621887,
+        -0.9662598371505737
+      ]
+    },
+    {
+      "cos_intended": 0.9524341821670532,
+      "cos_concept": 0.9524341821670532,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.17787355184555054,
+      "norm_minus": 0.17787355184555054,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.14822795987129211,
+      "strength_on_u": 0.25556543469429016,
+      "proj_intended": 0.16941285133361816,
+      "proj_unused": 0.05420594662427902,
+      "leak_ratio": 0.31996358598497054,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.17787355184555054,
+      "cos_teacher": 0.797804206609726,
+      "collapse": -1.0,
+      "perc": 0.8861757516860962,
+      "loss": 1.2697134017944336,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.5,
+      "hold_dot_odd": 0.9949430227279663,
+      "hold_off": false,
+      "name": "opposite_o0.5_l8_raw",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 1.2700711488723755,
+          "cos_teacher": 0.7931824028491974,
+          "collapse": -1.0,
+          "perc": 0.8813808858394623
+        },
+        {
+          "step": 100,
+          "loss": 1.2697163820266724,
+          "cos_teacher": 0.7989505529403687,
+          "collapse": -1.0,
+          "perc": 0.8857049942016602
+        },
+        {
+          "step": 150,
+          "loss": 1.269713282585144,
+          "cos_teacher": 0.7977966368198395,
+          "collapse": -0.9999998807907104,
+          "perc": 0.8861803710460663
+        },
+        {
+          "step": 200,
+          "loss": 1.2697134017944336,
+          "cos_teacher": 0.797804206609726,
+          "collapse": -1.0,
+          "perc": 0.8861757516860962
+        }
+      ],
+      "delta_plus": [
+        0.16941285133361816,
+        0.05420594662427902
+      ],
+      "delta_minus": [
+        -0.16941285133361816,
+        -0.05420594662427902
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 0.8660253882408142,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.5_l8_slider",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ]
+    },
+    {
+      "cos_intended": 0.5844559669494629,
+      "cos_concept": 0.5844559669494629,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908236742019653,
+      "norm_minus": 1.1908236742019653,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923530220985413,
+      "strength_on_u": 1.7109534740447998,
+      "proj_intended": 0.6959840059280396,
+      "proj_unused": 0.9662646055221558,
+      "leak_ratio": 1.388343098991603,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908236742019653,
+      "cos_teacher": 0.992376983165741,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.0218708086758852,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 0.10044030100107193,
+      "hold_dot_u": -0.8114266395568848,
+      "hold_dot_odd": -1.3709068298339844e-06,
+      "hold_off": false,
+      "name": "opposite_o0.5_l8_odd",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025405727326869965,
+          "cos_teacher": 0.992371678352356,
+          "collapse": -1.0,
+          "perc": 0.13250739872455597
+        },
+        {
+          "step": 100,
+          "loss": 0.021903214044868946,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.12333100289106369
+        },
+        {
+          "step": 150,
+          "loss": 0.02187088131904602,
+          "cos_teacher": 0.9923770427703857,
+          "collapse": -1.000000238418579,
+          "perc": 0.12324005365371704
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.6959840059280396,
+        0.9662646055221558
+      ],
+      "delta_minus": [
+        -0.6959840059280396,
+        -0.9662646055221558
+      ]
+    },
+    {
+      "cos_intended": 0.9732177257537842,
+      "cos_concept": 0.9732177257537842,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.12488064914941788,
+      "norm_minus": 0.12488064914941788,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.10406720638275146,
+      "strength_on_u": 0.17942620813846588,
+      "proj_intended": 0.12153606116771698,
+      "proj_unused": -0.02870822325348854,
+      "leak_ratio": -0.2362115459028773,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.12488064914941788,
+      "cos_teacher": 0.379353404045105,
+      "collapse": -1.0,
+      "perc": 0.9652578830718994,
+      "loss": 1.3831535577774048,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.5,
+      "hold_dot_odd": 0.9949430227279663,
+      "hold_off": false,
+      "name": "opposite_o0.5_l32_raw",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 1.3835809230804443,
+          "cos_teacher": 0.3717886358499527,
+          "collapse": -1.0,
+          "perc": 0.9680470526218414
+        },
+        {
+          "step": 100,
+          "loss": 1.3831576108932495,
+          "cos_teacher": 0.3778539448976517,
+          "collapse": -1.0,
+          "perc": 0.9655444920063019
+        },
+        {
+          "step": 150,
+          "loss": 1.3831537365913391,
+          "cos_teacher": 0.3791504204273224,
+          "collapse": -1.0,
+          "perc": 0.9652717411518097
+        },
+        {
+          "step": 200,
+          "loss": 1.3831535577774048,
+          "cos_teacher": 0.379353404045105,
+          "collapse": -1.0,
+          "perc": 0.9652578830718994
+        }
+      ],
+      "delta_plus": [
+        0.12153606116771698,
+        -0.02870822325348854
+      ],
+      "delta_minus": [
+        -0.12153606116771698,
+        0.02870822325348854
+      ]
+    },
+    {
+      "cos_intended": 0.9991163015365601,
+      "cos_concept": 0.9991163015365601,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6966281533241272,
+      "norm_minus": 0.6966281533241272,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5805234313011169,
+      "strength_on_u": 1.0009024143218994,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.029279934242367744,
+      "leak_ratio": 0.04206811148163787,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6966281533241272,
+      "cos_teacher": 0.6133324503898621,
+      "collapse": -1.0,
+      "perc": 0.7872711420059204,
+      "loss": 0.9272897243499756,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 0.8660253882408142,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.5_l32_slider",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9285311102867126,
+          "cos_teacher": 0.6104943156242371,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7884554266929626
+        },
+        {
+          "step": 100,
+          "loss": 0.9272946715354919,
+          "cos_teacher": 0.6132128238677979,
+          "collapse": -1.0,
+          "perc": 0.7874472141265869
+        },
+        {
+          "step": 150,
+          "loss": 0.9272896647453308,
+          "cos_teacher": 0.6133269667625427,
+          "collapse": -1.0000001192092896,
+          "perc": 0.787281721830368
+        },
+        {
+          "step": 200,
+          "loss": 0.9272897243499756,
+          "cos_teacher": 0.6133324503898621,
+          "collapse": -1.0,
+          "perc": 0.7872711420059204
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.029279934242367744
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.029279934242367744
+      ]
+    },
+    {
+      "cos_intended": 0.584454357624054,
+      "cos_concept": 0.584454357624054,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908313035964966,
+      "norm_minus": 1.1908313035964966,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923593997955322,
+      "strength_on_u": 1.7109644412994385,
+      "proj_intended": 0.6959865689277649,
+      "proj_unused": 0.9662721753120422,
+      "leak_ratio": 1.3883488627046208,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908313035964966,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 0.10044030100107193,
+      "hold_dot_u": -0.8114266395568848,
+      "hold_dot_odd": -1.3709068298339844e-06,
+      "hold_off": false,
+      "name": "opposite_o0.5_l32_odd",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.02609760407358408,
+          "cos_teacher": 0.9923763275146484,
+          "collapse": -0.9999999403953552,
+          "perc": 0.1344962790608406
+        },
+        {
+          "step": 100,
+          "loss": 0.021903816610574722,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12333182618021965
+        },
+        {
+          "step": 150,
+          "loss": 0.021870946511626244,
+          "cos_teacher": 0.9923768937587738,
+          "collapse": -0.9999999403953552,
+          "perc": 0.12324022874236107
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959865689277649,
+        0.9662721753120422
+      ],
+      "delta_minus": [
+        -0.6959865689277649,
+        -0.9662721753120422
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.699999988079071,
+      "hold_dot_odd": 0.9885927438735962,
+      "hold_off": false,
+      "name": "opposite_o0.7_l0_raw",
+      "hold_weight": 0.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.4614647924900055,
+      "cos_concept": 0.4614647924900055,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6153468489646912,
+      "norm_minus": 0.6153468489646912,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5127890110015869,
+      "strength_on_u": 0.8841189742088318,
+      "proj_intended": 0.28396090865135193,
+      "proj_unused": 0.5459101796150208,
+      "leak_ratio": 1.9224834959957673,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6153468489646912,
+      "cos_teacher": 0.9820253849029541,
+      "collapse": -1.0,
+      "perc": 0.5054547637701035,
+      "loss": 0.7148507833480835,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.699999988079071,
+      "hold_dot_odd": 0.9885927438735962,
+      "hold_off": false,
+      "name": "opposite_o0.7_l1_raw",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.7167292833328247,
+          "cos_teacher": 0.9767198264598846,
+          "collapse": -1.0,
+          "perc": 0.5293784141540527
+        },
+        {
+          "step": 100,
+          "loss": 0.7148627042770386,
+          "cos_teacher": 0.9826149344444275,
+          "collapse": -1.0,
+          "perc": 0.5039058327674866
+        },
+        {
+          "step": 150,
+          "loss": 0.7148507833480835,
+          "cos_teacher": 0.9820369184017181,
+          "collapse": -0.9999999403953552,
+          "perc": 0.5055175274610519
+        },
+        {
+          "step": 200,
+          "loss": 0.7148507833480835,
+          "cos_teacher": 0.9820253849029541,
+          "collapse": -1.0,
+          "perc": 0.5054547637701035
+        }
+      ],
+      "delta_plus": [
+        0.28396090865135193,
+        0.5459101796150208
+      ],
+      "delta_minus": [
+        -0.28396090865135193,
+        -0.5459101796150208
+      ]
+    },
+    {
+      "cos_intended": 0.8214775919914246,
+      "cos_concept": 0.8214775919914246,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.8472690582275391,
+      "norm_minus": 0.8472690582275391,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.7060575485229492,
+      "strength_on_u": 1.2173405885696411,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.48314741253852844,
+      "leak_ratio": 0.6941647834483692,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.8472690582275391,
+      "cos_teacher": 0.9356379210948944,
+      "collapse": -1.0,
+      "perc": 0.41522370278835297,
+      "loss": 0.48872746527194977,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 0.7141428589820862,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.7_l1_slider",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.49015653133392334,
+          "cos_teacher": 0.9242522716522217,
+          "collapse": -1.0,
+          "perc": 0.42378756403923035
+        },
+        {
+          "step": 100,
+          "loss": 0.48874081671237946,
+          "cos_teacher": 0.9353631138801575,
+          "collapse": -1.0,
+          "perc": 0.41706888377666473
+        },
+        {
+          "step": 150,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9357221126556396,
+          "collapse": -1.0,
+          "perc": 0.415098637342453
+        },
+        {
+          "step": 200,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9356379210948944,
+          "collapse": -1.0,
+          "perc": 0.41522370278835297
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.48314741253852844
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.48314741253852844
+      ]
+    },
+    {
+      "cos_intended": 0.5844624042510986,
+      "cos_concept": 0.5844624042510986,
+      "cos_plus_minus": -0.9999999403953552,
+      "norm_plus": 1.1908239126205444,
+      "norm_minus": 1.1908239126205444,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923532009124756,
+      "strength_on_u": 1.7109538316726685,
+      "proj_intended": 0.6959918141365051,
+      "proj_unused": 0.966259241104126,
+      "leak_ratio": 1.388319815829637,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -0.9999999403953552,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908239126205444,
+      "cos_teacher": 0.9923768937587738,
+      "collapse": -0.9999999403953552,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 0.15061341226100922,
+      "hold_dot_u": 0.8114255666732788,
+      "hold_dot_odd": -4.76837158203125e-07,
+      "hold_off": false,
+      "name": "opposite_o0.7_l1_odd",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.024909187108278275,
+          "cos_teacher": 0.9923758804798126,
+          "collapse": -0.9999998807907104,
+          "perc": 0.13150906562805176
+        },
+        {
+          "step": 100,
+          "loss": 0.02190088853240013,
+          "cos_teacher": 0.9923768937587738,
+          "collapse": -1.0,
+          "perc": 0.1233244501054287
+        },
+        {
+          "step": 150,
+          "loss": 0.021870838478207588,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12323988229036331
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.9923768937587738,
+          "collapse": -0.9999999403953552,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959918141365051,
+        0.966259241104126
+      ],
+      "delta_minus": [
+        -0.6959918141365051,
+        -0.966259241104126
+      ]
+    },
+    {
+      "cos_intended": -0.16450273990631104,
+      "cos_concept": -0.16450273990631104,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.22198723256587982,
+      "norm_minus": 0.22198723256587982,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.1849893480539322,
+      "strength_on_u": 0.3189471662044525,
+      "proj_intended": -0.03651750832796097,
+      "proj_unused": 0.21896302700042725,
+      "leak_ratio": 5.9961091833770706,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.22198723256587982,
+      "cos_teacher": 0.6988586485385895,
+      "collapse": -1.0,
+      "perc": 0.8805227279663086,
+      "loss": 1.2538350820541382,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.699999988079071,
+      "hold_dot_odd": 0.9885927438735962,
+      "hold_off": false,
+      "name": "opposite_o0.7_l8_raw",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": true,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 1.254388689994812,
+          "cos_teacher": 0.7053050994873047,
+          "collapse": -1.0000001192092896,
+          "perc": 0.8743192851543427
+        },
+        {
+          "step": 100,
+          "loss": 1.2538362741470337,
+          "cos_teacher": 0.7010625302791595,
+          "collapse": -1.0,
+          "perc": 0.8804158568382263
+        },
+        {
+          "step": 150,
+          "loss": 1.2538352012634277,
+          "cos_teacher": 0.6990025639533997,
+          "collapse": -0.9999999403953552,
+          "perc": 0.8805133104324341
+        },
+        {
+          "step": 200,
+          "loss": 1.2538350820541382,
+          "cos_teacher": 0.6988586485385895,
+          "collapse": -1.0,
+          "perc": 0.8805227279663086
+        }
+      ],
+      "delta_plus": [
+        -0.03651750832796097,
+        0.21896302700042725
+      ],
+      "delta_minus": [
+        0.03651750832796097,
+        -0.21896302700042725
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 0.7141428589820862,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.7_l8_slider",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ]
+    },
+    {
+      "cos_intended": 0.5844571590423584,
+      "cos_concept": 0.5844571590423584,
+      "cos_plus_minus": -0.9999998807907104,
+      "norm_plus": 1.1908236742019653,
+      "norm_minus": 1.1908236742019653,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923530220985413,
+      "strength_on_u": 1.7109534740447998,
+      "proj_intended": 0.6959854364395142,
+      "proj_unused": 0.966263473033905,
+      "leak_ratio": 1.3883386182528168,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -0.9999998807907104,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908236742019653,
+      "cos_teacher": 0.9923768937587738,
+      "collapse": -0.9999998807907104,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 0.15061341226100922,
+      "hold_dot_u": 0.8114255666732788,
+      "hold_dot_odd": -4.76837158203125e-07,
+      "hold_off": false,
+      "name": "opposite_o0.7_l8_odd",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.02540571056306362,
+          "cos_teacher": 0.9923716187477112,
+          "collapse": -1.0,
+          "perc": 0.1325073540210724
+        },
+        {
+          "step": 100,
+          "loss": 0.02190321311354637,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12333100289106369
+        },
+        {
+          "step": 150,
+          "loss": 0.02187088131904602,
+          "cos_teacher": 0.9923770129680634,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12324005365371704
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.9923768937587738,
+          "collapse": -0.9999998807907104,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959854364395142,
+        0.966263473033905
+      ],
+      "delta_minus": [
+        -0.6959854364395142,
+        -0.966263473033905
+      ]
+    },
+    {
+      "cos_intended": -0.5638752579689026,
+      "cos_concept": -0.5638752579689026,
+      "cos_plus_minus": -1.0000001192092896,
+      "norm_plus": 0.1828770935535431,
+      "norm_minus": 0.1828770935535431,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.15239757299423218,
+      "strength_on_u": 0.2627544403076172,
+      "proj_intended": -0.1031198650598526,
+      "proj_unused": 0.15103088319301605,
+      "leak_ratio": 1.4646146836907536,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0000001192092896,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.1828770935535431,
+      "cos_teacher": 0.3379680961370468,
+      "collapse": -1.0000001192092896,
+      "perc": 0.9591011106967926,
+      "loss": 1.3658318519592285,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.699999988079071,
+      "hold_dot_odd": 0.9885927438735962,
+      "hold_off": false,
+      "name": "opposite_o0.7_l32_raw",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": true,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 1.3665512204170227,
+          "cos_teacher": 0.3173958510160446,
+          "collapse": -0.9999998807907104,
+          "perc": 0.962942361831665
+        },
+        {
+          "step": 100,
+          "loss": 1.3658325672149658,
+          "cos_teacher": 0.3381573557853699,
+          "collapse": -1.0,
+          "perc": 0.9591769278049469
+        },
+        {
+          "step": 150,
+          "loss": 1.3658319115638733,
+          "cos_teacher": 0.33817657828330994,
+          "collapse": -1.0,
+          "perc": 0.959077775478363
+        },
+        {
+          "step": 200,
+          "loss": 1.3658318519592285,
+          "cos_teacher": 0.3379680961370468,
+          "collapse": -1.0000001192092896,
+          "perc": 0.9591011106967926
+        }
+      ],
+      "delta_plus": [
+        -0.1031198650598526,
+        0.15103088319301605
+      ],
+      "delta_minus": [
+        0.1031198650598526,
+        -0.15103088319301605
+      ]
+    },
+    {
+      "cos_intended": 0.9991163015365601,
+      "cos_concept": 0.9991163015365601,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6966281533241272,
+      "norm_minus": 0.6966281533241272,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5805234313011169,
+      "strength_on_u": 1.0009024143218994,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.029279934242367744,
+      "leak_ratio": 0.04206811148163787,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6966281533241272,
+      "cos_teacher": 0.6133324503898621,
+      "collapse": -1.0,
+      "perc": 0.7872711420059204,
+      "loss": 0.9272897243499756,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 0.7141428589820862,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.7_l32_slider",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9285311102867126,
+          "cos_teacher": 0.6104943156242371,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7884554266929626
+        },
+        {
+          "step": 100,
+          "loss": 0.9272946715354919,
+          "cos_teacher": 0.6132128238677979,
+          "collapse": -1.0,
+          "perc": 0.7874472141265869
+        },
+        {
+          "step": 150,
+          "loss": 0.9272896647453308,
+          "cos_teacher": 0.6133269667625427,
+          "collapse": -1.0000001192092896,
+          "perc": 0.787281721830368
+        },
+        {
+          "step": 200,
+          "loss": 0.9272897243499756,
+          "cos_teacher": 0.6133324503898621,
+          "collapse": -1.0,
+          "perc": 0.7872711420059204
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.029279934242367744
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.029279934242367744
+      ]
+    },
+    {
+      "cos_intended": 0.5844561457633972,
+      "cos_concept": 0.5844561457633972,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908314228057861,
+      "norm_minus": 1.1908314228057861,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.992359459400177,
+      "strength_on_u": 1.710964560508728,
+      "proj_intended": 0.6959887742996216,
+      "proj_unused": 0.9662708044052124,
+      "leak_ratio": 1.3883424937336848,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908314228057861,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984876275063,
+      "loss": 0.021870807744562626,
+      "overlap": 0.7,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.699999988079071,
+      "e_dot_odd": 0.9885927438735962,
+      "hold_norm": 0.15061341226100922,
+      "hold_dot_u": 0.8114255666732788,
+      "hold_dot_odd": -4.76837158203125e-07,
+      "hold_off": false,
+      "name": "opposite_o0.7_l32_odd",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.02609756961464882,
+          "cos_teacher": 0.9923763871192932,
+          "collapse": -1.0,
+          "perc": 0.13449618965387344
+        },
+        {
+          "step": 100,
+          "loss": 0.021903816610574722,
+          "cos_teacher": 0.9923768937587738,
+          "collapse": -1.0,
+          "perc": 0.12333183363080025
+        },
+        {
+          "step": 150,
+          "loss": 0.021870947442948818,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -0.9999998807907104,
+          "perc": 0.12324022874236107
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959887742996216,
+        0.9662708044052124
+      ],
+      "delta_minus": [
+        -0.6959887742996216,
+        -0.9662708044052124
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.9000000357627869,
+      "hold_dot_odd": 0.8797022104263306,
+      "hold_off": false,
+      "name": "opposite_o0.9_l0_raw",
+      "hold_weight": 0.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.29114270210266113,
+      "cos_concept": 0.29114270210266113,
+      "cos_plus_minus": -1.0000001192092896,
+      "norm_plus": 0.7713996767997742,
+      "norm_minus": 0.7713996767997742,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.6428330540657043,
+      "strength_on_u": 1.1083327531814575,
+      "proj_intended": 0.22458738088607788,
+      "proj_unused": 0.7379823923110962,
+      "leak_ratio": 3.285947574347299,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0000001192092896,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.7713996767997742,
+      "cos_teacher": 0.9392198622226715,
+      "collapse": -1.0000001192092896,
+      "perc": 0.4499772638082504,
+      "loss": 0.570598915219307,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.9000000357627869,
+      "hold_dot_odd": 0.8797022104263306,
+      "hold_off": false,
+      "name": "opposite_o0.9_l1_raw",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": true,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.5715319961309433,
+          "cos_teacher": 0.9326981902122498,
+          "collapse": -1.0,
+          "perc": 0.4674670100212097
+        },
+        {
+          "step": 100,
+          "loss": 0.5706082433462143,
+          "cos_teacher": 0.9402506947517395,
+          "collapse": -1.0,
+          "perc": 0.44861912727355957
+        },
+        {
+          "step": 150,
+          "loss": 0.5705989748239517,
+          "cos_teacher": 0.9392049610614777,
+          "collapse": -0.9999999403953552,
+          "perc": 0.44991548359394073
+        },
+        {
+          "step": 200,
+          "loss": 0.570598915219307,
+          "cos_teacher": 0.9392198622226715,
+          "collapse": -1.0000001192092896,
+          "perc": 0.4499772638082504
+        }
+      ],
+      "delta_plus": [
+        0.22458738088607788,
+        0.7379823923110962
+      ],
+      "delta_minus": [
+        -0.22458738088607788,
+        -0.7379823923110962
+      ]
+    },
+    {
+      "cos_intended": 0.8214775919914246,
+      "cos_concept": 0.8214775919914246,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.8472690582275391,
+      "norm_minus": 0.8472690582275391,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.7060575485229492,
+      "strength_on_u": 1.2173405885696411,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.48314741253852844,
+      "leak_ratio": 0.6941647834483692,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.8472690582275391,
+      "cos_teacher": 0.9356379210948944,
+      "collapse": -1.0,
+      "perc": 0.41522370278835297,
+      "loss": 0.48872746527194977,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 0.43588992953300476,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.9_l1_slider",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.49015653133392334,
+          "cos_teacher": 0.9242522716522217,
+          "collapse": -1.0,
+          "perc": 0.42378756403923035
+        },
+        {
+          "step": 100,
+          "loss": 0.48874081671237946,
+          "cos_teacher": 0.9353631138801575,
+          "collapse": -1.0,
+          "perc": 0.41706888377666473
+        },
+        {
+          "step": 150,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9357221126556396,
+          "collapse": -1.0,
+          "perc": 0.415098637342453
+        },
+        {
+          "step": 200,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9356379210948944,
+          "collapse": -1.0,
+          "perc": 0.41522370278835297
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.48314741253852844
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.48314741253852844
+      ]
+    },
+    {
+      "cos_intended": 0.5844623446464539,
+      "cos_concept": 0.5844623446464539,
+      "cos_plus_minus": -1.000000238418579,
+      "norm_plus": 1.1908237934112549,
+      "norm_minus": 1.1908237934112549,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923531413078308,
+      "strength_on_u": 1.7109535932540894,
+      "proj_intended": 0.6959916353225708,
+      "proj_unused": 0.9662593007087708,
+      "leak_ratio": 1.3883202581561724,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.000000238418579,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908237934112549,
+      "cos_teacher": 0.9923770129680634,
+      "collapse": -1.000000238418579,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 0.4755250811576843,
+      "hold_dot_u": 0.8114257454872131,
+      "hold_dot_odd": -1.4901161193847656e-07,
+      "hold_off": false,
+      "name": "opposite_o0.9_l1_odd",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.024909176863729954,
+          "cos_teacher": 0.9923759400844574,
+          "collapse": -1.0000001192092896,
+          "perc": 0.13150904327630997
+        },
+        {
+          "step": 100,
+          "loss": 0.02190088853240013,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.000000238418579,
+          "perc": 0.1233244463801384
+        },
+        {
+          "step": 150,
+          "loss": 0.021870838478207588,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -0.9999999403953552,
+          "perc": 0.12323987856507301
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.9923770129680634,
+          "collapse": -1.000000238418579,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959916353225708,
+        0.9662593007087708
+      ],
+      "delta_minus": [
+        -0.6959916353225708,
+        -0.9662593007087708
+      ]
+    },
+    {
+      "cos_intended": -0.2457619160413742,
+      "cos_concept": -0.2457619160413742,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.5781344175338745,
+      "norm_minus": 0.5781344175338745,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.48177865147590637,
+      "strength_on_u": 0.8306528329849243,
+      "proj_intended": -0.14208342134952545,
+      "proj_unused": 0.5604031682014465,
+      "leak_ratio": 3.9441838001705767,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.5781344175338745,
+      "cos_teacher": 0.6380019187927246,
+      "collapse": -1.0,
+      "perc": 0.7835756540298462,
+      "loss": 0.9973873496055603,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.9000000357627869,
+      "hold_dot_odd": 0.8797022104263306,
+      "hold_off": false,
+      "name": "opposite_o0.9_l8_raw",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": true,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9986204206943512,
+          "cos_teacher": 0.6335130929946899,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7811006605625153
+        },
+        {
+          "step": 100,
+          "loss": 0.997390627861023,
+          "cos_teacher": 0.6388919949531555,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7832341194152832
+        },
+        {
+          "step": 150,
+          "loss": 0.9973873198032379,
+          "cos_teacher": 0.6380412578582764,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7835639715194702
+        },
+        {
+          "step": 200,
+          "loss": 0.9973873496055603,
+          "cos_teacher": 0.6380019187927246,
+          "collapse": -1.0,
+          "perc": 0.7835756540298462
+        }
+      ],
+      "delta_plus": [
+        -0.14208342134952545,
+        0.5604031682014465
+      ],
+      "delta_minus": [
+        0.14208342134952545,
+        -0.5604031682014465
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 0.43588992953300476,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.9_l8_slider",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ]
+    },
+    {
+      "cos_intended": 0.5844569802284241,
+      "cos_concept": 0.5844569802284241,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908236742019653,
+      "norm_minus": 1.1908236742019653,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923530220985413,
+      "strength_on_u": 1.7109534740447998,
+      "proj_intended": 0.6959851980209351,
+      "proj_unused": 0.9662637710571289,
+      "leak_ratio": 1.3883395220492443,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908236742019653,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984131217003,
+      "loss": 0.021870807744562626,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 0.4755250811576843,
+      "hold_dot_u": 0.8114257454872131,
+      "hold_dot_odd": -1.4901161193847656e-07,
+      "hold_off": false,
+      "name": "opposite_o0.9_l8_odd",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025405706837773323,
+          "cos_teacher": 0.9923716187477112,
+          "collapse": -1.0,
+          "perc": 0.1325073540210724
+        },
+        {
+          "step": 100,
+          "loss": 0.021903214044868946,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12333100661635399
+        },
+        {
+          "step": 150,
+          "loss": 0.02187088131904602,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324005365371704
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984131217003
+        }
+      ],
+      "delta_plus": [
+        0.6959851980209351,
+        0.9662637710571289
+      ],
+      "delta_minus": [
+        -0.6959851980209351,
+        -0.9662637710571289
+      ]
+    },
+    {
+      "cos_intended": -0.38483521342277527,
+      "cos_concept": -0.38483521342277527,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.5671795606613159,
+      "norm_minus": 0.5671795606613159,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.47264960408210754,
+      "strength_on_u": 0.8149130940437317,
+      "proj_intended": -0.2182706594467163,
+      "proj_unused": 0.5234984159469604,
+      "leak_ratio": 2.3983910310714265,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.5671795606613159,
+      "cos_teacher": 0.5200205147266388,
+      "collapse": -1.0,
+      "perc": 0.8534892201423645,
+      "loss": 1.086070716381073,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.9000000357627869,
+      "hold_dot_odd": 0.8797022104263306,
+      "hold_off": false,
+      "name": "opposite_o0.9_l32_raw",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": true,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 1.0880334079265594,
+          "cos_teacher": 0.5173636823892593,
+          "collapse": -1.0000001192092896,
+          "perc": 0.8575156927108765
+        },
+        {
+          "step": 100,
+          "loss": 1.0860707759857178,
+          "cos_teacher": 0.5200791656970978,
+          "collapse": -1.0,
+          "perc": 0.8534455895423889
+        },
+        {
+          "step": 150,
+          "loss": 1.0860705971717834,
+          "cos_teacher": 0.5200585871934891,
+          "collapse": -0.9999998807907104,
+          "perc": 0.85346719622612
+        },
+        {
+          "step": 200,
+          "loss": 1.086070716381073,
+          "cos_teacher": 0.5200205147266388,
+          "collapse": -1.0,
+          "perc": 0.8534892201423645
+        }
+      ],
+      "delta_plus": [
+        -0.2182706594467163,
+        0.5234984159469604
+      ],
+      "delta_minus": [
+        0.2182706594467163,
+        -0.5234984159469604
+      ]
+    },
+    {
+      "cos_intended": 0.9991163015365601,
+      "cos_concept": 0.9991163015365601,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6966281533241272,
+      "norm_minus": 0.6966281533241272,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5805234313011169,
+      "strength_on_u": 1.0009024143218994,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.029279934242367744,
+      "leak_ratio": 0.04206811148163787,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6966281533241272,
+      "cos_teacher": 0.6133324503898621,
+      "collapse": -1.0,
+      "perc": 0.7872711420059204,
+      "loss": 0.9272897243499756,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 0.43588992953300476,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "opposite_o0.9_l32_slider",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9285311102867126,
+          "cos_teacher": 0.6104943156242371,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7884554266929626
+        },
+        {
+          "step": 100,
+          "loss": 0.9272946715354919,
+          "cos_teacher": 0.6132128238677979,
+          "collapse": -1.0,
+          "perc": 0.7874472141265869
+        },
+        {
+          "step": 150,
+          "loss": 0.9272896647453308,
+          "cos_teacher": 0.6133269667625427,
+          "collapse": -1.0000001192092896,
+          "perc": 0.787281721830368
+        },
+        {
+          "step": 200,
+          "loss": 0.9272897243499756,
+          "cos_teacher": 0.6133324503898621,
+          "collapse": -1.0,
+          "perc": 0.7872711420059204
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.029279934242367744
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.029279934242367744
+      ]
+    },
+    {
+      "cos_intended": 0.584455668926239,
+      "cos_concept": 0.584455668926239,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908313035964966,
+      "norm_minus": 1.1908313035964966,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923593997955322,
+      "strength_on_u": 1.7109644412994385,
+      "proj_intended": 0.695988118648529,
+      "proj_unused": 0.9662711024284363,
+      "leak_ratio": 1.3883442298142974,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908313035964966,
+      "cos_teacher": 0.992376983165741,
+      "collapse": -1.0,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.9,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.9000000357627869,
+      "e_dot_odd": 0.8797022104263306,
+      "hold_norm": 0.4755250811576843,
+      "hold_dot_u": 0.8114257454872131,
+      "hold_dot_odd": -1.4901161193847656e-07,
+      "hold_off": false,
+      "name": "opposite_o0.9_l32_odd",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.026097566820681095,
+          "cos_teacher": 0.9923762679100037,
+          "collapse": -0.9999998807907104,
+          "perc": 0.13449618220329285
+        },
+        {
+          "step": 100,
+          "loss": 0.021903816610574722,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12333183363080025
+        },
+        {
+          "step": 150,
+          "loss": 0.021870946511626244,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.12324023619294167
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.695988118648529,
+        0.9662711024284363
+      ],
+      "delta_minus": [
+        -0.695988118648529,
+        -0.9662711024284363
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 1.0,
+      "hold_dot_u": 1.0,
+      "hold_dot_odd": 0.5844553709030151,
+      "hold_off": false,
+      "name": "opposite_o1.0_l0_raw",
+      "hold_weight": 0.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.33884406089782715,
+      "cos_concept": 0.33884406089782715,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.0270262956619263,
+      "norm_minus": 1.0270262956619263,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.8558552265167236,
+      "strength_on_u": 1.4756124019622803,
+      "proj_intended": 0.34800174832344055,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 2.7766239866143363,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.0270262956619263,
+      "cos_teacher": 0.954133927822113,
+      "collapse": -1.0,
+      "perc": 0.2998950481414795,
+      "loss": 0.264078825712204,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 1.0,
+      "hold_dot_u": 1.0,
+      "hold_dot_odd": 0.5844553709030151,
+      "hold_off": false,
+      "name": "opposite_o1.0_l1_raw",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.26688869297504425,
+          "cos_teacher": 0.9584854543209076,
+          "collapse": -1.0,
+          "perc": 0.30839062482118607
+        },
+        {
+          "step": 100,
+          "loss": 0.26410387456417084,
+          "cos_teacher": 0.9534120857715607,
+          "collapse": -0.9999999403953552,
+          "perc": 0.3005257248878479
+        },
+        {
+          "step": 150,
+          "loss": 0.26407894492149353,
+          "cos_teacher": 0.9541317522525787,
+          "collapse": -1.0000001192092896,
+          "perc": 0.3000030964612961
+        },
+        {
+          "step": 200,
+          "loss": 0.264078825712204,
+          "cos_teacher": 0.954133927822113,
+          "collapse": -1.0,
+          "perc": 0.2998950481414795
+        }
+      ],
+      "delta_plus": [
+        0.34800174832344055,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.34800174832344055,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 0.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.0,
+      "hold_off": true,
+      "name": "opposite_o1.0_l1_slider",
+      "hold_weight": 1.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.5844623446464539,
+      "cos_concept": 0.5844623446464539,
+      "cos_plus_minus": -1.000000238418579,
+      "norm_plus": 1.1908237934112549,
+      "norm_minus": 1.1908237934112549,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923531413078308,
+      "strength_on_u": 1.7109535932540894,
+      "proj_intended": 0.6959916353225708,
+      "proj_unused": 0.9662593007087708,
+      "leak_ratio": 1.3883202581561724,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.000000238418579,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908237934112549,
+      "cos_teacher": 0.9923770129680634,
+      "collapse": -1.000000238418579,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 0.8114258646965027,
+      "hold_dot_u": 0.8114257454872131,
+      "hold_dot_odd": -8.940696716308594e-08,
+      "hold_off": false,
+      "name": "opposite_o1.0_l1_odd",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.024909175001084805,
+          "cos_teacher": 0.9923759400844574,
+          "collapse": -1.0000001192092896,
+          "perc": 0.13150904327630997
+        },
+        {
+          "step": 100,
+          "loss": 0.02190088853240013,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.000000238418579,
+          "perc": 0.1233244463801384
+        },
+        {
+          "step": 150,
+          "loss": 0.021870838478207588,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -0.9999998807907104,
+          "perc": 0.12323987483978271
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.9923770129680634,
+          "collapse": -1.000000238418579,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.6959916353225708,
+        0.9662593007087708
+      ],
+      "delta_minus": [
+        -0.6959916353225708,
+        -0.9662593007087708
+      ]
+    },
+    {
+      "cos_intended": 0.07977554202079773,
+      "cos_concept": 0.07977554202079773,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.9693595170974731,
+      "norm_minus": 0.9693595170974731,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.8077995777130127,
+      "strength_on_u": 1.3927578926086426,
+      "proj_intended": 0.07733117789030075,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 12.495217723999616,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.9693595170974731,
+      "cos_teacher": 0.8489437401294708,
+      "collapse": -1.0,
+      "perc": 0.5207557380199432,
+      "loss": 0.4524628669023514,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 1.0,
+      "hold_dot_u": 1.0,
+      "hold_dot_odd": 0.5844553709030151,
+      "hold_off": false,
+      "name": "opposite_o1.0_l8_raw",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": true,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.45536185801029205,
+          "cos_teacher": 0.8494746088981628,
+          "collapse": -1.0,
+          "perc": 0.5265209227800369
+        },
+        {
+          "step": 100,
+          "loss": 0.4524862617254257,
+          "cos_teacher": 0.8489367365837097,
+          "collapse": -0.9999999403953552,
+          "perc": 0.5203613042831421
+        },
+        {
+          "step": 150,
+          "loss": 0.45246291160583496,
+          "cos_teacher": 0.8489455282688141,
+          "collapse": -1.0,
+          "perc": 0.5207777619361877
+        },
+        {
+          "step": 200,
+          "loss": 0.4524628669023514,
+          "cos_teacher": 0.8489437401294708,
+          "collapse": -1.0,
+          "perc": 0.5207557380199432
+        }
+      ],
+      "delta_plus": [
+        0.07733117789030075,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.07733117789030075,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 0.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.0,
+      "hold_off": true,
+      "name": "opposite_o1.0_l8_slider",
+      "hold_weight": 8.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.5844569802284241,
+      "cos_concept": 0.5844569802284241,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908236742019653,
+      "norm_minus": 1.1908236742019653,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923530220985413,
+      "strength_on_u": 1.7109534740447998,
+      "proj_intended": 0.6959851980209351,
+      "proj_unused": 0.9662637710571289,
+      "leak_ratio": 1.3883395220492443,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908236742019653,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984131217003,
+      "loss": 0.021870807744562626,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 0.8114258646965027,
+      "hold_dot_u": 0.8114257454872131,
+      "hold_dot_odd": -8.940696716308594e-08,
+      "hold_off": false,
+      "name": "opposite_o1.0_l8_odd",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025405709631741047,
+          "cos_teacher": 0.9923715889453888,
+          "collapse": -0.9999999403953552,
+          "perc": 0.1325073540210724
+        },
+        {
+          "step": 100,
+          "loss": 0.02190321497619152,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12333100661635399
+        },
+        {
+          "step": 150,
+          "loss": 0.02187088131904602,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324005737900734
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984131217003
+        }
+      ],
+      "delta_plus": [
+        0.6959851980209351,
+        0.9662637710571289
+      ],
+      "delta_minus": [
+        -0.6959851980209351,
+        -0.9662637710571289
+      ]
+    },
+    {
+      "cos_intended": 0.021821722388267517,
+      "cos_concept": 0.021821722388267517,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.9665001630783081,
+      "norm_minus": 0.9665001630783081,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.8054167628288269,
+      "strength_on_u": 1.388649582862854,
+      "proj_intended": 0.02109069749712944,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 45.81496517726325,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.9665001630783081,
+      "cos_teacher": 0.8177051544189453,
+      "collapse": -1.0,
+      "perc": 0.5671650171279907,
+      "loss": 0.4916076064109802,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 1.0,
+      "hold_dot_u": 1.0,
+      "hold_dot_odd": 0.5844553709030151,
+      "hold_off": false,
+      "name": "opposite_o1.0_l32_raw",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": true,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.4947522282600403,
+          "cos_teacher": 0.8164303004741669,
+          "collapse": -0.9999999403953552,
+          "perc": 0.5725435614585876
+        },
+        {
+          "step": 100,
+          "loss": 0.4916321486234665,
+          "cos_teacher": 0.8177959620952606,
+          "collapse": -0.9999999403953552,
+          "perc": 0.5668733716011047
+        },
+        {
+          "step": 150,
+          "loss": 0.49160774052143097,
+          "cos_teacher": 0.8176965415477753,
+          "collapse": -0.9999999403953552,
+          "perc": 0.5671876817941666
+        },
+        {
+          "step": 200,
+          "loss": 0.4916076064109802,
+          "cos_teacher": 0.8177051544189453,
+          "collapse": -1.0,
+          "perc": 0.5671650171279907
+        }
+      ],
+      "delta_plus": [
+        0.02109069749712944,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.02109069749712944,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 0.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.0,
+      "hold_off": true,
+      "name": "opposite_o1.0_l32_slider",
+      "hold_weight": 32.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.5844560265541077,
+      "cos_concept": 0.5844560265541077,
+      "cos_plus_minus": -1.0000001192092896,
+      "norm_plus": 1.1908315420150757,
+      "norm_minus": 1.1908315420150757,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923595786094666,
+      "strength_on_u": 1.7109647989273071,
+      "proj_intended": 0.695988655090332,
+      "proj_unused": 0.9662709832191467,
+      "leak_ratio": 1.388342988450444,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0000001192092896,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908315420150757,
+      "cos_teacher": 0.992376983165741,
+      "collapse": -1.0000001192092896,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 0.8114258646965027,
+      "hold_dot_u": 0.8114257454872131,
+      "hold_dot_odd": -8.940696716308594e-08,
+      "hold_off": false,
+      "name": "opposite_o1.0_l32_odd",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.026097575202584267,
+          "cos_teacher": 0.9923763871192932,
+          "collapse": -1.0000001192092896,
+          "perc": 0.13449618965387344
+        },
+        {
+          "step": 100,
+          "loss": 0.021903816610574722,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0,
+          "perc": 0.12333183363080025
+        },
+        {
+          "step": 150,
+          "loss": 0.021870946511626244,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -0.9999999403953552,
+          "perc": 0.12324023246765137
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.695988655090332,
+        0.9662709832191467
+      ],
+      "delta_minus": [
+        -0.695988655090332,
+        -0.9662709832191467
+      ]
+    }
+  ],
+  "same_energy": [
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l0_raw",
+      "hold_weight": 0.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ]
+    },
+    {
+      "cos_intended": 0.8214775919914246,
+      "cos_concept": 0.8214775919914246,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.8472690582275391,
+      "norm_minus": 0.8472690582275391,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.7060575485229492,
+      "strength_on_u": 1.2173405885696411,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.48314741253852844,
+      "leak_ratio": 0.6941647834483692,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.8472690582275391,
+      "cos_teacher": 0.9356379210948944,
+      "collapse": -1.0,
+      "perc": 0.41522370278835297,
+      "loss": 0.48872746527194977,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l1_raw",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.49015653133392334,
+          "cos_teacher": 0.9242522716522217,
+          "collapse": -1.0,
+          "perc": 0.42378756403923035
+        },
+        {
+          "step": 100,
+          "loss": 0.48874081671237946,
+          "cos_teacher": 0.9353631138801575,
+          "collapse": -1.0,
+          "perc": 0.41706888377666473
+        },
+        {
+          "step": 150,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9357221126556396,
+          "collapse": -1.0,
+          "perc": 0.415098637342453
+        },
+        {
+          "step": 200,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9356379210948944,
+          "collapse": -1.0,
+          "perc": 0.41522370278835297
+        }
+      ]
+    },
+    {
+      "cos_intended": 0.8214775919914246,
+      "cos_concept": 0.8214775919914246,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.8472690582275391,
+      "norm_minus": 0.8472690582275391,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.7060575485229492,
+      "strength_on_u": 1.2173405885696411,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.48314741253852844,
+      "leak_ratio": 0.6941647834483692,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.8472690582275391,
+      "cos_teacher": 0.9356379210948944,
+      "collapse": -1.0,
+      "perc": 0.41522370278835297,
+      "loss": 0.48872746527194977,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "slider",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l1_slider",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.49015653133392334,
+          "cos_teacher": 0.9242522716522217,
+          "collapse": -1.0,
+          "perc": 0.42378756403923035
+        },
+        {
+          "step": 100,
+          "loss": 0.48874081671237946,
+          "cos_teacher": 0.9353631138801575,
+          "collapse": -1.0,
+          "perc": 0.41706888377666473
+        },
+        {
+          "step": 150,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9357221126556396,
+          "collapse": -1.0,
+          "perc": 0.415098637342453
+        },
+        {
+          "step": 200,
+          "loss": 0.48872746527194977,
+          "cos_teacher": 0.9356379210948944,
+          "collapse": -1.0,
+          "perc": 0.41522370278835297
+        }
+      ]
+    },
+    {
+      "cos_intended": 0.5844621658325195,
+      "cos_concept": 0.5844621658325195,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908239126205444,
+      "norm_minus": 1.1908239126205444,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923532009124756,
+      "strength_on_u": 1.7109538316726685,
+      "proj_intended": 0.6959915161132812,
+      "proj_unused": 0.9662594795227051,
+      "leak_ratio": 1.3883207528670891,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908239126205444,
+      "cos_teacher": 0.9923769533634186,
+      "collapse": -1.0,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "odd",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 0.5844553709030151,
+      "hold_dot_u": -0.8114259243011475,
+      "hold_dot_odd": -5.960464477539063e-08,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l1_odd",
+      "hold_weight": 1.0,
+      "used_hold": 1.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.0249091824516654,
+          "cos_teacher": 0.992375910282135,
+          "collapse": -1.0,
+          "perc": 0.13150906562805176
+        },
+        {
+          "step": 100,
+          "loss": 0.02190088853240013,
+          "cos_teacher": 0.9923768937587738,
+          "collapse": -1.0,
+          "perc": 0.12332445755600929
+        },
+        {
+          "step": 150,
+          "loss": 0.021870839409530163,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323987856507301
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.12323984876275063
+        }
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l8_raw",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "slider",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l8_slider",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ]
+    },
+    {
+      "cos_intended": 0.5844568610191345,
+      "cos_concept": 0.5844568610191345,
+      "cos_plus_minus": -0.9999998807907104,
+      "norm_plus": 1.1908237934112549,
+      "norm_minus": 1.1908237934112549,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923531413078308,
+      "strength_on_u": 1.7109535932540894,
+      "proj_intended": 0.6959851384162903,
+      "proj_unused": 0.9662638902664185,
+      "leak_ratio": 1.3883398122289616,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -0.9999998807907104,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908237934112549,
+      "cos_teacher": 0.9923768937587738,
+      "collapse": -0.9999998807907104,
+      "perc": 0.12323985621333122,
+      "loss": 0.021870809607207775,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "odd",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 0.5844553709030151,
+      "hold_dot_u": -0.8114259243011475,
+      "hold_dot_odd": -5.960464477539063e-08,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l8_odd",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025405708700418472,
+          "cos_teacher": 0.9923715889453888,
+          "collapse": -1.0,
+          "perc": 0.1325073391199112
+        },
+        {
+          "step": 100,
+          "loss": 0.02190321311354637,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.12333099916577339
+        },
+        {
+          "step": 150,
+          "loss": 0.02187088131904602,
+          "cos_teacher": 0.9923770129680634,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12324005737900734
+        },
+        {
+          "step": 200,
+          "loss": 0.021870809607207775,
+          "cos_teacher": 0.9923768937587738,
+          "collapse": -0.9999998807907104,
+          "perc": 0.12323985621333122
+        }
+      ]
+    },
+    {
+      "cos_intended": 0.9991163015365601,
+      "cos_concept": 0.9991163015365601,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6966281533241272,
+      "norm_minus": 0.6966281533241272,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5805234313011169,
+      "strength_on_u": 1.0009024143218994,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.029279934242367744,
+      "leak_ratio": 0.04206811148163787,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6966281533241272,
+      "cos_teacher": 0.6133324503898621,
+      "collapse": -1.0,
+      "perc": 0.7872711420059204,
+      "loss": 0.9272897243499756,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l32_raw",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9285311102867126,
+          "cos_teacher": 0.6104943156242371,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7884554266929626
+        },
+        {
+          "step": 100,
+          "loss": 0.9272946715354919,
+          "cos_teacher": 0.6132128238677979,
+          "collapse": -1.0,
+          "perc": 0.7874472141265869
+        },
+        {
+          "step": 150,
+          "loss": 0.9272896647453308,
+          "cos_teacher": 0.6133269667625427,
+          "collapse": -1.0000001192092896,
+          "perc": 0.787281721830368
+        },
+        {
+          "step": 200,
+          "loss": 0.9272897243499756,
+          "cos_teacher": 0.6133324503898621,
+          "collapse": -1.0,
+          "perc": 0.7872711420059204
+        }
+      ]
+    },
+    {
+      "cos_intended": 0.9991163015365601,
+      "cos_concept": 0.9991163015365601,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.6966281533241272,
+      "norm_minus": 0.6966281533241272,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5805234313011169,
+      "strength_on_u": 1.0009024143218994,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.029279934242367744,
+      "leak_ratio": 0.04206811148163787,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.6966281533241272,
+      "cos_teacher": 0.6133324503898621,
+      "collapse": -1.0,
+      "perc": 0.7872711420059204,
+      "loss": 0.9272897243499756,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "slider",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l32_slider",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9285311102867126,
+          "cos_teacher": 0.6104943156242371,
+          "collapse": -0.9999999403953552,
+          "perc": 0.7884554266929626
+        },
+        {
+          "step": 100,
+          "loss": 0.9272946715354919,
+          "cos_teacher": 0.6132128238677979,
+          "collapse": -1.0,
+          "perc": 0.7874472141265869
+        },
+        {
+          "step": 150,
+          "loss": 0.9272896647453308,
+          "cos_teacher": 0.6133269667625427,
+          "collapse": -1.0000001192092896,
+          "perc": 0.787281721830368
+        },
+        {
+          "step": 200,
+          "loss": 0.9272897243499756,
+          "cos_teacher": 0.6133324503898621,
+          "collapse": -1.0,
+          "perc": 0.7872711420059204
+        }
+      ]
+    },
+    {
+      "cos_intended": 0.5844557881355286,
+      "cos_concept": 0.5844557881355286,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908315420150757,
+      "norm_minus": 1.1908315420150757,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923595786094666,
+      "strength_on_u": 1.7109647989273071,
+      "proj_intended": 0.6959883570671082,
+      "proj_unused": 0.966271162033081,
+      "leak_ratio": 1.388343839861783,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908315420150757,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "odd",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 0.5844553709030151,
+      "hold_dot_u": -0.8114259243011475,
+      "hold_dot_odd": -5.960464477539063e-08,
+      "hold_off": false,
+      "name": "same_energy_o0.0_l32_odd",
+      "hold_weight": 32.0,
+      "used_hold": 32.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.026097589172422886,
+          "cos_teacher": 0.992376297712326,
+          "collapse": -0.9999999403953552,
+          "perc": 0.13449621945619583
+        },
+        {
+          "step": 100,
+          "loss": 0.021903816610574722,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12333183363080025
+        },
+        {
+          "step": 150,
+          "loss": 0.021870946511626244,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324022874236107
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ]
+    }
+  ],
+  "baselines": [
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "pair_odd_no_hold",
+      "hold_weight": 0.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0000001192092896,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700891494751,
+      "leak_ratio": 1.3882940274125817,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0000001192092896,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923770129680634,
+      "collapse": -1.0000001192092896,
+      "perc": 0.12323984876275063,
+      "loss": 0.0218708086758852,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "hub",
+      "hold_weight": 0.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870914846658707,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.9923770129680634,
+          "collapse": -1.0000001192092896,
+          "perc": 0.12323984876275063
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700891494751
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700891494751
+      ]
+    },
+    {
+      "cos_intended": 1.0,
+      "cos_concept": 1.0,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.696012556552887,
+      "norm_minus": 0.696012556552887,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5800104141235352,
+      "strength_on_u": 1.0000180006027222,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.0,
+      "leak_ratio": 0.0,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.696012556552887,
+      "cos_teacher": 0.5800000131130219,
+      "collapse": -1.0,
+      "perc": 0.8114746809005737,
+      "loss": 0.9555840492248535,
+      "overlap": 0.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "gated_project_0.50",
+      "hold_weight": 1.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.9567773342132568,
+          "cos_teacher": 0.5800000131130219,
+          "collapse": -1.0,
+          "perc": 0.8116668164730072
+        },
+        {
+          "step": 100,
+          "loss": 0.955587774515152,
+          "cos_teacher": 0.5800000131130219,
+          "collapse": -1.0,
+          "perc": 0.8114939630031586
+        },
+        {
+          "step": 150,
+          "loss": 0.9555840492248535,
+          "cos_teacher": 0.5800000131130219,
+          "collapse": -1.0,
+          "perc": 0.8114759922027588
+        },
+        {
+          "step": 200,
+          "loss": 0.9555840492248535,
+          "cos_teacher": 0.5800000131130219,
+          "collapse": -1.0,
+          "perc": 0.8114746809005737
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.0
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        0.0
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "v9_unused_e",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.0,
+      "leak_mode": "same_energy",
+      "ortho": "raw",
+      "e_dot_u": 0.0,
+      "e_dot_odd": 0.8114258050918579,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "same_energy_hold_l8",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ]
+    },
+    {
+      "cos_intended": 0.07977554202079773,
+      "cos_concept": 0.07977554202079773,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.9693595170974731,
+      "norm_minus": 0.9693595170974731,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.8077995777130127,
+      "strength_on_u": 1.3927578926086426,
+      "proj_intended": 0.07733117789030075,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 12.495217723999616,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.9693595170974731,
+      "cos_teacher": 0.8489437401294708,
+      "collapse": -1.0,
+      "perc": 0.5207557380199432,
+      "loss": 0.4524628669023514,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 1.0,
+      "hold_dot_u": 1.0,
+      "hold_dot_odd": 0.5844553709030151,
+      "hold_off": false,
+      "name": "energy_slider_e_raw_l8",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": true,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.45536185801029205,
+          "cos_teacher": 0.8494746088981628,
+          "collapse": -1.0,
+          "perc": 0.5265209227800369
+        },
+        {
+          "step": 100,
+          "loss": 0.4524862617254257,
+          "cos_teacher": 0.8489367365837097,
+          "collapse": -0.9999999403953552,
+          "perc": 0.5203613042831421
+        },
+        {
+          "step": 150,
+          "loss": 0.45246291160583496,
+          "cos_teacher": 0.8489455282688141,
+          "collapse": -1.0,
+          "perc": 0.5207777619361877
+        },
+        {
+          "step": 200,
+          "loss": 0.4524628669023514,
+          "cos_teacher": 0.8489437401294708,
+          "collapse": -1.0,
+          "perc": 0.5207557380199432
+        }
+      ],
+      "delta_plus": [
+        0.07733117789030075,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.07733117789030075,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.5844696164131165,
+      "cos_concept": 0.5844696164131165,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908447742462158,
+      "norm_minus": 1.1908447742462158,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.99237060546875,
+      "strength_on_u": 1.7109837532043457,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.9662700295448303,
+      "leak_ratio": 1.3882939417752704,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
+      "cos_teacher": 0.9923769235610962,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.021870807744562626,
+      "overlap": 1.0,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 1.0,
+      "e_dot_odd": 0.5844553709030151,
+      "hold_norm": 0.0,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.0,
+      "hold_off": true,
+      "name": "energy_slider_e_slider_l8",
+      "hold_weight": 8.0,
+      "used_hold": 0.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025865876581519842,
+          "cos_teacher": 0.9911148846149445,
+          "collapse": -1.0,
+          "perc": 0.12495454400777817
+        },
+        {
+          "step": 100,
+          "loss": 0.02189678978174925,
+          "cos_teacher": 0.9923704266548157,
+          "collapse": -1.0,
+          "perc": 0.12326042354106903
+        },
+        {
+          "step": 150,
+          "loss": 0.021870913915336132,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12324013561010361
+        },
+        {
+          "step": 200,
+          "loss": 0.021870807744562626,
+          "cos_teacher": 0.9923769235610962,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.9662700295448303
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.9662700295448303
+      ]
+    },
+    {
+      "cos_intended": 0.9524341821670532,
+      "cos_concept": 0.9524341821670532,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.17787355184555054,
+      "norm_minus": 0.17787355184555054,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.14822795987129211,
+      "strength_on_u": 0.25556543469429016,
+      "proj_intended": 0.16941285133361816,
+      "proj_unused": 0.05420594662427902,
+      "leak_ratio": 0.31996358598497054,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.17787355184555054,
+      "cos_teacher": 0.797804206609726,
+      "collapse": -1.0,
+      "perc": 0.8861757516860962,
+      "loss": 1.2697134017944336,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "raw",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 1.0,
+      "hold_dot_u": 0.5,
+      "hold_dot_odd": 0.9949430227279663,
+      "hold_off": false,
+      "name": "pole_synonym_raw_l8",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 1.2700711488723755,
+          "cos_teacher": 0.7931824028491974,
+          "collapse": -1.0,
+          "perc": 0.8813808858394623
+        },
+        {
+          "step": 100,
+          "loss": 1.2697163820266724,
+          "cos_teacher": 0.7989505529403687,
+          "collapse": -1.0,
+          "perc": 0.8857049942016602
+        },
+        {
+          "step": 150,
+          "loss": 1.269713282585144,
+          "cos_teacher": 0.7977966368198395,
+          "collapse": -0.9999998807907104,
+          "perc": 0.8861803710460663
+        },
+        {
+          "step": 200,
+          "loss": 1.2697134017944336,
+          "cos_teacher": 0.797804206609726,
+          "collapse": -1.0,
+          "perc": 0.8861757516860962
+        }
+      ],
+      "delta_plus": [
+        0.16941285133361816,
+        0.05420594662427902
+      ],
+      "delta_minus": [
+        -0.16941285133361816,
+        -0.05420594662427902
+      ]
+    },
+    {
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "cos_teacher": 0.6959827244281769,
+      "collapse": -1.0,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "slider",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 0.8660253882408142,
+      "hold_dot_u": 0.0,
+      "hold_dot_odd": 0.8114258050918579,
+      "hold_off": false,
+      "name": "pole_synonym_slider_l8",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": true,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.8530578911304474,
+          "cos_teacher": 0.6892827451229095,
+          "collapse": -1.0000001192092896,
+          "perc": 0.7243763506412506
+        },
+        {
+          "step": 100,
+          "loss": 0.851843923330307,
+          "cos_teacher": 0.6958025395870209,
+          "collapse": -1.0,
+          "perc": 0.7232105433940887
+        },
+        {
+          "step": 150,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6960330903530121,
+          "collapse": -1.0,
+          "perc": 0.7227684855461121
+        },
+        {
+          "step": 200,
+          "loss": 0.8518381416797638,
+          "cos_teacher": 0.6959827244281769,
+          "collapse": -1.0,
+          "perc": 0.7227900922298431
+        }
+      ],
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ]
+    },
+    {
+      "cos_intended": 0.5844559669494629,
+      "cos_concept": 0.5844559669494629,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1908236742019653,
+      "norm_minus": 1.1908236742019653,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9923530220985413,
+      "strength_on_u": 1.7109534740447998,
+      "proj_intended": 0.6959840059280396,
+      "proj_unused": 0.9662646055221558,
+      "leak_ratio": 1.388343098991603,
+      "mean_align": 0.5800000131130219,
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908236742019653,
+      "cos_teacher": 0.992376983165741,
+      "collapse": -1.0,
+      "perc": 0.12323984503746033,
+      "loss": 0.0218708086758852,
+      "overlap": 0.5,
+      "leak_mode": "opposite",
+      "ortho": "odd",
+      "e_dot_u": 0.5,
+      "e_dot_odd": 0.9949430227279663,
+      "hold_norm": 0.10044030100107193,
+      "hold_dot_u": -0.8114266395568848,
+      "hold_dot_odd": -1.3709068298339844e-06,
+      "hold_off": false,
+      "name": "pole_synonym_odd_l8",
+      "hold_weight": 8.0,
+      "used_hold": 8.0,
+      "odd_align": 0.5800000131130219,
+      "pass": false,
+      "live_fail": false,
+      "slider_collapsed": false,
+      "history": [
+        {
+          "step": 0,
+          "loss": 1.440000057220459,
+          "cos_teacher": 0.0,
+          "collapse": 0.0,
+          "perc": 1.0
+        },
+        {
+          "step": 50,
+          "loss": 0.025405727326869965,
+          "cos_teacher": 0.992371678352356,
+          "collapse": -1.0,
+          "perc": 0.13250739872455597
+        },
+        {
+          "step": 100,
+          "loss": 0.021903214044868946,
+          "cos_teacher": 0.9923769533634186,
+          "collapse": -1.0,
+          "perc": 0.12333100289106369
+        },
+        {
+          "step": 150,
+          "loss": 0.02187088131904602,
+          "cos_teacher": 0.9923770427703857,
+          "collapse": -1.000000238418579,
+          "perc": 0.12324005365371704
+        },
+        {
+          "step": 200,
+          "loss": 0.0218708086758852,
+          "cos_teacher": 0.992376983165741,
+          "collapse": -1.0,
+          "perc": 0.12323984503746033
+        }
+      ],
+      "delta_plus": [
+        0.6959840059280396,
+        0.9662646055221558
+      ],
+      "delta_minus": [
+        -0.6959840059280396,
+        -0.9662646055221558
+      ]
+    }
+  ]
+}

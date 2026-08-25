@@ -17,6 +17,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_anchor_kappa,
     lm_anchor_targets,
     lm_axis_hold,
+    lm_hold_dir,
     lm_hidden_targets,
     lm_ortho_hold,
     lm_project_odd_axis,
@@ -362,11 +363,19 @@ def train_lm(
                 anchor_plus, anchor_minus = lm_anchor_targets(pos, neg, neu, kappa)
             hold = None
             if leak_dir is not None and hold_w > 0.0:
-                used_hold = hold_w
                 hold = None
+                used_hold = 0.0
                 for axis in as_dirs(leak_dir):
-                    term = lm_axis_hold(pred_plus, pred_minus, neu, axis)
+                    hold_axis = lm_hold_dir(
+                        axis,
+                        slider_dir=slider_dir if slider_dir is not None else declared,
+                        mode="slider",
+                    )
+                    if hold_axis is None:
+                        continue
+                    term = lm_axis_hold(pred_plus, pred_minus, neu, hold_axis)
                     hold = term if hold is None else hold + term
+                    used_hold = hold_w
             else:
                 used_hold = hold_w if do_hold else 0.0
                 if used_hold > 0.0:

@@ -205,6 +205,9 @@ def write_report(table: dict, blob: dict, path: Path) -> None:
         "",
         f"Seed `{blob['seed']}`, `{blob['steps']}` Adam steps.",
         "",
+        "Unused-ê is the wrong ê for live energy-v4 leak captions (they",
+        "*are* energy). That cell is [lm-hold-overlap.md](lm-hold-overlap.md).",
+        "",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
