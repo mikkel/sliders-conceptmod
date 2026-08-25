@@ -532,8 +532,9 @@ def lm_slider_loss(
 ) -> torch.Tensor:
     """Pole MSE plus optional v9 anchor MSE and orthogonal hold.
 
-    Endreg / planreg / collapse_weight / semantic-KL poles are AR-only and
-    are not expressed on the CPU field.
+    Endreg / planreg / collapse_weight are AR-only and are not expressed on
+    the CPU field. Semantic-KL poles are ``lm_semantic_pole_loss``; they
+    need a readout, which ``analysis/slider2d/sheet.py`` supplies.
     """
     pole = F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_minus, tgt_minus)
     weight = float(anchor_weight)
@@ -541,6 +542,76 @@ def lm_slider_loss(
         pole = pole + weight * (
             F.mse_loss(pred_plus, anchor_plus) + F.mse_loss(pred_minus, anchor_minus)
         )
+    hold_w = float(hold_weight)
+    if hold_w > 0.0 and hold is not None:
+        pole = pole + hold_w * hold
+    return pole
+
+
+def lm_next_token_logits(
+    hidden: torch.Tensor,
+    readout: torch.Tensor,
+    *,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """``hidden @ readout.T`` — next-token logits from a prompt-last hidden.
+
+    ``readout`` is the slice of ``lm_head.weight`` that decides what the AR
+    model says next. Live that is the semantic-code band
+    ``weight[_AUDIO_CODE_OFFSET : + _SEMANTIC_VOCAB_SIZE]`` — the rows
+    ``_frame_margins`` already multiplies out for the end margin. The pole
+    hiddens the LM slider fits are exactly the states this head reads, so
+    this is the only place the "does the target say real words" question can
+    be asked at all.
+    """
+    logits = hidden @ readout.transpose(-1, -2)
+    if bias is not None:
+        logits = logits + bias
+    return logits
+
+
+def lm_semantic_kl(pred_logits: torch.Tensor, tgt_logits: torch.Tensor) -> torch.Tensor:
+    """``KL(teacher ‖ student)`` on next-token policies.
+
+    Teacher first: the target caption's policy is the reference, so mass it
+    puts nowhere costs the student nothing and mass it puts somewhere the
+    student misses is paid in full. Reverse KL would let the student drop
+    the caption's rarer real tokens.
+
+    This term only sees the readout's row space. Hidden MSE also pins the
+    head's null space, which on a Music 3 hidden state is most of the
+    width — pole content that cannot change a single token.
+    """
+    return F.kl_div(
+        F.log_softmax(pred_logits, dim=-1),
+        F.log_softmax(tgt_logits, dim=-1),
+        log_target=True,
+        reduction="batchmean",
+    )
+
+
+def lm_semantic_pole_loss(
+    pred_plus_logits: torch.Tensor,
+    pred_minus_logits: torch.Tensor,
+    tgt_plus_logits: torch.Tensor,
+    tgt_minus_logits: torch.Tensor,
+    *,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+) -> torch.Tensor:
+    """``lm_slider_loss`` with the pole MSE replaced by semantic KL.
+
+    The targets must be logits of a hidden state some real caption
+    actually produces — ``encode(positive)``, or that pole with a declared
+    ê subtracted. Feeding the pair-odd midpoint ``h0 ± ½(h+−h−)`` through
+    ``lm_next_token_logits`` and calling this "semantic" does not help:
+    the midpoint is not a caption, and matching its policy is the same
+    off-sheet target with a different metric on top. See
+    ``analysis/slider2d/sheet.py``.
+    """
+    pole = lm_semantic_kl(pred_plus_logits, tgt_plus_logits) + lm_semantic_kl(
+        pred_minus_logits, tgt_minus_logits
+    )
     hold_w = float(hold_weight)
     if hold_w > 0.0 and hold is not None:
         pole = pole + hold_w * hold
