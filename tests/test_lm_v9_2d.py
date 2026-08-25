@@ -14,8 +14,10 @@ from analysis.slider2d.train import (
     train_lm,
 )
 from conceptmod.textsliders.slider_targets import (
+    leftover_bipolar,
     lm_anchor_kappa,
     lm_anchor_targets,
+    lm_axis_hold,
     lm_hidden_targets,
     lm_ortho_hold,
     lm_pair_collapse,
@@ -152,7 +154,8 @@ def test_pair_slider_dir_is_declared_polarity_not_leaked_embed():
 def test_v9_default_does_not_use_attribute_prefixes():
     spec = next(s for s in lm_v9_specs() if s.name == "lm_v9")
     assert spec.kwargs.get("with_attrs") is False
-    assert spec.kwargs.get("project_odd") is True
+    assert spec.kwargs.get("project_odd") is False
+    assert spec.kwargs.get("leak_dir") is not None
     assert spec.kwargs.get("anchor_weight", 1.0) == 0.0
     pairs = music3_pairs(False)
     assert [p.positive.name for p in pairs] == ["energetic"]
@@ -165,6 +168,7 @@ def test_v9_specs_cover_the_asked_cells():
         "lm_symmetric_floor",
         "lm_v9_hub",
         "lm_v9",
+        "lm_v9_project",
         "lm_raw_attrs",
         "m3_nmse_axis",
     ]
@@ -221,6 +225,17 @@ def test_raw_still_collapses_and_attrs_still_clean():
     assert raw["collapse"] == "needs_help"
     assert raw["leak"] == "needs_help"
     assert attrs["slider"] == attrs["leak"] == attrs["collapse"] == "right"
+
+
+def test_axis_hold_penalizes_only_the_leak_direction():
+    neu = torch.zeros(2)
+    pred_plus = torch.tensor([1.0, 0.4])
+    pred_minus = torch.tensor([-1.0, -0.4])
+    hold = float(lm_axis_hold(pred_plus, pred_minus, neu, torch.tensor([0.0, 1.0])))
+    assert hold == pytest.approx(0.16, abs=1e-6)
+    leftover = leftover_bipolar(pred_plus, pred_minus)
+    assert leftover["same_dir"] == pytest.approx(0.0, abs=1e-6)
+    assert leftover["leak_frac"] == pytest.approx(-1.0, abs=1e-5)
 
 
 def test_tf_nmse_axis_still_leaks_gender():

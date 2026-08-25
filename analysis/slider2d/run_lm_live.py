@@ -20,7 +20,7 @@ if str(_REPO) not in sys.path:
 from analysis.slider2d.energy import LIVE_ENERGY_ALIGNS, energy_row_aligns
 from analysis.slider2d.live_compare import live_policy_table, table_row
 from analysis.slider2d.mismatch import LIVE_GENDER_V1_ALIGN
-from conceptmod.textsliders.slider_targets import SLIDER_ALIGN_MIN
+from conceptmod.textsliders.slider_targets import LEAK_HOLD_WEIGHT, SLIDER_ALIGN_MIN
 
 
 DEFAULT_OUT = _REPO / "docs" / "lm-live-cells"
@@ -52,7 +52,8 @@ def plot_energy(energy_rows: list[dict], path: Path) -> None:
         "hub": ("#b9770e", "Hub / pair-odd"),
         "always_project_hold": ("#c0392b", "always project+hold"),
         "gated_row_0.50": ("#6c3483", "per-row gate 0.50 (mixed)"),
-        "slider_align_0.50": ("#1e8449", "slider-level 0.50 (NEW)"),
+        "slider_align_0.50": ("#7f8c8d", "slider-level project (v9_project)"),
+        "hold_e": ("#1e8449", "hold ê (NEW v9)"),
     }
     for row in energy_rows:
         color, label = styles[row["name"]]
@@ -84,8 +85,8 @@ def write_report(table: dict, blob: dict, path: Path) -> None:
     gender = {r["name"]: table_row("gender", r) for r in table["gender"]}
     energy = {r["name"]: table_row("energy", r) for r in table["energy"]}
     cheat = table["energy_cheat"]
-    g_new = next(r for r in table["gender"] if r["name"] == "slider_align_0.50")
-    e_new = next(r for r in table["energy"] if r["name"] == "slider_align_0.50")
+    g_new = next(r for r in table["gender"] if r["name"] == "hold_e")
+    e_new = next(r for r in table["energy"] if r["name"] == "hold_e")
     e_row = next(r for r in table["energy"] if r["name"] == "gated_row_0.50")
     lines = [
         "# Live 2-D cells: gender-like and energy-like",
@@ -103,56 +104,64 @@ def write_report(table: dict, blob: dict, path: Path) -> None:
         "",
         f"- **Gender-like:** clean pair, short û at `|odd·û|/||odd|| = {LIVE_GENDER_V1_ALIGN:.2f}`.",
         "  Always-project+hold must FAIL (tiny `||d+||`, hold eats the singer).",
-        "  Pair-symmetric / Hub-odd must PASS.",
+        "  Pair-symmetric / Hub-odd must PASS. NEW: teacher = full odd,",
+        "  **no hold on û⊥**. Hold only if a real leak ê is declared.",
         f"- **Energy-like:** leaky pair (unused attr in `pos−neg`), short û **is**",
         f"  the intended axis, alignments `{list(LIVE_ENERGY_ALIGNS)}` on four rows.",
         "  Per-row 0.50 splits the rows (mixed teacher) and must FAIL.",
-        "  Hub / symmetric-on-pair must still leak. A good loss is leak-low,",
-        "  keeps strength on the intended û, and uses the **same teacher on every row**.",
-        "- **Old leak-0 cell** (û = energetic/calm pole names) stays a regression",
-        "  only: project+hold must still be leak-0 there. It is not energy.",
+        "  Hub / symmetric-on-pair must still leak. Short-û project+hold may",
+        "  look leak-0 but is the live-fragile path. NEW: teacher = full odd,",
+        "  hold along the unused-attr direction ê.",
+        "- **Old leak-0 cell** (û = energetic/calm pole names) is not energy.",
+        "  Project+hold is still leak-0 there; that is the cheat.",
+        "- **+/− leftover** (leak_frac / same-dir) must stay in the live-good",
+        "  band (≲ 6% same-dir). It is not the thing we optimize.",
         "",
         "## Verdict",
         "",
-        f"**`--lm_target v9` is now slider-level `|odd·û|/||odd||` ≥ {SLIDER_ALIGN_MIN}.**",
-        "One mean over the slider, then project+hold on every row or",
-        "pair-symmetric on every row. Gender mean 0.20 → fallback (do not",
-        "regress the live woman/man save). Energy mean 0.58 → project all",
-        "four rows onto the short loud/calm û (no mixed teacher, leak-0).",
+        f"**`--lm_target v9` is now full pair-odd + hold-on-ê** (λ={LEAK_HOLD_WEIGHT}).",
+        "Teacher stays `a = ½(h+−h−)`, `t± = h0 ± a`, κ = 0. Do not replace",
+        "`a` with `(a·û)û`. Short `slider_positive` is a name / probe.",
+        "Declare unused mix / BPM / genre as YAML `leak_positive` /",
+        "`leak_negative` (or `leak: [pos, neg]`). If `attributes` already",
+        "pin the unused axis, `a` is clean and hold can be 0.",
         "",
         f"Gender-like NEW: leak {g_new['leak_ratio']:+.3f}, "
         f"`||d+||/||odd||` {g_new['strength']:.3f}, "
-        f"cos {g_new['cos_concept']:.3f}, mixed {g_new['mixed']}.",
+        f"cos {g_new['cos_concept']:.3f}, mixed {g_new['mixed']}, "
+        f"same-dir {g_new.get('same_dir', 0):.4f}.",
         f"Energy-like NEW: leak {e_new['leak_ratio']:+.3f}, "
         f"`||d+||/||odd||` {e_new['strength']:.3f}, "
-        f"cos to û {e_new['cos_intended']:.3f}, mixed {e_new['mixed']}.",
+        f"cos to û {e_new['cos_intended']:.3f}, mixed {e_new['mixed']}, "
+        f"same-dir {e_new.get('same_dir', 0):.4f}.",
         f"Per-row 0.50 on energy: mixed={e_row['mixed']}, "
         f"leak {e_row['leak_ratio']:+.3f}, cos {e_row['cos_intended']:.3f}.",
         "",
-        "Discarded: always-project (kills gender at 0.20), Hub leash",
-        "(still leaks unused attr), per-row 0.50 (mixed energy teacher),",
-        "soft per-row blend of pair-odd and `(a·û)û` (λ that keeps gender",
-        "still leaks energy; λ that kills energy leak eats gender).",
+        "Discarded: always-project / short-û project (kills gender at 0.20),",
+        "Hub leash (still leaks unused attr), slider-level 0.50 gate (û is",
+        "still the teacher on energy), per-row 0.50 (mixed energy teacher),",
+        "soft per-row blend of pair-odd and `(a·û)û`. λ=1 hold-on-ê leaves",
+        "energy leak ~0.69 — too weak when ê fights the full-odd teacher.",
         "û = pole-odd on the energy cell is identity project and still leaks —",
         f"cheat leak {cheat['leak_ratio']:+.3f}, align {cheat['odd_align']:.3f}.",
         "",
-        "## Table (gender-like / energy-like × Hub / always-project / gated-0.50 / NEW)",
+        "## Table (Hub / project-short-û / NEW)",
         "",
         "### Gender-like (intended axis = clean pair-odd)",
         "",
         "| policy | leak | ||d+||/||odd|| | cos intended | mixed-row | verdict |",
         "|---|---:|---:|---:|---|---|",
     ]
-    for name in ("hub", "always_project_hold", "gated_row_0.50", "slider_align_0.50"):
+    for name in ("hub", "always_project_hold", "hold_e"):
         lines.append(_fmt(gender[name]))
     lines += [
         "",
-        "### Energy-like (intended axis = short loud/calm û, not pole-odd)",
+        "### Energy-like (intended axis = energy, unused attr = ê)",
         "",
         "| policy | leak | ||d+||/||odd|| | cos intended | mixed-row | verdict |",
         "|---|---:|---:|---:|---|---|",
     ]
-    for name in ("hub", "always_project_hold", "gated_row_0.50", "slider_align_0.50"):
+    for name in ("hub", "always_project_hold", "hold_e"):
         lines.append(_fmt(energy[name]))
     lines += [
         "",
@@ -162,19 +171,25 @@ def write_report(table: dict, blob: dict, path: Path) -> None:
         "",
         "- `hub`: pair-odd + published floor/anchor. **PASS** gender (clean pair),",
         "  **FAIL** energy (unused attr stays in `(pos−neg)/2`).",
-        "- `always_project_hold` / `--lm_target v9_always`: **FAIL** gender",
-        "  (strength 0.20, hold eats the singer), **PASS** energy (û is the axis).",
-        "- `gated_row_0.50` / live v12: **PASS** gender (fallback), **FAIL** energy",
-        "  as mixed-teacher (0.48 fallback, 0.68 project).",
-        "- `slider_align_0.50` / default `--lm_target v9`: **PASS** both.",
-        "  Same teacher on every row of one slider.",
+        "- `always_project_hold` / `--lm_target v9_always` (and `v9_project`",
+        "  on energy): **FAIL** gender (strength 0.20, hold eats the singer),",
+        "  **PASS** energy (û is the axis). Live-fragile: û is a name, not the",
+        "  teacher.",
+        "- `hold_e` / default `--lm_target v9`: **PASS** both. Teacher = full",
+        "  odd on every row. Gender declares no ê (hold 0). Energy holds the",
+        "  unused-attr direction ê at λ=8.",
+        "- `gated_row_0.50` / `slider_align_0.50`: old project path, kept as",
+        "  `--lm_target v9_project`. Not the default.",
         "",
         "## Bare Music 3 LM train",
         "",
-        "No Hub flags. Default `--lm_target v9` is the slider-level recipe.",
-        "YAML already declares `slider_positive` / `slider_negative`.",
-        "Old always-project is `--lm_target v9_always`. Per-row v12 is",
-        "`--lm_target v9 --project_align_scope row --project_align_min 0.50`.",
+        "The one argv is `--lm_target v9` (default). Declare ê in YAML as",
+        "`leak_positive` / `leak_negative` (or `leak: [pos, neg]`). CLI",
+        "`--leak_positive` / `--leak_negative` wins. `attributes` prefixes",
+        "captions (makes `a` clean) and is not ê. Omit leak on a clean pair.",
+        "",
+        "Old short-û project is `--lm_target v9_project` (slider-level gate)",
+        "or `--lm_target v9_always`.",
         "",
         "```bash",
         BARE_TRAIN_GENDER,

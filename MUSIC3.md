@@ -79,20 +79,21 @@ grid.
 ## Current LM trainer defaults (August 2026)
 
 `train_lm_slider_music3.py` now defaults to **`lm_v9`**: `--symmetric`
-polarity, then one **slider-level** mean `|odd·û|/||odd||` across every
-row. If that mean is ≥ 0.50, every row projects the odd teacher onto the
-declared slider axis and holds the orthogonal residual. Otherwise every
-row is pair-symmetric and hold is off. κ = 0. See
+polarity, full pair-odd `a = ½(h+−h−)`, `t± = h0 ± a`, κ = 0, and a
+hold along a declared leak axis ê (`leak_positive` / `leak_negative`):
+penalize `(h(±1)−h0) · ê`. Short `slider_positive` is a name / probe,
+not the teacher. If no ê is declared (clean pair, or `attributes`
+already pin the unused axis), hold is 0. See
 [docs/lm-live-cells.md](docs/lm-live-cells.md).
 
 **Gender vs energy.** The energetic×gender fixture set û from the pole
 names (`odd·û/||odd|| ≈ 0.95`), so project+hold looked leak-0 and hid
 both live failures. Gender-v1 is a clean pair vs a short û at 0.20 —
 always-project eats the singer. Live energy is a leaky pair vs a short
-loud/calm û at **0.48 and 0.68**; a hard per-row 0.50 gate mixed
-teachers on one LoRA. Slider-level 0.50 is the one default that is
-right on both. Old always-project is `--lm_target v9_always`. Hub
-still leaks unused attr.
+loud/calm û at **0.48 and 0.68**; leftover mix/BPM/genre is ~42% of
+`a`. Hold-on-ê is the one default that is right on both. Old short-û
+project is `--lm_target v9_project` / `v9_always`. Hub still leaks
+unused attr.
 
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.

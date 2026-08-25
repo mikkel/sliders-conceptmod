@@ -25,7 +25,9 @@ import torch
 from analysis.slider2d.field import E_ATTR, E_SLIDER, Prompt, cosine
 from analysis.slider2d.train import Pair, Residual, pair_slider_dir, train_lm
 from conceptmod.textsliders.slider_targets import (
+    LEAK_HOLD_WEIGHT,
     SLIDER_ALIGN_MIN,
+    leftover_bipolar,
     lm_odd_align,
     lm_project_decisions,
     lm_teachers_mixed,
@@ -222,6 +224,8 @@ def score_energy_policy(
     project_align_scope: str = "row",
     use_declared_u: bool = True,
     use_pole_odd_u: bool = False,
+    leak_dir: torch.Tensor | None = None,
+    use_unused_e: bool = False,
     leakage_floor: float | None = None,
     anchor_weight: float = 0.0,
     field: EnergyLiveField2D | None = None,
@@ -235,6 +239,7 @@ def score_energy_policy(
         slider = field.declared_u
     else:
         slider = None
+    declared_e = field.unused if use_unused_e else leak_dir
     residual = train_lm(
         field,
         energy_pairs(field),
@@ -243,6 +248,7 @@ def score_energy_policy(
         project_odd=project_odd,
         hold_weight=hold_weight,
         slider_dir=slider,
+        leak_dir=declared_e,
         project_align_min=project_align_min,
         project_align_scope=project_align_scope,
         leakage_floor=leakage_floor,
@@ -260,6 +266,7 @@ def score_energy_policy(
     else:
         decisions = lm_project_decisions(aligns, project_align_min, project_align_scope)
     metrics = _score_energy_residual(residual, field, decisions=decisions)
+    metrics.update(leftover_bipolar(residual.delta(1.0), residual.delta(-1.0)))
     metrics["row_aligns"] = aligns
     metrics["mean_align"] = sum(aligns) / len(aligns)
     metrics.update(
@@ -308,6 +315,15 @@ def energy_policy_table(*, steps: int = 200, seed: int = 0) -> list[dict]:
             hold_weight=1.0,
             project_align_min=SLIDER_ALIGN_MIN,
             project_align_scope="slider",
+            steps=steps,
+            seed=seed,
+        ),
+        score_energy_policy(
+            "hold_e",
+            project_odd=False,
+            hold_weight=LEAK_HOLD_WEIGHT,
+            use_declared_u=False,
+            use_unused_e=True,
             steps=steps,
             seed=seed,
         ),

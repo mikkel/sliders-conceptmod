@@ -25,6 +25,7 @@ import torch
 from analysis.slider2d.field import E_SLIDER, Field2D, Prompt, cosine
 from analysis.slider2d.train import Pair, Residual, music3_pairs, pair_slider_dir, train_lm
 from conceptmod.textsliders.slider_targets import (
+    leftover_bipolar,
     lm_odd_align,
     lm_project_decisions,
     lm_teachers_mixed,
@@ -219,6 +220,7 @@ def score_mismatch_policy(
     use_short_u: bool = True,
     project_align_min: float | None = None,
     project_align_scope: str = "row",
+    leak_dir: torch.Tensor | None = None,
     leakage_floor: float | None = None,
     anchor_weight: float = 0.0,
     field: MismatchField2D | None = None,
@@ -235,6 +237,7 @@ def score_mismatch_policy(
         project_odd=project_odd,
         hold_weight=hold_weight,
         slider_dir=declared,
+        leak_dir=leak_dir,
         project_align_min=project_align_min,
         project_align_scope=project_align_scope,
         leakage_floor=leakage_floor,
@@ -245,6 +248,7 @@ def score_mismatch_policy(
     odd = field.odd()
     pos, neg, _neu = field.rich_pair()
     metrics = score_against_odd(residual, odd, junk=field.junk)
+    metrics.update(leftover_bipolar(residual.delta(1.0), residual.delta(-1.0)))
     used_u = field.declared_u if use_short_u else field.concept
     align = float(lm_odd_align(pos, neg, used_u))
     if declared is None or not project_odd:

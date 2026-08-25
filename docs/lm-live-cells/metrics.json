@@ -29,7 +29,9 @@
         "pass": true,
         "norm_plus": 1.1999655961990356,
         "norm_odd": 1.2000000476837158,
-        "odd_align": 1.0
+        "odd_align": 1.0,
+        "same_dir": 0.0,
+        "leak_frac": -1.0
       },
       {
         "cell": "gender",
@@ -41,7 +43,9 @@
         "pass": false,
         "norm_plus": 0.23999452590942383,
         "norm_odd": 1.2000000476837158,
-        "odd_align": 0.20000001788139343
+        "odd_align": 0.20000001788139343,
+        "same_dir": 0.0,
+        "leak_frac": -1.0
       },
       {
         "cell": "gender",
@@ -53,7 +57,9 @@
         "pass": true,
         "norm_plus": 1.1999655961990356,
         "norm_odd": 1.2000000476837158,
-        "odd_align": 0.20000001788139343
+        "odd_align": 0.20000001788139343,
+        "same_dir": 0.0,
+        "leak_frac": -1.0
       },
       {
         "cell": "gender",
@@ -65,7 +71,23 @@
         "pass": true,
         "norm_plus": 1.1999655961990356,
         "norm_odd": 1.2000000476837158,
-        "odd_align": 0.20000001788139343
+        "odd_align": 0.20000001788139343,
+        "same_dir": 0.0,
+        "leak_frac": -1.0
+      },
+      {
+        "cell": "gender",
+        "policy": "hold_e",
+        "leak": 0.0,
+        "strength": 0.9999712705612183,
+        "cos_intended": 1.0,
+        "mixed": false,
+        "pass": true,
+        "norm_plus": 1.1999655961990356,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 1.0,
+        "same_dir": 0.0,
+        "leak_frac": -1.0
       }
     ],
     "energy": [
@@ -79,7 +101,9 @@
         "pass": false,
         "norm_plus": 1.1908447742462158,
         "norm_odd": 1.2000000476837158,
-        "odd_align": 0.5800000131130219
+        "odd_align": 0.5800000131130219,
+        "same_dir": 0.0,
+        "leak_frac": -1.0000001192092896
       },
       {
         "cell": "energy",
@@ -91,7 +115,9 @@
         "pass": true,
         "norm_plus": 0.696012556552887,
         "norm_odd": 1.2000000476837158,
-        "odd_align": 0.5800000131130219
+        "odd_align": 0.5800000131130219,
+        "same_dir": 0.0,
+        "leak_frac": -1.0
       },
       {
         "cell": "energy",
@@ -103,7 +129,9 @@
         "pass": false,
         "norm_plus": 0.8134751319885254,
         "norm_odd": 1.2000000476837158,
-        "odd_align": 0.5800000131130219
+        "odd_align": 0.5800000131130219,
+        "same_dir": 0.0,
+        "leak_frac": -1.0
       },
       {
         "cell": "energy",
@@ -115,7 +143,23 @@
         "pass": true,
         "norm_plus": 0.696012556552887,
         "norm_odd": 1.2000000476837158,
-        "odd_align": 0.5800000131130219
+        "odd_align": 0.5800000131130219,
+        "same_dir": 0.0,
+        "leak_frac": -1.0
+      },
+      {
+        "cell": "energy",
+        "policy": "hold_e",
+        "leak": 0.15425786783129622,
+        "strength": 0.5868706703186035,
+        "cos_intended": 0.9883104562759399,
+        "mixed": false,
+        "pass": true,
+        "norm_plus": 0.70424485206604,
+        "norm_odd": 1.2000000476837158,
+        "odd_align": 0.5800000131130219,
+        "same_dir": 0.0,
+        "leak_frac": -1.0
       }
     ],
     "energy_cheat": {
@@ -128,7 +172,9 @@
       "pass": false,
       "norm_plus": 1.200029730796814,
       "norm_odd": 1.2000000476837158,
-      "odd_align": 1.0
+      "odd_align": 1.0,
+      "same_dir": 0.0,
+      "leak_frac": -1.0000001192092896
     }
   },
   "gender": [
@@ -151,6 +197,10 @@
       "proj_junk": 0.0,
       "leak_ratio": 0.0,
       "concept_kept": 0.999971290430574,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1999655961990356,
       "name": "hub",
       "odd_align": 1.0,
       "cos_intended": 1.0,
@@ -191,6 +241,10 @@
       "proj_junk": 0.23514530062675476,
       "leak_ratio": 4.8987992954542525,
       "concept_kept": 0.04000048925477309,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.23999452590942383,
       "name": "always_project_hold",
       "odd_align": 0.20000001788139343,
       "cos_intended": 0.20000702142715454,
@@ -231,6 +285,10 @@
       "proj_junk": 0.0,
       "leak_ratio": 0.0,
       "concept_kept": 0.999971290430574,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1999655961990356,
       "name": "gated_row_0.50",
       "odd_align": 0.20000001788139343,
       "cos_intended": 1.0,
@@ -271,6 +329,10 @@
       "proj_junk": 0.0,
       "leak_ratio": 0.0,
       "concept_kept": 0.999971290430574,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1999655961990356,
       "name": "slider_align_0.50",
       "odd_align": 0.20000001788139343,
       "cos_intended": 1.0,
@@ -279,6 +341,50 @@
         0.20000001788139343
       ],
       "mean_align": 0.20000001788139343,
+      "decisions": [
+        false
+      ],
+      "mixed": false,
+      "n_rows": 1,
+      "axis": {
+        "slider": "right",
+        "leak": "right",
+        "collapse": "right",
+        "strength": "right"
+      },
+      "pass": true
+    },
+    {
+      "delta_plus": [
+        1.1999655961990356,
+        0.0
+      ],
+      "delta_minus": [
+        -1.1999655961990356,
+        0.0
+      ],
+      "cos_concept": 1.0,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.1999655961990356,
+      "norm_minus": 1.1999655961990356,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.9999712705612183,
+      "proj_concept": 1.1999655961990356,
+      "proj_junk": 0.0,
+      "leak_ratio": 0.0,
+      "concept_kept": 0.999971290430574,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1999655961990356,
+      "name": "hold_e",
+      "odd_align": 1.0,
+      "cos_intended": 1.0,
+      "strength_on_u": 0.9999712705612183,
+      "row_aligns": [
+        1.0
+      ],
+      "mean_align": 1.0,
       "decisions": [
         false
       ],
@@ -329,6 +435,10 @@
       ],
       "mixed": false,
       "n_rows": 4,
+      "leak_frac": -1.0000001192092896,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.1908447742462158,
       "name": "hub",
       "odd_align": 0.5800000131130219,
       "axis": {
@@ -375,6 +485,10 @@
       ],
       "mixed": false,
       "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.696012556552887,
       "name": "always_project_hold",
       "odd_align": 0.5800000131130219,
       "axis": {
@@ -421,6 +535,10 @@
       ],
       "mixed": true,
       "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.8134751319885254,
       "name": "gated_row_0.50",
       "odd_align": 0.5800000131130219,
       "axis": {
@@ -467,7 +585,61 @@
       ],
       "mixed": false,
       "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.696012556552887,
       "name": "slider_align_0.50",
+      "odd_align": 0.5800000131130219,
+      "axis": {
+        "slider": "right",
+        "leak": "right",
+        "collapse": "right",
+        "strength": "right",
+        "mixed": "right"
+      },
+      "pass": true
+    },
+    {
+      "delta_plus": [
+        0.696012556552887,
+        0.10736541450023651
+      ],
+      "delta_minus": [
+        -0.696012556552887,
+        -0.10736541450023651
+      ],
+      "cos_intended": 0.9883104562759399,
+      "cos_concept": 0.9883104562759399,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 0.70424485206604,
+      "norm_minus": 0.70424485206604,
+      "norm_odd": 1.2000000476837158,
+      "strength": 0.5868706703186035,
+      "strength_on_u": 1.0118459463119507,
+      "proj_intended": 0.696012556552887,
+      "proj_unused": 0.10736541450023651,
+      "leak_ratio": 0.15425786783129622,
+      "row_aligns": [
+        0.48000001907348633,
+        0.48000001907348633,
+        0.6800000071525574,
+        0.6800000071525574
+      ],
+      "mean_align": 0.5800000131130219,
+      "decisions": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "mixed": false,
+      "n_rows": 4,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 0.70424485206604,
+      "name": "hold_e",
       "odd_align": 0.5800000131130219,
       "axis": {
         "slider": "right",
@@ -508,6 +680,10 @@
     ],
     "mixed": false,
     "n_rows": 1,
+    "leak_frac": -1.0000001192092896,
+    "same_dir": 0.0,
+    "even_norm": 0.0,
+    "odd_norm": 1.200029730796814,
     "name": "u_is_pole_odd",
     "odd_align": 1.0,
     "axis": {

@@ -1,5 +1,5 @@
 {
-  "steps": 250,
+  "steps": 200,
   "seed": 0,
   "geometry": {
     "r_raw_collapse": 0.25282058119773865,
@@ -19,23 +19,27 @@
         "collapse": "needs_help"
       },
       "delta_plus": [
-        1.0000016689300537,
-        1.691996455192566
+        1.0000044107437134,
+        1.692044973373413
       ],
       "delta_minus": [
-        -1.0000016689300537,
-        1.0079976320266724
+        -1.0000044107437134,
+        1.0080313682556152
       ],
-      "cos_slider_plus": 0.5087992548942566,
-      "cos_slider_minus": -0.7042855024337769,
-      "cos_attr_plus": 0.8608851432800293,
-      "leak_ratio": 1.691993614453636,
-      "proj_slider_plus": 1.0000016689300537,
-      "proj_attr_plus": 1.691996455192566,
-      "cos_plus_minus": 0.2528170049190521,
-      "norm_plus": 1.9654148817062378,
-      "norm_minus": 1.4198811054229736,
-      "want_sign": 1.0
+      "cos_slider_plus": 0.5087895393371582,
+      "cos_slider_minus": -0.7042745351791382,
+      "cos_attr_plus": 0.8608909845352173,
+      "leak_ratio": 1.6920374933093019,
+      "proj_slider_plus": 1.0000044107437134,
+      "proj_attr_plus": 1.692044973373413,
+      "cos_plus_minus": 0.25284284353256226,
+      "norm_plus": 1.9654579162597656,
+      "norm_minus": 1.4199070930480957,
+      "want_sign": 1.0,
+      "leak_frac": 0.25284284353256226,
+      "same_dir": 0.560901043709709,
+      "even_norm": 1.3500381708145142,
+      "odd_norm": 1.0568715333938599
     },
     "lm_symmetric": {
       "family": "lm",
@@ -47,23 +51,27 @@
         "collapse": "right"
       },
       "delta_plus": [
-        1.0000016689300537,
-        0.34199950098991394
+        1.0000044107437134,
+        0.34200814366340637
       ],
       "delta_minus": [
-        -1.0000016689300537,
-        -0.34199920296669006
+        -1.0000044107437134,
+        -0.34200552105903625
       ],
-      "cos_slider_plus": 0.9461948275566101,
-      "cos_slider_minus": -0.9461948275566101,
-      "cos_attr_plus": 0.32359763979911804,
-      "leak_ratio": 0.34199892679763744,
-      "proj_slider_plus": 1.0000016689300537,
-      "proj_attr_plus": 0.34199950098991394,
-      "cos_plus_minus": -1.0,
-      "norm_plus": 1.0568665266036987,
-      "norm_minus": 1.0568665266036987,
-      "want_sign": 1.0
+      "cos_slider_plus": 0.9461925625801086,
+      "cos_slider_minus": -0.946193277835846,
+      "cos_attr_plus": 0.32360413670539856,
+      "leak_ratio": 0.3420066317397392,
+      "proj_slider_plus": 1.0000044107437134,
+      "proj_attr_plus": 0.34200814366340637,
+      "cos_plus_minus": -0.9999999403953552,
+      "norm_plus": 1.056872010231018,
+      "norm_minus": 1.0568711757659912,
+      "want_sign": 1.0,
+      "leak_frac": -0.9999999403953552,
+      "same_dir": 1.2407378798992073e-06,
+      "even_norm": 1.3113021850585938e-06,
+      "odd_norm": 1.0568715333938599
     },
     "lm_symmetric_floor": {
       "family": "lm",
@@ -75,23 +83,27 @@
         "collapse": "right"
       },
       "delta_plus": [
-        1.0000016689300537,
-        0.34199950098991394
+        1.0000044107437134,
+        0.34200814366340637
       ],
       "delta_minus": [
-        -1.0000016689300537,
-        -0.34199920296669006
+        -1.0000044107437134,
+        -0.34200552105903625
       ],
-      "cos_slider_plus": 0.9461948275566101,
-      "cos_slider_minus": -0.9461948275566101,
-      "cos_attr_plus": 0.32359763979911804,
-      "leak_ratio": 0.34199892679763744,
-      "proj_slider_plus": 1.0000016689300537,
-      "proj_attr_plus": 0.34199950098991394,
-      "cos_plus_minus": -1.0,
-      "norm_plus": 1.0568665266036987,
-      "norm_minus": 1.0568665266036987,
-      "want_sign": 1.0
+      "cos_slider_plus": 0.9461925625801086,
+      "cos_slider_minus": -0.946193277835846,
+      "cos_attr_plus": 0.32360413670539856,
+      "leak_ratio": 0.3420066317397392,
+      "proj_slider_plus": 1.0000044107437134,
+      "proj_attr_plus": 0.34200814366340637,
+      "cos_plus_minus": -0.9999999403953552,
+      "norm_plus": 1.056872010231018,
+      "norm_minus": 1.0568711757659912,
+      "want_sign": 1.0,
+      "leak_frac": -0.9999999403953552,
+      "same_dir": 1.2407378798992073e-06,
+      "even_norm": 1.3113021850585938e-06,
+      "odd_norm": 1.0568715333938599
     },
     "lm_v9_hub": {
       "family": "lm",
@@ -103,23 +115,27 @@
         "collapse": "right"
       },
       "delta_plus": [
-        1.0000016689300537,
-        0.39719489216804504
+        1.0000044107437134,
+        0.3972030282020569
       ],
       "delta_minus": [
-        -1.0000016689300537,
-        -0.28680387139320374
+        -1.0000044107437134,
+        -0.28681057691574097
       ],
-      "cos_slider_plus": 0.9293730854988098,
-      "cos_slider_minus": -0.961246907711029,
-      "cos_attr_plus": 0.3691416382789612,
-      "leak_ratio": 0.39719422530672305,
-      "proj_slider_plus": 1.0000016689300537,
-      "proj_attr_plus": 0.39719489216804504,
-      "cos_plus_minus": -0.9951252341270447,
-      "norm_plus": 1.075995922088623,
-      "norm_minus": 1.040317177772522,
-      "want_sign": 1.0
+      "cos_slider_plus": 0.9293709397315979,
+      "cos_slider_minus": -0.9612454771995544,
+      "cos_attr_plus": 0.36914730072021484,
+      "leak_ratio": 0.39720127227702956,
+      "proj_slider_plus": 1.0000044107437134,
+      "proj_attr_plus": 0.3972030282020569,
+      "cos_plus_minus": -0.995125412940979,
+      "norm_plus": 1.0760014057159424,
+      "norm_minus": 1.0403215885162354,
+      "want_sign": 1.0,
+      "leak_frac": -0.995125412940979,
+      "same_dir": 0.04963386870833825,
+      "even_norm": 0.05519622564315796,
+      "odd_norm": 1.0568715333938599
     },
     "lm_v9": {
       "family": "lm",
@@ -131,23 +147,59 @@
         "collapse": "right"
       },
       "delta_plus": [
-        1.0000016689300537,
+        1.0000044107437134,
+        0.03800089284777641
+      ],
+      "delta_minus": [
+        -1.0000044107437134,
+        -0.03800089284777641
+      ],
+      "cos_slider_plus": 0.999278724193573,
+      "cos_slider_minus": -0.999278724193573,
+      "cos_attr_plus": 0.0379733145236969,
+      "leak_ratio": 0.038000724856310904,
+      "proj_slider_plus": 1.0000044107437134,
+      "proj_attr_plus": 0.03800089284777641,
+      "cos_plus_minus": -0.9999999403953552,
+      "norm_plus": 1.0007262229919434,
+      "norm_minus": 1.0007262229919434,
+      "want_sign": 1.0,
+      "leak_frac": -0.9999999403953552,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.0007262229919434
+    },
+    "lm_v9_project": {
+      "family": "lm",
+      "verdict": "right",
+      "reason": "tracks the slider, attribute leak is small, \u00b11 are opposite",
+      "axis": {
+        "slider": "right",
+        "leak": "right",
+        "collapse": "right"
+      },
+      "delta_plus": [
+        1.0000044107437134,
         0.0
       ],
       "delta_minus": [
-        -1.0000016689300537,
+        -1.0000044107437134,
         0.0
       ],
       "cos_slider_plus": 1.0,
       "cos_slider_minus": -1.0,
       "cos_attr_plus": 0.0,
       "leak_ratio": 0.0,
-      "proj_slider_plus": 1.0000016689300537,
+      "proj_slider_plus": 1.0000044107437134,
       "proj_attr_plus": 0.0,
       "cos_plus_minus": -1.0,
-      "norm_plus": 1.0000016689300537,
-      "norm_minus": 1.0000016689300537,
-      "want_sign": 1.0
+      "norm_plus": 1.0000044107437134,
+      "norm_minus": 1.0000044107437134,
+      "want_sign": 1.0,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.0000044107437134
     },
     "lm_raw_attrs": {
       "family": "lm",
@@ -159,23 +211,27 @@
         "collapse": "right"
       },
       "delta_plus": [
-        1.0000016689300537,
+        1.0000044107437134,
         0.0
       ],
       "delta_minus": [
-        -1.0000016689300537,
+        -1.0000044107437134,
         0.0
       ],
       "cos_slider_plus": 1.0,
       "cos_slider_minus": -1.0,
       "cos_attr_plus": 0.0,
       "leak_ratio": 0.0,
-      "proj_slider_plus": 1.0000016689300537,
+      "proj_slider_plus": 1.0000044107437134,
       "proj_attr_plus": 0.0,
       "cos_plus_minus": -1.0,
-      "norm_plus": 1.0000016689300537,
-      "norm_minus": 1.0000016689300537,
-      "want_sign": 1.0
+      "norm_plus": 1.0000044107437134,
+      "norm_minus": 1.0000044107437134,
+      "want_sign": 1.0,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 1.0000044107437134
     },
     "m3_nmse_axis": {
       "family": "music3",
@@ -187,23 +243,27 @@
         "collapse": "right"
       },
       "delta_plus": [
-        5.9590888023376465,
-        1.984509825706482
+        5.960261821746826,
+        1.9845019578933716
       ],
       "delta_minus": [
-        -5.9590888023376465,
-        -1.984509825706482
+        -5.960261821746826,
+        -1.9845019578933716
       ],
-      "cos_slider_plus": 0.9487718343734741,
-      "cos_slider_minus": -0.9487718343734741,
-      "cos_attr_plus": 0.3159622251987457,
-      "leak_ratio": 0.3330223610022005,
-      "proj_slider_plus": 5.9590888023376465,
-      "proj_attr_plus": 1.984509825706482,
-      "cos_plus_minus": -1.0000001192092896,
-      "norm_plus": 6.2808451652526855,
-      "norm_minus": 6.2808451652526855,
-      "want_sign": 1.0
+      "cos_slider_plus": 0.9487907886505127,
+      "cos_slider_minus": -0.9487907886505127,
+      "cos_attr_plus": 0.3159051239490509,
+      "leak_ratio": 0.3329554999283909,
+      "proj_slider_plus": 5.960261821746826,
+      "proj_attr_plus": 1.9845019578933716,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 6.281955718994141,
+      "norm_minus": 6.281955718994141,
+      "want_sign": 1.0,
+      "leak_frac": -1.0,
+      "same_dir": 0.0,
+      "even_norm": 0.0,
+      "odd_norm": 6.281955718994141
     }
   }
 }

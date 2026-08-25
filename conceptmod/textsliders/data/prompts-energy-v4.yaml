@@ -14,9 +14,14 @@
 plus_label: Loud
 minus_label: Quiet
 recommended_range: [-2.0, 2.0]
-# Declared slider axis for --lm_target v9 (not plus_label, not a row's pos-neg).
+# Declared slider axis (name / probe). Default --lm_target v9 does not
+# project onto this pair — it is not the teacher.
 slider_positive: "Extremely high energy, aggressive and loud."
 slider_negative: "Extremely quiet and calm, almost silent."
+# Unused mix / BPM / genre leftover inside the structured poles.
+# Hold (h(±1)−h0)·ê. attributes already pin gender; that is not ê.
+leak_positive: "Dense slammed mix, BPM 168, pop-punk."
+leak_negative: "Sparse airy mix, BPM 52, ambient lullaby."
 rows:
   - target: "Global Metadata:\nGenre: pop. BPM 110. Medium energy, even mood, neither aggressive nor quiet. Balanced studio mix.\nVocal Details:\nOne clear lead vocal, ordinary timbre, even phrasing, no backing vocals. Sung, not rapped.\nArrangement:\nVerse and chorus with drums, bass and guitar at a comfortable level."
     positive: "Global Metadata:\nGenre: pop-punk. BPM 168. Extremely high energy, aggressive and euphoric, a packed room going off. Dense slammed mix, everything loud.\nVocal Details:\nOne shouted lead vocal at full throat, gang shouts answering every hook, everyone yelling. Sung, not rapped.\nArrangement:\nIntro: a four-count stick click straight into full band. Verse: pounding drums, driving downstroked power chords and roaring bass. Chorus: double-time smashing cymbals, stacked gang vocals, the whole band slamming."

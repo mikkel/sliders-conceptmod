@@ -1,4 +1,4 @@
-"""Score Hub / always-project / per-row 0.50 / slider-level 0.50 on both live cells."""
+"""Score Hub / project-short-û / hold-ê (and discarded gates) on both live cells."""
 
 from __future__ import annotations
 
@@ -7,7 +7,13 @@ from analysis.slider2d.energy import EnergyLiveField2D, energy_policy_table, sco
 from analysis.slider2d.mismatch import score_mismatch_policy
 
 
-POLICY_ORDER = ("hub", "always_project_hold", "gated_row_0.50", "slider_align_0.50")
+POLICY_ORDER = (
+    "hub",
+    "always_project_hold",
+    "gated_row_0.50",
+    "slider_align_0.50",
+    "hold_e",
+)
 
 
 def gender_policy_table(*, steps: int = 200, seed: int = 0) -> list[dict]:
@@ -50,6 +56,14 @@ def gender_policy_table(*, steps: int = 200, seed: int = 0) -> list[dict]:
             steps=steps,
             seed=seed,
         ),
+        score_mismatch_policy(
+            "hold_e",
+            project_odd=False,
+            hold_weight=0.0,
+            use_short_u=False,
+            steps=steps,
+            seed=seed,
+        ),
     ]
 
 
@@ -86,4 +100,6 @@ def table_row(cell: str, row: dict) -> dict:
         "norm_plus": float(row["norm_plus"]),
         "norm_odd": float(row["norm_odd"]),
         "odd_align": float(row["odd_align"]),
+        "same_dir": float(row.get("same_dir", 0.0)),
+        "leak_frac": float(row.get("leak_frac", row.get("cos_plus_minus", 0.0))),
     }
