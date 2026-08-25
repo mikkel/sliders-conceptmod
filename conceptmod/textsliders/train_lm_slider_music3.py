@@ -10,6 +10,12 @@ then ``lm_project_odd_axis`` onto a **declared** ``--slider_positive`` /
 κ = 0. A bare ``--symmetric`` retrain without that pair would still leak.
 Published Hub floor is ``--lm_target hub`` and is not the default.
 
+``--project_align_min`` is opt-in and does **not** change that default.
+When set, v9 projects only if ``|odd·û|/||odd||`` meets the floor;
+otherwise the row falls back to pair-symmetric and hold is off
+(gender-v1: a short declared û kept 0.20 of a clean pair). See
+``docs/lm-v9-mismatch.md``.
+
 Audio-end regularizer: a cut ends when the AR language model samples
 <|audio_end|>; LM LoRAs perturb those logits, and un-regularized sliders
 measurably suppress the end token, so stacked sliders blow through the
@@ -54,8 +60,8 @@ from conceptmod.textsliders.slider_targets import (
     lm_hidden_targets,
     lm_ortho_hold,
     lm_project_odd_axis,
+    lm_should_project_odd,
     lm_slider_loss,
-    lm_unit,
 )
 
 DEFAULT_MODEL = Path("/ml2/music/models/MiniMax-Music3")
@@ -136,16 +142,28 @@ def lm_train_targets(
     common_beta: float = 0.0,
     leakage_floor: float | None = None,
     anchor_autocal: bool = True,
+    project_align_min: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
     """Pole targets for the live LM trainer. Delegates to ``slider_targets``.
 
     Returns ``(tgt_plus, tgt_minus, anchor_plus, anchor_minus)``.
     Anchors are set only for the published Hub floor recipe.
+
+    ``project_align_min`` is opt-in. Default ``None`` keeps ``--lm_target v9``
+    always-projecting. When set and ``|odd·û|/||odd||`` is below the floor,
+    poles fall back to pair-symmetric (full odd, κ=0). The caller must also
+    drop the orthogonal hold — holding ⊥ the rejected û still eats the pair.
     """
     if recipe == "v9":
         if slider_dir is None:
             raise ValueError("lm_target=v9 requires a declared slider_dir")
-        plus, minus = lm_project_odd_axis(pos, neg, neu, slider_dir, target_scale=target_scale)
+        should, _align = lm_should_project_odd(pos, neg, slider_dir, project_align_min)
+        if should:
+            plus, minus = lm_project_odd_axis(pos, neg, neu, slider_dir, target_scale=target_scale)
+        else:
+            plus, minus = lm_hidden_targets(
+                pos, neg, neu, target_mode="symmetric", target_scale=target_scale
+            )
         return plus, minus, None, None
     target_mode = "faithful" if recipe == "faithful" else "symmetric"
     plus, minus = lm_hidden_targets(
@@ -466,12 +484,21 @@ def train(args: argparse.Namespace) -> Path:
             neg_tgt = _encode_static(lm, *tokens["negative"])
             neu_ref = _encode_static(lm, *tokens["neutral"])
         target_cos = F.cosine_similarity(pos_tgt - neu_ref, neg_tgt - neu_ref, dim=-1).mean().item()
-        odd = (pos_tgt - neg_tgt) / 2.0
         dropped = ""
+        row_slider_dir = slider_dir
+        row_hold = hold_w
         if slider_dir is not None:
-            unit = lm_unit(slider_dir)
-            align = (odd.flatten() @ unit).abs() / odd.norm().clamp_min(1e-8)
+            should_project, align = lm_should_project_odd(
+                pos_tgt, neg_tgt, slider_dir, getattr(args, "project_align_min", None)
+            )
             dropped = f" odd·û/||odd||={float(align):.3f}"
+            if recipe == "v9" and not should_project:
+                dropped += (
+                    f" < --project_align_min {args.project_align_min} "
+                    "→ pair-symmetric (no project, no hold)"
+                )
+                row_slider_dir = None
+                row_hold = 0.0
         print(
             f"row {index}: tokens={tokens['neutral'][0].shape[1]} "
             f"L2 pos={torch.norm(pos_tgt - neu_ref).item():.3f} "
@@ -490,6 +517,7 @@ def train(args: argparse.Namespace) -> Path:
             common_beta=beta,
             leakage_floor=args.leakage_floor,
             anchor_autocal=args.anchor_autocal,
+            project_align_min=getattr(args, "project_align_min", None),
         )
         row_data.append(
             {
@@ -498,7 +526,8 @@ def train(args: argparse.Namespace) -> Path:
                 "tgt_plus": tgt_plus,
                 "tgt_minus": tgt_minus,
                 "neu_ref": neu_ref,
-                "slider_dir": slider_dir,
+                "slider_dir": row_slider_dir,
+                "hold_weight": row_hold,
                 "anchor_plus": anc_plus,
                 "anchor_minus": anc_minus,
             }
@@ -635,7 +664,7 @@ def train(args: argparse.Namespace) -> Path:
             tgt_minus,
             neu=neu_ref,
             slider_dir=data.get("slider_dir"),
-            hold_weight=hold_w,
+            hold_weight=float(data.get("hold_weight", hold_w)),
             anchor_plus=data.get("anchor_plus"),
             anchor_minus=data.get("anchor_minus"),
             anchor_weight=anchor_w,
@@ -716,6 +745,7 @@ def train(args: argparse.Namespace) -> Path:
         "lm_target": recipe,
         "symmetric": bool(args.symmetric),
         "hold_weight": hold_w,
+        "project_align_min": getattr(args, "project_align_min", None),
         "anchor_weight": anchor_w,
         "leakage_floor": args.leakage_floor,
         "slider_positive": axis_captions[0] if axis_captions else "",
@@ -813,6 +843,15 @@ def parse_args(argv=None):
         default=None,
         help="weight on ||(h(±1)−h0)_⊥û||² (default 1.0 for v9, 0 otherwise). "
         "The live graph has no hold embedding; this is the 2-D orthogonal residual",
+    )
+    p.add_argument(
+        "--project_align_min",
+        type=float,
+        default=None,
+        help="opt-in v9 gate: project+hold only when |odd·û|/||odd|| ≥ this floor; "
+        "otherwise pair-symmetric and hold off. Default off (always project — "
+        "today's --lm_target v9). 0.50 is right on both CPU cells; see "
+        "docs/lm-v9-mismatch.md. Does not change the v9 default recipe",
     )
     p.add_argument(
         "--leakage_floor",
