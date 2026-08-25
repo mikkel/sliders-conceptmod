@@ -1,32 +1,37 @@
 # LM v9 formulation on the 2-D CPU field
 
 Same geometry as [2d-analysis.md](2d-analysis.md): energetic ↔ calm
-versus unused male ↔ female. This scores the **loss / target math**
-from the Hub v9 sidecar (`ntc-ai/minimax-music3-concept-sliders`,
-energy-lm-v9), not Hub weights and not caption BPM.
+versus unused male ↔ female. This scores the **loss / target math**,
+not Hub weights and not caption BPM.
+
+Published Hub v9 (`leakage_floor` + `anchor_weight`) cannot see
+unused-gender leak: that component already lives in the odd teacher
+`(pos − neg) / 2`. The default scored here (`lm_v9`) keeps Hub
+positives (odd ±1, slider-axis track) and **projects that odd
+teacher onto the declared slider direction**, then holds the
+orthogonal residual. κ = 0 — no even blend-back. Ungated captions
+only; `--attributes` is not used.
 
 The live `train_lm_slider_music3.py` in this tree still only has
-`--symmetric` / `--common_beta`. v9 terms (`target_mode`,
-`leakage_floor`, `anchor_weight`, `anchor_autocal`) are a CPU
-stand-in of the published Hub README formulas, in
+`--symmetric` / `--common_beta`. The stand-in lives in
 `slider_targets.py`. Endreg / planreg / semantic-KL poles are
 AR-only and are not on this field.
 
 ## Verdict
 
-**v9 does not fix the 2-D attribute leak.** Slider axis
-**right**, unused-gender leak **needs_help**,
-±1 collapse **right**. Same pattern as
-`--symmetric` alone. `leakage_floor` only sizes the *even-mode*
-kappa that `--symmetric` already cancelled. It would **not** have
-stopped unused-gender leak without `--attributes`.
+**`lm_v9` is right on all three.** Slider **right**,
+unused-gender leak **right**, ±1 collapse
+**right**. Published Hub v9 (`lm_v9_hub`) stays
+slider **right**, leak **needs_help**,
+collapse **right** — same leak as `--symmetric`.
 
 | method | slider | leak | ±1 collapse | slider cos | leak ratio | ±1 cos |
 |---|---|---|---|---:|---:|---:|
 | `lm_raw` | **needs_help** | **needs_help** | **needs_help** | 0.509 | 1.692 | 0.253 |
 | `lm_symmetric` | **right** | **needs_help** | **right** | 0.946 | 0.342 | -1.000 |
 | `lm_symmetric_floor` | **right** | **needs_help** | **right** | 0.946 | 0.342 | -1.000 |
-| `lm_v9` | **right** | **needs_help** | **right** | 0.929 | 0.397 | -0.995 |
+| `lm_v9_hub` | **right** | **needs_help** | **right** | 0.929 | 0.397 | -0.995 |
+| `lm_v9` | **right** | **right** | **right** | 1.000 | 0.000 | -1.000 |
 | `lm_raw_attrs` | **right** | **right** | **right** | 1.000 | 0.000 | -1.000 |
 | `m3_nmse_axis` | **right** | **needs_help** | **right** | 0.949 | 0.333 | -1.000 |
 
@@ -49,37 +54,48 @@ stopped unused-gender leak without `--attributes`.
   Identical to symmetric (leak 0.342,
   ±1 -1.000). The floor is inert
   without an anchor term.
-- `lm_v9`: symmetric pole MSE + `anchor_weight=0.3` toward
-  `(1−κ)(neu ± a) + κ·raw`, κ autocalibrated so a perfect blend
-  fit stays at collapse ≤ −0.9. On this pair r=0.253,
-  κ=0.177, so the blend is still ~82%
-  symmetric. Leak 0.397 — same leaked odd axis.
-- `lm_raw_attrs`: `--attributes male,female` zeros the unused
-  gender axis (leak 0.000). That is still
-  the only fix this field can see.
+- `lm_v9_hub`: published Hub recipe (symmetric + `anchor_weight=0.3`
+  + autocal κ from `leakage_floor=-0.9`). On this pair r=0.253,
+  κ=0.177. Leak 0.397 —
+  same leaked odd axis as `--symmetric`. Blend-back can make leak
+  slightly *worse* than plain symmetric.
+- `lm_v9` (default): κ=0 (no even blend-back) + odd teacher
+  projected onto the declared slider direction + orthogonal hold.
+  Leak 0.000, ±1 -1.000,
+  slider cos 1.000. Ungated captions.
+- `lm_raw_attrs`: `--attributes male,female` also zeros leak
+  (0.000) by changing the *captions*.
+  That row is the paper disentangle, not the v9 formulation.
 - TF `nmse`+`axis`: leak 0.333, already
   measured in [tf-leak.md](tf-leak.md). Default TF is not the v9 question.
 
-## Why leakage_floor cannot kill unused-gender leak
+## Why the published floor cannot kill unused-gender leak
 
-Hub v9:
+Hub v9 as shipped:
 
 ```
 a = (h+ − h−) / 2
-t± = h0 ± a                         # pole target, still pos−neg
-r = cos(h+ − h0, h− − h0)
-ρ² = (1 − r) / (1 + r)
-κ = √(ρ² · (1 + floor) / (1 − floor))   # clamped to [0, 1]
-anchor± = (1 − κ)(h0 ± a) + κ h±
-L = MSE(h(±1), t±) + 0.3 · MSE(h(±1), anchor±)
+t± = h0 ± a                         # still the leaked pos−neg
+κ = √(ρ² · (1 + floor) / (1 − floor))
+anchor± = (1 − κ)(h0 ± a) + κ h±    # even blend-back only
 ```
 
-Ungated pair on this field: r = 0.253 (even-mode
-collapse), odd leak = 0.342. `leakage_floor` solves
-for how much even mode may be blended *back in*. The unused-gender
-component is already inside `a`. No amount of κ projects it out.
-`--attributes` is still the paper disentangle; v9 is a collapse
-governor on top of `--symmetric`.
+Ungated pair: r = 0.253, odd leak = 0.342.
+`leakage_floor` sizes how much even mode may return. Unused gender
+is already inside `a`.
+
+Fixed default:
+
+```
+a = (h+ − h−) / 2
+â = (a · û) û                       # û = declared slider direction
+t± = h0 ± â                         # κ = 0
+L = MSE(h(±1), t±) + hold · ||(h(±1)−h0)_⊥û||²
+```
+
+û is the caption pair's declared polarity (energetic↔calm /
+`E_SLIDER`), not a male/female prefix. Hold stops leftover even
+capacity from walking onto the unused axis.
 
 ## What this field cannot see
 

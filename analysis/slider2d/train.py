@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn.functional as F
 
-from analysis.slider2d.field import Field2D, Prompt, PROMPTS, cosine, project
+from analysis.slider2d.field import E_SLIDER, Field2D, Prompt, PROMPTS, cosine, project
 from conceptmod.textsliders.slider_targets import (
     encoder_mse_loss,
     expand_attributes_music3,
@@ -15,6 +15,8 @@ from conceptmod.textsliders.slider_targets import (
     lm_anchor_kappa,
     lm_anchor_targets,
     lm_hidden_targets,
+    lm_ortho_hold,
+    lm_project_odd_axis,
     lm_slider_loss,
     music3_axis_delta,
     music3_pole_delta,
@@ -241,6 +243,14 @@ def train_music3(
     return _optimize(residual, loss_fn, steps, lr, seed)
 
 
+def pair_slider_dir(pair: Pair) -> torch.Tensor:
+    """Declared energetic↔calm axis from caption polarity, not leaked embeds."""
+    polarity = float(pair.positive.slider) - float(pair.negative.slider)
+    if polarity == 0.0:
+        raise ValueError(f"pair {pair.positive.name!r}/{pair.negative.name!r} declares no slider")
+    return E_SLIDER * (1.0 if polarity > 0.0 else -1.0)
+
+
 def train_lm(
     field: Field2D,
     pairs: list[Pair],
@@ -250,6 +260,8 @@ def train_lm(
     leakage_floor: float | None = None,
     anchor_weight: float = 0.0,
     anchor_autocal: bool = True,
+    project_odd: bool = False,
+    hold_weight: float = 0.0,
     steps: int = 250,
     lr: float = 0.08,
     seed: int = 0,
@@ -259,6 +271,7 @@ def train_lm(
     t = 0.5
     mode = resolve_lm_target_mode(symmetric=symmetric, target_mode=target_mode)
     weight = float(anchor_weight)
+    hold_w = float(hold_weight)
 
     def loss_fn(res: Residual) -> torch.Tensor:
         total = residual.w_odd.new_zeros(())
@@ -267,9 +280,13 @@ def train_lm(
             pos = field.embed(pair.positive, t)
             neg = field.embed(pair.negative, t)
             neu = field.embed(pair.neutral, t)
-            tgt_plus, tgt_minus = lm_hidden_targets(
-                pos, neg, neu, target_mode=mode, common_beta=common_beta
-            )
+            slider_dir = pair_slider_dir(pair) if (project_odd or hold_w > 0.0) else None
+            if project_odd:
+                tgt_plus, tgt_minus = lm_project_odd_axis(pos, neg, neu, slider_dir)
+            else:
+                tgt_plus, tgt_minus = lm_hidden_targets(
+                    pos, neg, neu, target_mode=mode, common_beta=common_beta
+                )
             pred_plus = neu + res.delta(1.0)
             pred_minus = neu + res.delta(-1.0)
             anchor_plus = anchor_minus = None
@@ -282,6 +299,9 @@ def train_lm(
                     autocal=anchor_autocal,
                 )
                 anchor_plus, anchor_minus = lm_anchor_targets(pos, neg, neu, kappa)
+            hold = None
+            if hold_w > 0.0:
+                hold = lm_ortho_hold(pred_plus, pred_minus, neu, slider_dir)
             total = total + lm_slider_loss(
                 pred_plus,
                 pred_minus,
@@ -290,6 +310,8 @@ def train_lm(
                 anchor_plus=anchor_plus,
                 anchor_minus=anchor_minus,
                 anchor_weight=weight,
+                hold=hold,
+                hold_weight=hold_w,
             )
             n += 1
         return total / n
@@ -454,7 +476,7 @@ def lm_v9_specs() -> list[MethodSpec]:
             kwargs={"symmetric": True, "with_attrs": False, "leakage_floor": -0.9, "anchor_weight": 0.0},
         ),
         MethodSpec(
-            "lm_v9",
+            "lm_v9_hub",
             "lm",
             "bipolar_allow_leak",
             builder="lm",
@@ -467,12 +489,27 @@ def lm_v9_specs() -> list[MethodSpec]:
                 "anchor_autocal": True,
             },
         ),
+        MethodSpec(
+            "lm_v9",
+            "lm",
+            "track_and_disentangle",
+            builder="lm",
+            kwargs={
+                "symmetric": True,
+                "target_mode": "symmetric",
+                "with_attrs": False,
+                "project_odd": True,
+                "hold_weight": 1.0,
+                "anchor_weight": 0.0,
+            },
+        ),
     ]
     extra_by_name = {spec.name: spec for spec in extra}
     return [
         by_name["lm_raw"],
         by_name["lm_symmetric"],
         extra_by_name["lm_symmetric_floor"],
+        extra_by_name["lm_v9_hub"],
         extra_by_name["lm_v9"],
         by_name["lm_raw_attrs"],
         by_name["m3_nmse_axis"],
@@ -506,6 +543,8 @@ def run_method(spec: MethodSpec, field: Field2D, *, steps: int = 250, seed: int 
             leakage_floor=spec.kwargs.get("leakage_floor"),
             anchor_weight=spec.kwargs.get("anchor_weight", 0.0),
             anchor_autocal=spec.kwargs.get("anchor_autocal", True),
+            project_odd=spec.kwargs.get("project_odd", False),
+            hold_weight=spec.kwargs.get("hold_weight", 0.0),
             steps=steps,
             seed=seed,
         )

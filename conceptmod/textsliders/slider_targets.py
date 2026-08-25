@@ -7,8 +7,10 @@ Formulas are copied from:
   (SD / XL / SD3 / Flux / Cascade noise-prediction sliders)
 - ``_slider_loss`` and ``_target_delta`` in ``train_lora_music3.py``
 - LM raw vs ``--symmetric`` targets in ``train_lm_slider_music3.py``
-- Hub v9 LM recipe (sidecar ``target_mode`` / ``leakage_floor`` / ``anchor_*``;
-  this tree's GPU trainer does not yet take those flags)
+- Hub v9 LM recipe (sidecar ``target_mode`` / ``leakage_floor`` / ``anchor_*``)
+  plus the leak fix: project the odd teacher onto a declared slider
+  direction and hold the orthogonal residual (``project_odd`` / ``hold_weight``).
+  This tree's GPU trainer still only has ``--symmetric``.
 - Encoder MSE in ``train_encoder_music3.py``
 
 No Hub, no GPU, no model weights.
@@ -248,6 +250,53 @@ def lm_perfect_fit_collapse(
     return (k2_t - r2) / (k2_t + r2).clamp_min(1e-8)
 
 
+def lm_unit(direction: torch.Tensor) -> torch.Tensor:
+    flat = direction.flatten()
+    return flat / flat.norm().clamp_min(1e-8)
+
+
+def lm_project_odd_axis(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    slider_dir: torch.Tensor,
+    *,
+    target_scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Symmetric poles whose odd teacher is only the declared slider component.
+
+        a = (pos − neg) / 2
+        â = (a · û) û          # drop everything orthogonal to slider_dir
+        tgt(±1) = neu ± â · target_scale
+
+    ``slider_dir`` is the *declared* concept axis (energetic↔calm on the 2-D
+    field), not an attributes-prefixed caption. Unused-gender leak lives in
+    ``a`` and is dropped here. The targets stay odd around ``neu`` (collapse
+    −1). Hub ``leakage_floor`` / κ cannot do this — they only size even
+    blend-back toward raw ``h±``.
+    """
+    axis = (pos - neg) / 2.0 * float(target_scale)
+    unit = lm_unit(slider_dir)
+    projected = (axis.flatten() @ unit) * unit
+    return neu + projected.view_as(axis), neu - projected.view_as(axis)
+
+
+def lm_ortho_hold(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    neu: torch.Tensor,
+    slider_dir: torch.Tensor,
+) -> torch.Tensor:
+    """Mean-squared residual orthogonal to the declared slider direction."""
+    unit = lm_unit(slider_dir)
+
+    def _ortho(pred: torch.Tensor) -> torch.Tensor:
+        delta = (pred - neu).flatten()
+        return delta - (delta @ unit) * unit
+
+    return 0.5 * (_ortho(pred_plus).pow(2).mean() + _ortho(pred_minus).pow(2).mean())
+
+
 def lm_slider_loss(
     pred_plus: torch.Tensor,
     pred_minus: torch.Tensor,
@@ -257,19 +306,24 @@ def lm_slider_loss(
     anchor_plus: torch.Tensor | None = None,
     anchor_minus: torch.Tensor | None = None,
     anchor_weight: float = 0.0,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
 ) -> torch.Tensor:
-    """Pole MSE plus optional v9 anchor MSE (``--anchor_weight``).
+    """Pole MSE plus optional v9 anchor MSE and orthogonal hold.
 
     Endreg / planreg / collapse_weight / semantic-KL poles are AR-only and
     are not expressed on the CPU field.
     """
     pole = F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_minus, tgt_minus)
     weight = float(anchor_weight)
-    if weight <= 0.0 or anchor_plus is None or anchor_minus is None:
-        return pole
-    return pole + weight * (
-        F.mse_loss(pred_plus, anchor_plus) + F.mse_loss(pred_minus, anchor_minus)
-    )
+    if weight > 0.0 and anchor_plus is not None and anchor_minus is not None:
+        pole = pole + weight * (
+            F.mse_loss(pred_plus, anchor_plus) + F.mse_loss(pred_minus, anchor_minus)
+        )
+    hold_w = float(hold_weight)
+    if hold_w > 0.0 and hold is not None:
+        pole = pole + hold_w * hold
+    return pole
 
 
 def encoder_mse_loss(

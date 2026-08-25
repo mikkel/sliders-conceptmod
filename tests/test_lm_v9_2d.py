@@ -5,14 +5,22 @@ from __future__ import annotations
 import pytest
 import torch
 
-from analysis.slider2d.field import Field2D
-from analysis.slider2d.train import axis_verdicts, lm_v9_specs, music3_pairs, train_lm
+from analysis.slider2d.field import E_SLIDER, Field2D
+from analysis.slider2d.train import (
+    axis_verdicts,
+    lm_v9_specs,
+    music3_pairs,
+    pair_slider_dir,
+    train_lm,
+)
 from conceptmod.textsliders.slider_targets import (
     lm_anchor_kappa,
     lm_anchor_targets,
     lm_hidden_targets,
+    lm_ortho_hold,
     lm_pair_collapse,
     lm_perfect_fit_collapse,
+    lm_project_odd_axis,
     lm_slider_loss,
     resolve_lm_target_mode,
 )
@@ -112,11 +120,50 @@ def test_anchor_weight_zero_ignores_floor_in_loss():
     assert float(bare) == pytest.approx(float(floored))
 
 
+def test_projected_odd_axis_is_pure_slider():
+    pos, neg, neu = _ungated_pair()
+    plus, minus = lm_project_odd_axis(pos, neg, neu, E_SLIDER)
+    odd = plus - neu
+    assert torch.allclose((plus + minus) / 2, neu)
+    assert torch.allclose(plus - neu, neu - minus)
+    assert float(odd @ torch.tensor([0.0, 1.0])) == pytest.approx(0.0, abs=1e-6)
+    assert float(odd @ E_SLIDER) == pytest.approx(float(((pos - neg) / 2) @ E_SLIDER))
+    # Does not use attributes-prefixed captions — same ungated energetic/calm embeds.
+    raw_odd = (pos - neg) / 2
+    assert abs(float(raw_odd[1])) > 0.20
+    assert abs(float(odd[1])) < 1e-6
+
+
+def test_pair_slider_dir_is_declared_polarity_not_leaked_embed():
+    pair = music3_pairs(False)[0]
+    assert pair.positive.name == "energetic"
+    assert pair.negative.name == "calm"
+    direction = pair_slider_dir(pair)
+    assert torch.allclose(direction, E_SLIDER)
+    hold = lm_ortho_hold(
+        torch.tensor([1.0, 0.4]),
+        torch.tensor([-1.0, -0.4]),
+        torch.zeros(2),
+        direction,
+    )
+    assert float(hold) == pytest.approx(0.08, abs=1e-6)
+
+
+def test_v9_default_does_not_use_attribute_prefixes():
+    spec = next(s for s in lm_v9_specs() if s.name == "lm_v9")
+    assert spec.kwargs.get("with_attrs") is False
+    assert spec.kwargs.get("project_odd") is True
+    assert spec.kwargs.get("anchor_weight", 1.0) == 0.0
+    pairs = music3_pairs(False)
+    assert [p.positive.name for p in pairs] == ["energetic"]
+
+
 def test_v9_specs_cover_the_asked_cells():
     assert [s.name for s in lm_v9_specs()] == [
         "lm_raw",
         "lm_symmetric",
         "lm_symmetric_floor",
+        "lm_v9_hub",
         "lm_v9",
         "lm_raw_attrs",
         "m3_nmse_axis",
@@ -137,27 +184,35 @@ def test_floor_without_anchor_matches_symmetric():
     )
 
 
-def test_v9_slider_axis_right_collapse_right_leak_needs_help():
+def test_v9_is_right_on_slider_leak_and_collapse():
     r = results()["lm_v9"]
     ax = axis_verdicts(r.metrics)
     assert ax["slider"] == "right"
     assert ax["collapse"] == "right"
-    assert ax["leak"] == "needs_help"
+    assert ax["leak"] == "right"
     assert r.metrics["cos_slider_plus"] > 0.90
     assert r.metrics["cos_plus_minus"] < -0.85
-    assert abs(r.metrics["leak_ratio"]) > 0.20
+    assert abs(r.metrics["leak_ratio"]) <= 0.20
+    assert abs(r.metrics["leak_ratio"]) < 0.05
+    # Must not regress to faithful even-mode collapse.
+    assert r.metrics["cos_plus_minus"] < 0.0
 
 
-def test_v9_leak_matches_symmetric_not_attrs():
+def test_published_hub_v9_still_leaks_and_fixed_v9_does_not():
     r = results()
+    hub_leak = abs(r["lm_v9_hub"].metrics["leak_ratio"])
     v9_leak = abs(r["lm_v9"].metrics["leak_ratio"])
     sym_leak = abs(r["lm_symmetric"].metrics["leak_ratio"])
-    raw_leak = abs(r["lm_raw"].metrics["leak_ratio"])
-    attr_leak = abs(r["lm_raw_attrs"].metrics["leak_ratio"])
-    assert v9_leak == pytest.approx(sym_leak, abs=0.08)
-    assert v9_leak > 0.20
-    assert raw_leak > v9_leak
-    assert attr_leak < 0.05
+    raw = results()["lm_raw"].metrics
+    assert hub_leak > 0.20
+    assert hub_leak == pytest.approx(sym_leak, abs=0.08)
+    assert v9_leak <= 0.20
+    assert v9_leak < sym_leak
+    # Hub blend-back must not be *worse* than symmetric once we score the fix.
+    # The published recipe itself may exceed symmetric; the default must not.
+    assert v9_leak <= sym_leak + 1e-6
+    assert raw["cos_plus_minus"] > -0.50
+    assert r["lm_v9"].metrics["cos_plus_minus"] < -0.85
 
 
 def test_raw_still_collapses_and_attrs_still_clean():

@@ -93,7 +93,7 @@
       "norm_minus": 1.0568665266036987,
       "want_sign": 1.0
     },
-    "lm_v9": {
+    "lm_v9_hub": {
       "family": "lm",
       "verdict": "right",
       "reason": "\u00b11 opposite on the slider; leak 0.40 remains without attributes",
@@ -119,6 +119,34 @@
       "cos_plus_minus": -0.9951252341270447,
       "norm_plus": 1.075995922088623,
       "norm_minus": 1.040317177772522,
+      "want_sign": 1.0
+    },
+    "lm_v9": {
+      "family": "lm",
+      "verdict": "right",
+      "reason": "tracks the slider, attribute leak is small, \u00b11 are opposite",
+      "axis": {
+        "slider": "right",
+        "leak": "right",
+        "collapse": "right"
+      },
+      "delta_plus": [
+        1.0000016689300537,
+        0.0
+      ],
+      "delta_minus": [
+        -1.0000016689300537,
+        0.0
+      ],
+      "cos_slider_plus": 1.0,
+      "cos_slider_minus": -1.0,
+      "cos_attr_plus": 0.0,
+      "leak_ratio": 0.0,
+      "proj_slider_plus": 1.0000016689300537,
+      "proj_attr_plus": 0.0,
+      "cos_plus_minus": -1.0,
+      "norm_plus": 1.0000016689300537,
+      "norm_minus": 1.0000016689300537,
       "want_sign": 1.0
     },
     "lm_raw_attrs": {
