@@ -91,13 +91,17 @@ from analysis.slider2d.sheet import nucleus
 from conceptmod.textsliders.slider_targets import (
     lm_axis_hold,
     lm_faithful_sub_e,
+    lm_faithful_sub_e_if_unused,
     lm_hidden_targets,
     lm_hold_dir,
     lm_next_token_logits,
     lm_pair_odd_sub_e,
+    lm_readout_null_basis,
+    lm_semantic_null_pole_loss,
     lm_semantic_pole_loss,
     lm_slider_loss,
     lm_unit,
+    lm_unrolled_semantic_pole_loss,
 )
 
 
@@ -648,8 +652,9 @@ CELL_IS = {
 # -- teachers ------------------------------------------------------------
 
 
-TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e")
-POLE_MODES = ("hidden", "semantic_kl")
+TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e", "faithful_sub_e_if_unused")
+# Live race modes plus fixture-only ``unrolled_kl`` (no live --pole_mode).
+POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_null", "hidden_kl", "unrolled_kl")
 
 
 def hold_direction(field: PairField, leak_dir: torch.Tensor | None) -> torch.Tensor | None:
@@ -676,6 +681,10 @@ def teacher_points(
         )
     if mode == "faithful":
         return pos, neg
+    if mode == "faithful_sub_e_if_unused":
+        return lm_faithful_sub_e_if_unused(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u()
+        )
     if leak_dir is None:
         raise ValueError(f"{mode} needs a declared ê")
     if mode == "pair_odd_sub_e":
@@ -992,6 +1001,7 @@ def fit_exam(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    unroll_steps: int = 1,
     steps: int = 400,
     lr: float = 0.08,
     seed: int = 0,
@@ -1005,6 +1015,7 @@ def fit_exam(
     if mode not in POLE_MODES:
         raise ValueError(f"pole_mode must be one of {POLE_MODES}, got {pole_mode!r}")
     head = field.readout()
+    null_basis = lm_readout_null_basis(head.weight) if mode == "semantic_kl_null" else None
     held = hold_direction(field, leak_dir)
     lam = float(hold_weight) if held is not None else 0.0
     targets = [
@@ -1027,14 +1038,50 @@ def fit_exam(
             hold = None
             if held is not None and lam > 0.0:
                 hold = lm_axis_hold(pred_plus, pred_minus, neu, held)
-            if mode == "hidden":
+            hold_w = lam if hold is not None else 0.0
+            if mode in ("hidden", "hidden_kl"):
                 term = lm_slider_loss(
                     pred_plus,
                     pred_minus,
                     t_plus,
                     t_minus,
                     hold=hold,
-                    hold_weight=lam if hold is not None else 0.0,
+                    hold_weight=hold_w,
+                )
+                if mode == "hidden_kl":
+                    term = term + 1e-3 * lm_semantic_pole_loss(
+                        head.logits(pred_plus),
+                        head.logits(pred_minus),
+                        head.logits(t_plus),
+                        head.logits(t_minus),
+                    )
+            elif mode == "semantic_kl_null":
+                term = lm_semantic_null_pole_loss(
+                    head.logits(pred_plus),
+                    head.logits(pred_minus),
+                    head.logits(t_plus),
+                    head.logits(t_minus),
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    head.weight,
+                    null_basis=null_basis,
+                    hold=hold,
+                    hold_weight=hold_w,
+                )
+            elif mode == "unrolled_kl":
+                scaled = head.weight * float(head.gain)
+                term = lm_unrolled_semantic_pole_loss(
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    scaled,
+                    field.transition(),
+                    unroll_steps=unroll_steps,
+                    hold=hold,
+                    hold_weight=hold_w,
                 )
             else:
                 term = lm_semantic_pole_loss(
@@ -1043,7 +1090,7 @@ def fit_exam(
                     head.logits(t_plus),
                     head.logits(t_minus),
                     hold=hold,
-                    hold_weight=lam if hold is not None else 0.0,
+                    hold_weight=hold_w,
                 )
             total = term if total is None else total + term
         return total / float(len(targets))
@@ -1070,6 +1117,7 @@ def score_exam(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    unroll_steps: int = 1,
     steps: int = 400,
     seed: int = 0,
 ) -> dict:
@@ -1081,6 +1129,7 @@ def score_exam(
         leak_dir=leak_dir,
         hold_weight=hold_weight,
         common_beta=common_beta,
+        unroll_steps=unroll_steps,
         steps=steps,
         seed=seed,
     )
@@ -1309,6 +1358,22 @@ def recipes(field: PairField) -> list[tuple[str, dict]]:
         ("faithful_raw", {"pole_mode": "hidden", "teacher": "faithful"}),
         ("semantic_kl_midpoint", {"pole_mode": "semantic_kl", "teacher": "pair_odd"}),
         ("semantic_kl_poles", {"pole_mode": "semantic_kl", "teacher": "faithful"}),
+        (
+            "faithful_sub_e_if_unused",
+            {"pole_mode": "hidden", "teacher": "faithful_sub_e_if_unused", "leak_dir": e},
+        ),
+        (
+            "semantic_kl_null",
+            {"pole_mode": "semantic_kl_null", "teacher": "faithful"},
+        ),
+        (
+            "hidden_kl_poles",
+            {"pole_mode": "hidden_kl", "teacher": "faithful"},
+        ),
+        (
+            "unrolled_kl",
+            {"pole_mode": "unrolled_kl", "teacher": "faithful"},
+        ),
     ]
     if e is not None:
         out += [

@@ -22,6 +22,7 @@ from analysis.slider2d.scoreboard import (
     CELL_LABEL,
     CELL_ORDER,
     FAILS,
+    RACE_RECIPES,
     UNSCORED,
     WORKS,
     WORKS_SOME,
@@ -115,6 +116,75 @@ def plot_scoreboard(rows: list[dict], path: Path) -> None:
     ax.set_title("compiled gate: leak small and, when a sheet exists, stay on it")
     ax.grid(alpha=0.25)
     ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+
+
+VERDICT_COLOR = {
+    WORKS: "#1e8449",
+    WORKS_SOME: "#b9770e",
+    FAILS: "#c0392b",
+    UNSCORED: "#7f8c8d",
+}
+
+
+def _pair_mark(row: dict) -> str:
+    marks = []
+    for cell in ("exam_divergent", "exam_close"):
+        value = row.get("cells", {}).get(cell)
+        marks.append({True: "P", False: "F", None: "—"}[value])
+    return "/".join(marks)
+
+
+def plot_exam_score(rows: list[dict], path: Path) -> None:
+    """Horizontal exam_score ranking. Nulls omitted; race rows highlighted."""
+    scored = [r for r in rows if r.get("exam_score") is not None]
+    scored = sorted(scored, key=lambda r: float(r["exam_score"]))
+    if not scored:
+        return
+    height = max(4.8, 0.42 * len(scored) + 1.6)
+    fig, ax = plt.subplots(figsize=(8.8, height))
+    y = list(range(len(scored)))
+    colors = [VERDICT_COLOR.get(r["compiled"], "#7f8c8d") for r in scored]
+    widths = [float(r["exam_score"]) for r in scored]
+    bars = ax.barh(y, widths, color=colors, height=0.62, zorder=3)
+    for bar, row in zip(bars, scored):
+        if row["id"] in RACE_RECIPES:
+            bar.set_hatch("///")
+            bar.set_linewidth(1.8)
+            bar.set_edgecolor("#1a252f")
+            ax.plot(
+                -0.012,
+                bar.get_y() + bar.get_height() / 2.0,
+                marker=">",
+                color="#1a252f",
+                markersize=7,
+                clip_on=False,
+                zorder=4,
+            )
+        score = float(row["exam_score"])
+        ax.text(
+            min(score + 0.012, 1.02),
+            bar.get_y() + bar.get_height() / 2.0,
+            f"{score:.3f}  {_pair_mark(row)}",
+            va="center",
+            ha="left",
+            fontsize=7.4,
+        )
+    ax.set_yticks(y)
+    ax.set_yticklabels([r["id"] for r in scored], fontsize=8)
+    ax.set_xlim(0.0, 1.18)
+    ax.set_xlabel("exam_score = min(overlap, swing) on exam_divergent + exam_close")
+    ax.set_title("pair-exam ranking (live pairs only; race rows hatched)")
+    ax.grid(axis="x", alpha=0.25)
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=VERDICT_COLOR[WORKS], label=WORKS),
+        plt.Rectangle((0, 0), 1, 1, color=VERDICT_COLOR[WORKS_SOME], label=WORKS_SOME),
+        plt.Rectangle((0, 0), 1, 1, color=VERDICT_COLOR[FAILS], label=FAILS),
+        plt.Rectangle((0, 0), 1, 1, facecolor="#7f8c8d", hatch="///", edgecolor="#1a252f", label="2026-08-25 race"),
+    ]
+    ax.legend(handles=handles, fontsize=8, loc="lower right")
     fig.tight_layout()
     fig.savefig(path, dpi=140)
     plt.close(fig)
@@ -231,9 +301,10 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "The two `semantic_kl_poles` cells are the load-bearing row: it is the",
         "live energy win on a divergent pair and the live gender garble on a",
         "close one, so no single verdict for the recipe is honest and",
-        "`works-on-some-pairs` names which. `faithful_raw` and its data-fixed",
-        "sibling `faithful_attrs` are the only recipes that pass every pair",
-        "they are read on.",
+        "`works-on-some-pairs` names which. The combined 2026-08-25 race rows",
+        "(`faithful_sub_e_if_unused`, `semantic_kl_null`, `hidden_kl_poles`,",
+        "and fixture-only `unrolled_kl`) sit next to the #28 baselines;",
+        "`faithful_raw` / `faithful_attrs` remain the hidden-MSE caption pair.",
         "",
         "## Short verdict",
         "",
@@ -242,11 +313,10 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         names = ", ".join(f"`{r['id']}`" for r in winners)
         lines.append(
             f"**Works on every pair it is read on:** {names}. "
-            "`faithful_attrs` is `--lm_target faithful --pole_mode hidden` plus "
-            "the data fix — the unpinned attribute written into both pole "
-            "captions, the way energy-v4 already pins the singer with "
-            "`attributes` — so there is no leftover ê in the text for the "
-            "sheet cell to charge it for."
+            "`faithful_sub_e_if_unused` is the leftover-gated sibling of "
+            "`faithful_raw`: subtract leftover ê only when `|ê̂_⊥ · â| < 0.50`. "
+            "`faithful_attrs` is the data fix — unused gender/BPM pinned in "
+            "the captions — so leftover ê is not in the text."
         )
     else:
         lines.append("No recipe passed on every pair it is read on.")
@@ -257,10 +327,13 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
             f"**Works on some pairs:** {names}. Each passes at least one pair "
             "and fails another. `faithful_raw` (and `hidden_beta1`, which is "
             "the same target reached through `--lm_target symmetric "
-            "--common_beta 1`) passes all three pair cells and is charged only "
-            "by the unused-ê sheet — which is a leak gender-v4 has no `leak_*` "
-            "to trip, so it is the next live card. `semantic_kl_poles` is the "
-            "row the live exam is about: the energy win and the gender garble.",
+            "--common_beta 1`) and `hidden_kl_poles` pass all three pair cells "
+            "and are charged only by the unused-ê sheet — a leak gender-v4 "
+            "has no `leak_*` to trip. `semantic_kl_null` is the one hybrid "
+            "from PRs #29 / #32 / #33 (trainer aliases "
+            "`semantic_kl_plus_hidden` and `semantic_kl_pin`). "
+            "`semantic_kl_poles` is the row the live exam is about: the "
+            "energy win and the gender garble.",
         ]
     lines += [
         "",
@@ -278,6 +351,11 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
     ]
     lines += [_table_md(r) for r in rows]
     lines += [
+        "",
+        "![exam_score ranking](lm-2d-scoreboard/exam-score.png)",
+        "",
+        "`exam_score` = min(overlap, swing) on `exam_divergent` + `exam_close` only.",
+        "Hatched bars are the combined 2026-08-25 race recipes; #28 baselines stay.",
         "",
         "![leak vs on-sheet kept](lm-2d-scoreboard/scoreboard.png)",
         "",
@@ -307,40 +385,46 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
             )
     lines += [
         "",
-        "## The next live card the board points at",
+        "## The next live cards the board points at",
         "",
-        "`faithful_raw` — `--lm_target faithful --pole_mode hidden` — is the",
-        "only recipe besides its own data-fixed sibling that passes every pair",
-        "it is read on, and it has **no live run**. It is the untrained winner.",
-        "",
-        "It is also the one recipe that fixes what `gender-lm-v16` actually",
-        "did wrong. Both aim at the same target — the real pole captions — so",
-        "the target point is not the difference. The difference is that hidden",
-        "MSE pins the whole state, including the part of it the semantic band",
-        "does not read at `<|audio_start|>`, which on a close pair is where the",
-        "axis lives. In the pair-exam cell that recipe copies 1.00 of the",
-        "invisible block against semantic KL's 0.00, and it is the swing over",
-        "the continuation that separates them, not the loss.",
+        "Three distinct live techniques from the 2026-08-25 race, plus a",
+        "fixture-only sibling. None of these has a listen on this branch.",
+        "PRs #29 / #32 / #33 are **one hybrid** (`semantic_kl_null`); the",
+        "other two names are trainer aliases, not extra board rows.",
         "",
         "```bash",
+        "# leftover gate: subtract ê only when unused",
         "python conceptmod/textsliders/train_lm_slider_music3.py \\",
-        "  --name gender-lm-v19 \\",
+        "  --name energy-lm-v19 \\",
+        "  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \\",
+        "  --lm_target faithful_sub_e_if_unused --pole_mode hidden \\",
+        "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
+        "  --no-early_stop --endreg_weight 1.0",
+        "",
+        "# hybrid KL + unread hidden (aliases: semantic_kl_plus_hidden, semantic_kl_pin)",
+        "python conceptmod/textsliders/train_lm_slider_music3.py \\",
+        "  --name gender-lm-v20 \\",
         "  --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml \\",
-        "  --lm_target faithful --pole_mode hidden \\",
+        "  --lm_target faithful --pole_mode semantic_kl_null \\",
+        "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
+        "  --no-early_stop --endreg_weight 1.0",
+        "",
+        "# hidden MSE + tiny semantic KL",
+        "python conceptmod/textsliders/train_lm_slider_music3.py \\",
+        "  --name gender-lm-hidden-kl \\",
+        "  --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml \\",
+        "  --lm_target faithful --pole_mode hidden_kl \\",
         "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
         "  --no-early_stop --endreg_weight 1.0",
         "```",
         "",
-        "gender-v4 declares no `leak_*`, so hold is 0 and the sheet cell's",
-        "leftover-leak charge against `faithful` does not apply to this yaml.",
-        "What to watch: `p%` / `n%` should land near the shipped v9 residual",
-        "(~5%) instead of `gender-lm-v16`'s 0.523 / 0.777. `c+` will print",
-        "*worse* than v9's and the ±1 collapse will sit near the logged pair",
-        "cos rather than −1; per #22 and this board that is expected under a",
-        "caption target and is not a regression. The listen is the gate.",
-        "",
-        "This does not change the live default, which is still `--lm_target v9`",
-        "/ `--pole_mode hidden`.",
+        "`unrolled_kl` is fixture-only: the live trainer has no frozen mix.",
+        "What to watch on a live run: energy should keep the genre/BPM ride",
+        "(`energy-lm-v18`) instead of the midpoint pull (`energy-lm-v16`);",
+        "gender `p%` / `n%` should leave `gender-lm-v16`'s 0.523 / 0.777.",
+        "`c+` will print *worse* than v9 under a caption target; per #22 that",
+        "is expected. The listen is the gate. This does not change the live",
+        "default, which is still `--lm_target v9` / `--pole_mode hidden`.",
         "",
         "## Why four columns are logged and never scored",
         "",
@@ -429,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     (out / "metrics.json").write_text(json.dumps(blob, indent=2) + "\n", encoding="utf-8")
     plot_scoreboard(rows, out / "scoreboard.png")
+    plot_exam_score(rows, out / "exam-score.png")
     write_report(rows, blob, out.parent / "lm-2d-scoreboard.md")
     for row in rows:
         cells = "".join(

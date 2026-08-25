@@ -20,9 +20,12 @@ Formulas are copied from:
   pair, or ``attributes`` already pin the unused axis), hold is 0.
   ``--lm_target pair_odd_sub_e`` is the leaky-axis teacher: drop
   ``ê_⊥`` out of pair-odd first (the λ→∞ hold limit, no stiffness).
-  Subtract ``ê_⊥``, not raw ê. ``--lm_target faithful_sub_e`` is the
+  Subtract ``ê_⊥``, not raw ê.   ``--lm_target faithful_sub_e`` is the
   same leftover odd on the real poles (midpoint stays ½(h++h−));
-  it is not the default. Gender stays ``v9`` with no ê / hold 0.
+  it is not the default. ``--lm_target faithful_sub_e_if_unused``
+  subtracts only when ``|ê̂_⊥ · â|`` is below ``UNUSED_E_OVERLAP_MAX``
+  (leftover is actually unused); otherwise it keeps the raw poles.
+  Gender stays ``v9`` with no ê / hold 0.
   ``--lm_target v9_project`` is the old slider-level project+hold
   onto û; ``v9_always`` never gates.
 - Encoder MSE in ``train_encoder_music3.py``
@@ -42,6 +45,15 @@ import torch.nn.functional as F
 # A slider-level floor in that gap is one teacher for the whole LoRA.
 # Per-row 0.50 splits energy (mixed teacher) and is not the default.
 SLIDER_ALIGN_MIN = 0.50
+
+# Pair-aware leftover gate. ``|ê̂_⊥ · â|`` is the share of the pair-odd
+# axis that subtracting ê_⊥ would delete (ê_⊥ = ê − (ê·û)û).
+# Measured on the pair-exam / sheet fixtures (seed-free geometry):
+#   unused leftover   Field2D 0.324 / sheet 0.373 / unused_e 0.391
+#   energy-v4 tracks  divergent 0.778  (ê restates pop-punk 168 vs lullaby 52)
+# Subtract only below this floor. ``||ê_⊥||/||a||`` does not separate
+# those clusters (unused ~0.87, divergent ~0.78) and is not the gate.
+UNUSED_E_OVERLAP_MAX = 0.50
 
 # Soft hold along ê fights the full-odd teacher. λ=1 leaves energy leak
 # ~0.69 (odd·û ≈ 0.58 leftover). λ=8 is the first value that lands leak
@@ -423,6 +435,108 @@ def lm_faithful_sub_e(
     return plus + common, minus + common
 
 
+def lm_e_overlap_a(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """``|ê̂_⊥ · â|`` — share of ``a`` that subtracting leftover ê would drop.
+
+    ``a = (pos − neg) / 2``, ``â = a/||a||``. ``ê̂`` is the hold/subtract
+    direction: ``ê_⊥ = ê − (ê·û)û`` when ``slider_dir`` is set, else raw ê.
+    When ê is already parallel to û the leftover vanishes and this is 0.
+    """
+    axis = ((pos - neg) / 2.0).flatten()
+    held = lm_hold_dir(
+        leak_dir,
+        slider_dir=slider_dir,
+        mode="slider" if slider_dir is not None else "raw",
+    )
+    if held is None:
+        return axis.new_tensor(0.0)
+    return (lm_unit(held) @ lm_unit(axis)).abs()
+
+
+def lm_e_is_unused(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    floor: float = UNUSED_E_OVERLAP_MAX,
+) -> tuple[bool, torch.Tensor]:
+    """True when leftover ê is unused, not a restatement of the pair.
+
+    Subtract (or hold) ê only then. ``floor`` is ``UNUSED_E_OVERLAP_MAX``.
+    """
+    overlap = lm_e_overlap_a(pos, neg, leak_dir, slider_dir=slider_dir)
+    return bool(float(overlap) < float(floor)), overlap
+
+
+def lm_mean_e_overlap_a(
+    pairs: Sequence[tuple[torch.Tensor, torch.Tensor]],
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Mean ``|ê̂_⊥ · â|`` across every (pos, neg) row of one slider."""
+    if not pairs:
+        raise ValueError("lm_mean_e_overlap_a needs at least one (pos, neg) pair")
+    overlaps = [lm_e_overlap_a(pos, neg, leak_dir, slider_dir=slider_dir) for pos, neg in pairs]
+    stacked = torch.stack([o.reshape(()) for o in overlaps])
+    return stacked.mean()
+
+
+def lm_e_unused_decision(
+    overlaps: Sequence[float | torch.Tensor],
+    floor: float = UNUSED_E_OVERLAP_MAX,
+) -> bool:
+    """Slider-level leftover gate: one decision from the mean ``|ê̂_⊥ · â|``."""
+    if not overlaps:
+        raise ValueError("lm_e_unused_decision needs at least one overlap")
+    mean = sum(float(o) for o in overlaps) / len(overlaps)
+    return mean < float(floor)
+
+
+def lm_faithful_sub_e_if_unused(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+    unused: bool | None = None,
+    floor: float = UNUSED_E_OVERLAP_MAX,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Raw poles, or ê-cleaned poles only when leftover ê is unused.
+
+    No declared ê → ``(pos, neg)``. ``|ê̂_⊥ · â|`` at or above ``floor``
+    means ê restates the pair (energy-v4 genre/BPM) → keep the poles.
+    Below the floor, leftover is unused (same-song unused gender) →
+    ``lm_faithful_sub_e``. ``unused`` is the already-resolved slider-level
+    decision when the caller gated on the mean overlap.
+    """
+    if leak_dir is None:
+        return pos, neg
+    if unused is None:
+        unused, _overlap = lm_e_is_unused(
+            pos, neg, leak_dir, slider_dir=slider_dir, floor=floor
+        )
+    if not unused:
+        return pos, neg
+    if slider_dir is None:
+        raise ValueError(
+            "faithful_sub_e_if_unused subtracts ê_⊥ = ê−(ê·û)û; "
+            "needs a declared slider_dir (do not subtract raw ê)"
+        )
+    return lm_faithful_sub_e(
+        pos, neg, neu, leak_dir, slider_dir=slider_dir, target_scale=target_scale
+    )
+
+
 def lm_project_odd_axis(
     pos: torch.Tensor,
     neg: torch.Tensor,
@@ -643,6 +757,145 @@ def lm_semantic_pole_loss(
     pole = lm_semantic_kl(pred_plus_logits, tgt_plus_logits) + lm_semantic_kl(
         pred_minus_logits, tgt_minus_logits
     )
+    hold_w = float(hold_weight)
+    if hold_w > 0.0 and hold is not None:
+        pole = pole + hold_w * hold
+    return pole
+
+
+def lm_readout_null_basis(
+    readout: torch.Tensor, *, rtol: float = 1e-5
+) -> torch.Tensor | None:
+    """Orthonormal basis for ``ker(W)`` where ``W`` is the semantic readout.
+
+    Vectors in this subspace cannot change ``W @ h``, so semantic KL has zero
+    gradient on them. Hidden MSE on this component is what pins delivery /
+    vocal detail on a close pair without replacing the caption target.
+    """
+    weight = readout.detach().float()
+    if weight.ndim != 2 or weight.shape[0] == 0 or weight.shape[1] == 0:
+        return None
+    _, singular, vh = torch.linalg.svd(weight, full_matrices=True)
+    if singular.numel() == 0:
+        return None
+    thresh = float(rtol) * float(singular[0].clamp_min(1e-8))
+    keep = singular <= thresh
+    if not bool(keep.any()):
+        return None
+    basis = vh[keep].transpose(0, 1)
+    return basis
+
+
+def lm_null_space_mse(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    readout: torch.Tensor,
+    *,
+    null_basis: torch.Tensor | None = None,
+    rtol: float = 1e-5,
+) -> torch.Tensor:
+    """MSE on the readout null-space component of the pole residual."""
+    basis = null_basis
+    if basis is None:
+        basis = lm_readout_null_basis(readout, rtol=rtol)
+    if basis is None:
+        return pred_plus.new_tensor(0.0)
+
+    def _term(pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+        delta = (pred - tgt).flatten().float()
+        coeff = basis.T @ delta
+        return coeff.pow(2).mean()
+
+    return _term(pred_plus, tgt_plus) + _term(pred_minus, tgt_minus)
+
+
+def lm_semantic_null_pole_loss(
+    pred_plus_logits: torch.Tensor,
+    pred_minus_logits: torch.Tensor,
+    tgt_plus_logits: torch.Tensor,
+    tgt_minus_logits: torch.Tensor,
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    readout: torch.Tensor,
+    *,
+    null_weight: float = 1.0,
+    null_basis: torch.Tensor | None = None,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+) -> torch.Tensor:
+    """Semantic KL on the readout row space plus hidden MSE on ``ker(W)``.
+
+    Real caption poles stay the teacher. The KL term matches what the scored
+    token can see; the null-space MSE pins what it cannot — delivery on a
+    close pair, without ``faithful_sub_e``'s blend teacher on a divergent one.
+
+    Canonical live ``--pole_mode semantic_kl_null``. ``semantic_kl_plus_hidden``
+    and ``semantic_kl_pin`` are aliases of this same loss, not forks.
+    """
+    pole = lm_semantic_pole_loss(
+        pred_plus_logits,
+        pred_minus_logits,
+        tgt_plus_logits,
+        tgt_minus_logits,
+        hold=hold,
+        hold_weight=hold_weight,
+    )
+    null_w = float(null_weight)
+    if null_w > 0.0:
+        pole = pole + null_w * lm_null_space_mse(
+            pred_plus,
+            pred_minus,
+            tgt_plus,
+            tgt_minus,
+            readout,
+            null_basis=null_basis,
+        )
+    return pole
+
+
+def lm_unrolled_semantic_pole_loss(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    readout: torch.Tensor,
+    transition: torch.Tensor,
+    *,
+    unroll_steps: int = 1,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+) -> torch.Tensor:
+    """Semantic KL at token 0 and after each residual-mix step.
+
+    ``transition`` is the frozen mix that carries readout-invisible
+    content into the scored band (the pair-exam ``A = I + mix·(û⊗d̂)``).
+    One-token KL has no gradient on that content; after the mix it
+    does. Fixture-only: the live trainer has no frozen mix, so this is
+    not a ``--pole_mode``.
+    """
+    if int(unroll_steps) < 0:
+        raise ValueError(f"unroll_steps must be ≥ 0, got {unroll_steps!r}")
+    p_plus, p_minus = pred_plus, pred_minus
+    t_plus, t_minus = tgt_plus, tgt_minus
+    total = None
+    for k in range(int(unroll_steps) + 1):
+        if k > 0:
+            p_plus = transition @ p_plus
+            p_minus = transition @ p_minus
+            t_plus = transition @ t_plus
+            t_minus = transition @ t_minus
+        term = lm_semantic_pole_loss(
+            lm_next_token_logits(p_plus, readout),
+            lm_next_token_logits(p_minus, readout),
+            lm_next_token_logits(t_plus, readout),
+            lm_next_token_logits(t_minus, readout),
+        )
+        total = term if total is None else total + term
+    pole = total / float(int(unroll_steps) + 1)
     hold_w = float(hold_weight)
     if hold_w > 0.0 and hold is not None:
         pole = pole + hold_w * hold
