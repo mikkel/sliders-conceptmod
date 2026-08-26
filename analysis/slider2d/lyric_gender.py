@@ -303,6 +303,26 @@ def caption_move(seq: Sequence, prefix: torch.Tensor) -> float:
     return max(0.0, min(1.0, float(got @ want) / denom**2))
 
 
+def lyric_pin(seq: Sequence, prefix: torch.Tensor) -> float:
+    """How tightly +1 lyrics stayed at encode(neu). Logged leftover, not a gate.
+
+    Lyric-hold pins this to 1. Live orth can still move in-span. That is
+    the leftover the expect tie-break reads when two HITs share a
+    bottleneck.
+    """
+    neu = lyric_hiddens(seq.base[:-1]).reshape(-1)
+    got = lyric_hiddens(prefix).reshape(-1)
+    if float(neu.norm()) <= 1e-8 or float(got.norm()) <= 1e-8:
+        return 0.0
+    return float(
+        torch.nn.functional.cosine_similarity(
+            got.unsqueeze(0), neu.unsqueeze(0)
+        )
+        .clamp(min=0.0, max=1.0)
+        .squeeze()
+    )
+
+
 def _live_term(
     *,
     hold: str,
@@ -433,6 +453,7 @@ def score_lyric_gender(
     recall_ref: list[float] = []
     move_rows: list[float] = []
     caption_rows: list[float] = []
+    pin_rows: list[float] = []
     sings_lyric: list[str] = []
     sings_lyric_ref: list[str] = []
     sings_plus: list[str] = []
@@ -464,6 +485,7 @@ def score_lyric_gender(
         if move is not None:
             move_rows.append(move)
         caption_rows.append(caption_move(seq, prefix_p))
+        pin_rows.append(lyric_pin(seq, prefix_p))
         sings_lyric.append(
             " ".join(head.tokens[t] for t in sung_line(field, lyric_hiddens(prefix_p)))
         )
@@ -503,6 +525,7 @@ def score_lyric_gender(
         "lyric_recall_ref_plus": mean(recall_ref),
         "gender_move": move,
         "caption_move": mean(caption_rows),
+        "lyric_pin": mean(pin_rows),
         "cover": cover,
         "off_caption": off_caption,
         "neu_hold": hold_score,

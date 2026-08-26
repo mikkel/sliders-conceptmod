@@ -87,6 +87,7 @@ def test_expect_uses_live_losses_not_new_flags():
     last = torch.zeros(4)
     neu = torch.zeros(4)
     lyric = torch.zeros(3, 4)
+    lyric[:, 0] = 1.0
     prefix = torch.zeros(5, 4)
     concept = torch.zeros(2, 4)
     assert float(lm_plus_neu_loss(last, last, neu, neu)) == pytest.approx(0.0)
@@ -164,8 +165,8 @@ def test_expect_tie_break_splits_two_hits():
     b = expect_score(
         grit_lyric_recall=1.0,
         gender_move=1.0,
-        grit_cover=0.960,
-        gender_cover=0.960,
+        grit_cover=0.990,
+        gender_cover=0.990,
         neu_hold=1.0,
         grit_off_caption=0.04,
         gender_off_caption=0.04,
