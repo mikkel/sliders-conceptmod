@@ -70,8 +70,8 @@ Averages over the two required cells.
 | rank | recipe | want-box | lyric_recall | cover | neu_hold | gender_move | grit lyric | gender |
 |---:|---|---|---:|---:|---:|---:|---|---|
 | 1 | `faithful_plus_neu_orth` | **yes** | 1.000 | 0.933 | 1.000 | 1.000 | **HIT** | **HIT** |
-| 2 | `pair_odd_midpoint` | — | 1.000 | 0.590 | 1.000 | 0.975 | **HIT** | **HIT** |
-| 3 | `faithful_plus_neu_prefix` | — | 1.000 | 0.933 | 1.000 | 0.000 | **HIT** | MISS |
+| 2 | `faithful_plus_neu_prefix` | — | 1.000 | 0.933 | 1.000 | 0.000 | **HIT** | MISS |
+| 3 | `pair_odd_midpoint` | — | 1.000 | 0.590 | 1.000 | 0.975 | **HIT** | **HIT** |
 | 4 | `faithful_plus` | — | 0.500 | 0.933 | 0.610 | 0.975 | MISS | **HIT** |
 | 5 | `leftover_gate_bipolar` | — | 0.500 | 0.933 | 0.498 | 0.975 | MISS | **HIT** |
 | 6 | `faithful_plus_neu` | — | 0.500 | 0.933 | 1.000 | 0.975 | MISS | **HIT** |
