@@ -658,6 +658,83 @@ def test_faithful_even_blend_is_wired_and_not_the_default():
     assert not torch.allclose(blend_plus, d_pos, atol=1e-4)
 
 
+def test_faithful_plus_is_wired_and_not_the_default():
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful_plus"]
+    )
+    assert args.lm_target == "faithful_plus"
+    assert args.pole_mode == "hidden"
+    assert resolve_lm_recipe(lm_target="faithful_plus", symmetric=True) == (
+        "faithful_plus"
+    )
+    hold, anchor = resolve_lm_loss_weights(
+        "faithful_plus",
+        hold_weight=None,
+        anchor_weight=None,
+        leak_declared=True,
+    )
+    assert hold == 0.0
+    assert anchor == 0.0
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+    assert bare.pole_mode == "hidden"
+    src = Path("conceptmod/textsliders/train_lm_slider_music3.py").read_text()
+    assert '"lm_target": recipe' in src
+    assert '"plus_only": recipe in PLUS_ONLY_RECIPES' in src
+    pos, neg, neu = _ungated_pair()
+    plus, minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful_plus")
+    assert torch.allclose(plus, pos)
+    pair_odd = lm_hidden_targets(pos, neg, neu, target_mode="symmetric")
+    assert not torch.allclose(plus, pair_odd[0])
+    leftover = torch.tensor([0.0, 1.0])
+    gated, _, _, _ = lm_train_targets(
+        pos,
+        neg,
+        neu,
+        recipe="faithful_plus",
+        slider_dir=E_SLIDER,
+        leak_dir=leftover,
+    )
+    want = lm_faithful_sub_e(pos, neg, neu, leftover, slider_dir=E_SLIDER)
+    assert torch.allclose(gated, want[0])
+    # Minus MSE is off: moving pred_minus must not change the plus-only loss.
+    pred_plus = plus + 0.1
+    pred_minus = minus
+    base = lm_train_loss(
+        pred_plus, pred_minus, plus, minus, plus_only=True, pole_mode="hidden"
+    )
+    moved = lm_train_loss(
+        pred_plus,
+        pred_minus + 3.0,
+        plus,
+        minus,
+        plus_only=True,
+        pole_mode="hidden",
+    )
+    both = lm_train_loss(
+        pred_plus, pred_minus + 3.0, plus, minus, plus_only=False, pole_mode="hidden"
+    )
+    assert float(base) == pytest.approx(float(moved), abs=1e-7)
+    assert float(both) > float(base)
+
+
+def test_help_lists_faithful_plus_and_keeps_v9_hidden_default():
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with pytest.raises(SystemExit):
+        with redirect_stdout(buf):
+            parse_args(["--help"])
+    help_text = buf.getvalue()
+    assert "--lm_target" in help_text
+    assert "faithful_plus" in help_text
+    assert "v9" in help_text
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+    assert bare.pole_mode == "hidden"
+
+
 def _divergent_pair():
     """Two tracks: ê restates the pole difference."""
     u, p, q, s = (torch.eye(4)[i] for i in range(4))
