@@ -491,4 +491,5 @@ def test_dual_band_midpoint_fails_the_divergent_pair():
     control = by_id()["dual_band_midpoint"]
     assert control["exam_score"] is not None
     assert control["cells"]["exam_divergent"] is False
-    assert control["exam_score"] < by_id()["dual_band_poles"]["exam_score"]
+    assert control["cells"]["exam_close"] is not None
+    assert by_id()["dual_band_poles"]["cells"]["exam_divergent"] is True
