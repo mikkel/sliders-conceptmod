@@ -62,8 +62,16 @@ def _load_default_prompt(prompts_file: Path) -> tuple[str, str]:
     raw = yaml.safe_load(prompts_file.read_text(encoding="utf-8"))
     if not raw:
         return DEFAULT_PROMPT, DEFAULT_LYRICS
-    item = raw[0]
-    return str(item.get("target") or DEFAULT_PROMPT), str(item.get("lyrics") or DEFAULT_LYRICS)
+    rows = raw.get("rows") if isinstance(raw, dict) else raw
+    if not rows:
+        return DEFAULT_PROMPT, DEFAULT_LYRICS
+    item = rows[0]
+    # Prefer yaml `neutral` — `target` is often the + caption. Plus+neu
+    # adapters were trained as encode(neu)+LoRA; swapping in + is double +.
+    return (
+        str(item.get("neutral") or item.get("target") or DEFAULT_PROMPT),
+        str(item.get("lyrics") or DEFAULT_LYRICS),
+    )
 
 
 def _load_pipeline(model_dir: Path, device: str):
@@ -146,6 +154,15 @@ def infer(args: argparse.Namespace) -> list[Path]:
         file_prompt, file_lyrics = _load_default_prompt(Path(args.prompts_file))
         prompt = prompt or file_prompt
         lyrics = lyrics or file_lyrics
+    if meta.get("plus_neu") or str(meta.get("lm_target") or "") in {
+        "faithful_plus_neu",
+        "faithful_plus_neu_prefix",
+    }:
+        print(
+            "plus+neu adapter: slider clips use the yaml neutral caption + LoRA. "
+            "Passing the + caption with LoRA @ +1 is double +.",
+            flush=True,
+        )
 
     device = f"cuda:{int(args.device)}"
     model_dir = Path(args.model_dir)

@@ -35,10 +35,13 @@ Formulas are copied from:
   faithful_plus`` trains the + pole only: teacher is leftover-gated
   ``h+`` (raw pos when leftover ê is unused or undeclared). No pair-odd,
   no ``h0 ± a``, no minus MSE. Inference may still expose a −1 fader;
-  that fader is unconstrained. ``--lm_target faithful_plus_neu`` is UNI:
+  that fader is unconstrained.   ``--lm_target faithful_plus_neu`` is UNI:
   student +1 fits raw ``h+`` (never leftover-gated) and student scale 0
-  fits ``h0``. No minus MSE, no pair-odd, no ``h0 ± a``. Opt-in; default
-  stays ``v9``.
+  fits ``h0``. Last-hidden MSE only — the LoRA still rewrites the lyric
+  prefix. ``--lm_target faithful_plus_neu_prefix`` is UNI plus a prefix
+  hold: +1 last hidden → raw ``h+``, +1 prefix hidden → encode(neu)
+  prefix (not encode(pos) prefix), scale 0 → ``h0``. No minus teacher.
+  Opt-in; default stays ``v9``.
   ``--pole_mode dual_band`` is KL on the
   semantic band plus hidden MSE on the centered-readout blind band
   (``P_blind`` from SVD). Neither is the default.
@@ -617,10 +620,38 @@ def lm_faithful_plus_neu(
     ``leak_dir`` / ``slider_dir`` are accepted so the call site can stay
     the same as ``lm_faithful_plus``; they do not change the teacher.
     ``neg`` is not a teacher. Scale-0 supervision is ``neu`` itself and
-    lives in ``lm_plus_neu_loss``, not here.
+    lives in ``lm_plus_neu_loss``, not here. Prefix-hold lives in
+    ``lm_plus_neu_prefix_loss`` (``faithful_plus_neu_prefix``); this
+    function is still the last-token + teacher.
     """
     del neg, neu, leak_dir, slider_dir, target_scale
     return pos
+
+
+def lm_faithful_plus_neu_prefix(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+) -> torch.Tensor:
+    """UNI prefix-hold last-token teacher: still raw ``h+``.
+
+    ``--lm_target faithful_plus_neu_prefix`` keeps the same last-token
+    + teacher as ``faithful_plus_neu``. The prefix hold (student +1
+    prefix → encode(neu) prefix) is a sequence loss, not a different
+    last-hidden point. ``leak_dir`` / leftover-gate never apply.
+    """
+    return lm_faithful_plus_neu(
+        pos,
+        neg,
+        neu,
+        leak_dir,
+        slider_dir=slider_dir,
+        target_scale=target_scale,
+    )
 
 
 def lm_blend_guard(
@@ -1113,6 +1144,47 @@ def lm_plus_neu_loss(
     raw pos; ``tgt_zero`` is the neutral caption.
     """
     return F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_zero, tgt_zero)
+
+
+def lm_plus_neu_prefix_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    pred_zero: torch.Tensor,
+    tgt_zero: torch.Tensor,
+    pred_plus_prefix: torch.Tensor,
+    tgt_neu_prefix: torch.Tensor,
+    *,
+    prefix_weight: float = 1.0,
+) -> torch.Tensor:
+    """UNI + prefix hold: last-token ``h+`` / ``h0``, prefix → encode(neu).
+
+    ``--lm_target faithful_plus_neu_prefix``: ``MSE(last +) + MSE(last 0)
+    + MSE(prefix + → encode(neu) prefix)``. Prefix teacher is the
+    same-room lyric / neu tokens, not encode(pos) prefix. No minus
+    teacher, no leftover-gate. ``tgt_plus`` is raw last-token ``h+``.
+    """
+    last = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+    return last + float(prefix_weight) * F.mse_loss(pred_plus_prefix, tgt_neu_prefix)
+
+
+def lm_project_last_delta_off_lyric(
+    last_delta: torch.Tensor,
+    lyric_span: torch.Tensor,
+) -> torch.Tensor:
+    """Project a last-token delta off the span of lyric-token hiddens.
+
+    Cheap sibling of prefix-hold: the concept update at the continue
+    token is orthogonal to the yaml lyric positions. ``lyric_span`` is
+    ``[P, H]`` (encode(neu) prefix). Used by the fixture's optional
+    ``faithful_plus_neu_prefix_orth`` variant; not a live default.
+    """
+    span = lyric_span.reshape(-1, lyric_span.shape[-1]).to(dtype=last_delta.dtype)
+    if span.numel() == 0 or float(span.norm()) <= 1e-8:
+        return last_delta
+    q, _r = torch.linalg.qr(span.T, mode="reduced")
+    rank = min(q.shape[1], span.shape[0])
+    basis = q[:, :rank]
+    return last_delta - basis @ (basis.T @ last_delta.reshape(-1))
 
 
 def lm_slider_loss(

@@ -21,7 +21,12 @@ subtracts leftover ê only while the cleaned target stays nearer its
 own caption than the pair midpoint. ``--lm_target faithful_plus``
 trains the + pole only (leftover-gated ``h+``; no minus MSE).
 ``--lm_target faithful_plus_neu`` is UNI: student +1 fits raw ``h+``
-(never leftover-gated) and student scale 0 fits ``h0``. No minus MSE.
+(never leftover-gated) and student scale 0 fits ``h0``. Last-hidden
+MSE only. No minus MSE, no minus endreg, early-stop on c+/p% only.
+Last real token must be ``<|audio_start|>``. Infer with the yaml
+neutral caption + LoRA (not the + caption).
+``--lm_target faithful_plus_neu_prefix`` also holds the +1 prefix
+hidden to encode(neu) (yaml lyrics), not encode(pos).
 ``--pole_mode semantic_kl`` is
 next-token KL on the semantic band. ``--pole_mode semantic_kl_null``
 (aliases ``semantic_kl_plus_hidden``, ``semantic_kl_pin``) adds hidden
@@ -93,6 +98,8 @@ from conceptmod.textsliders.slider_targets import (
     lm_faithful_guard_e,
     lm_faithful_plus,
     lm_faithful_plus_neu,
+    lm_faithful_plus_neu_prefix,
+    lm_plus_neu_prefix_loss,
     lm_faithful_sub_e,
     lm_faithful_sub_e_if_unused,
     lm_plus_loss,
@@ -127,6 +134,7 @@ LM_RECIPES = (
     "faithful_even_blend",
     "faithful_plus",
     "faithful_plus_neu",
+    "faithful_plus_neu_prefix",
 )
 # Canonical live pole modes. ``semantic_kl_plus_hidden`` (#32) and
 # ``semantic_kl_pin`` (#29) are aliases of ``semantic_kl_null`` (#33) —
@@ -156,7 +164,8 @@ GATED_SUB_E_RECIPES = frozenset(
 )
 EVEN_BLEND_RECIPES = frozenset({"faithful_even_blend"})
 PLUS_ONLY_RECIPES = frozenset({"faithful_plus"})
-PLUS_NEU_RECIPES = frozenset({"faithful_plus_neu"})
+PLUS_NEU_RECIPES = frozenset({"faithful_plus_neu", "faithful_plus_neu_prefix"})
+PLUS_NEU_PREFIX_RECIPES = frozenset({"faithful_plus_neu_prefix"})
 PAIR_ODD_RECIPES = frozenset({"pair_odd_sub_e"})
 TARGET_REPLACE = ["Qwen3Attention"]
 
@@ -186,7 +195,9 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     leftover; not the default. ``faithful_plus`` leftover-gates the +
     caption only and drops minus MSE; not the default.
     ``faithful_plus_neu`` is UNI: raw ``h+`` at +1 and ``h0`` at scale 0;
-    no leftover-gate, no minus MSE; not the default.
+    last-hidden MSE only; no leftover-gate, no minus MSE; not the default.
+    ``faithful_plus_neu_prefix`` is UNI plus a prefix hold: +1 prefix
+    hidden fits encode(neu) prefix (yaml lyrics), not encode(pos).
     """
     recipe = str(lm_target).strip().lower()
     if recipe not in LM_RECIPES:
@@ -442,6 +453,16 @@ def lm_train_targets(
         )
         # Minus is not a teacher. Raw neg is only a canary reference.
         return plus, neg, None, None
+    if recipe == "faithful_plus_neu_prefix":
+        plus = lm_faithful_plus_neu_prefix(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=slider_dir,
+            target_scale=target_scale,
+        )
+        return plus, neg, None, None
     if recipe in PROJECT_RECIPES:
         if slider_dir is None:
             raise ValueError("lm_target=v9_project requires a declared slider_dir")
@@ -501,6 +522,10 @@ def lm_train_loss(
     plus_neu: bool = False,
     pred_zero: torch.Tensor | None = None,
     tgt_zero: torch.Tensor | None = None,
+    plus_neu_prefix: bool = False,
+    pred_plus_prefix: torch.Tensor | None = None,
+    tgt_neu_prefix: torch.Tensor | None = None,
+    prefix_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Live pole loss: ``lm_slider_loss`` plus optional hold.
 
@@ -519,6 +544,7 @@ def lm_train_loss(
     the already-scored race recipes.
     ``plus_only`` (``faithful_plus``) drops every minus term.
     ``plus_neu`` (``faithful_plus_neu``) is ``MSE(+) + MSE(0)`` only.
+    ``plus_neu_prefix`` adds ``MSE(prefix + → encode(neu) prefix)``.
     """
     if plus_only and plus_neu:
         raise ValueError("plus_only and plus_neu are mutually exclusive")
@@ -528,7 +554,25 @@ def lm_train_loss(
         mode = resolve_pole_mode(pole_mode)
         if mode in NEEDS_READOUT and readout is None:
             raise ValueError(f"pole_mode={mode} requires a semantic readout")
-        neu_term = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+        if plus_neu_prefix:
+            if pred_plus_prefix is None or tgt_neu_prefix is None:
+                raise ValueError("plus_neu_prefix requires pred_plus_prefix and tgt_neu_prefix")
+            if prefix_mask is None:
+                neu_term = lm_plus_neu_prefix_loss(
+                    pred_plus,
+                    tgt_plus,
+                    pred_zero,
+                    tgt_zero,
+                    pred_plus_prefix,
+                    tgt_neu_prefix,
+                )
+            else:
+                neu_term = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+                neu_term = neu_term + _masked_hidden_mse(
+                    pred_plus_prefix, tgt_neu_prefix, prefix_mask
+                )
+        else:
+            neu_term = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
         if mode == "hidden":
             return neu_term
         # Other pole modes keep UNI's MSE(0) and replace only the + term.
@@ -548,7 +592,15 @@ def lm_train_loss(
             blind_weight=blind_weight,
             plus_only=True,
         )
-        return plus_term + F.mse_loss(pred_zero, tgt_zero)
+        extra = plus_term + F.mse_loss(pred_zero, tgt_zero)
+        if plus_neu_prefix:
+            if prefix_mask is None:
+                extra = extra + F.mse_loss(pred_plus_prefix, tgt_neu_prefix)
+            else:
+                extra = extra + _masked_hidden_mse(
+                    pred_plus_prefix, tgt_neu_prefix, prefix_mask
+                )
+        return extra
     if plus_only:
         mode = resolve_pole_mode(pole_mode)
         if mode in NEEDS_READOUT and readout is None:
@@ -728,21 +780,105 @@ def _tokenize(tokenizer, text: str, device: torch.device):
 
 
 @torch.no_grad()
+def _last_real_index(attention_mask: torch.Tensor) -> torch.Tensor:
+    """Index of the last real token per row (attention_mask sum − 1)."""
+    return attention_mask.to(dtype=torch.long).sum(dim=1) - 1
+
+
+def _gather_last_hidden(hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    """Hidden at the last real token. Respects padding; do not use shape-1."""
+    lengths = _last_real_index(attention_mask)
+    gather = lengths.view(-1, 1, 1).expand(-1, 1, hidden.size(-1))
+    return hidden.gather(1, gather.clamp(min=0)).squeeze(1)
+
+
+def _audio_start_token_id(tokenizer):
+    """Tokenizer id for ``<|audio_start|>``, or None if the tokenizer cannot say."""
+    if tokenizer is None:
+        return None
+    convert = getattr(tokenizer, "convert_tokens_to_ids", None)
+    if convert is None:
+        return None
+    tid = convert(_AUDIO_START)
+    if tid is None:
+        return None
+    try:
+        tid = int(tid)
+    except (TypeError, ValueError):
+        return None
+    if tid < 0:
+        return None
+    return tid
+
+
+def _assert_last_token_is_audio_start(
+    input_ids: torch.Tensor, attention_mask: torch.Tensor, tokenizer, *, where: str
+) -> None:
+    """Fail closed if last-hidden MSE would pin the wrong continue-from token."""
+    audio_id = _audio_start_token_id(tokenizer)
+    if audio_id is None:
+        return
+    last_idx = _last_real_index(attention_mask).clamp(min=0)
+    batch = torch.arange(input_ids.size(0), device=input_ids.device)
+    last_ids = input_ids[batch, last_idx]
+    expected = torch.full_like(last_ids, audio_id)
+    if not torch.equal(last_ids, expected):
+        raise RuntimeError(
+            f"{where}: last real token is not {_AUDIO_START} "
+            f"(got ids={last_ids.tolist()}, expected={audio_id}). "
+            "Last-hidden MSE would pin the wrong continue-from token."
+        )
+
+
+def _minus_pole_used(recipe: str) -> bool:
+    """Plus+neu formulation is no minus — skip −1 encode, endreg, and early-stop."""
+    return recipe not in PLUS_NEU_RECIPES
+
+
+def _endreg_uses_minus(recipe: str) -> bool:
+    return _minus_pole_used(recipe)
+
+
 def _encode_static(lm, input_ids, attention_mask) -> torch.Tensor:
     hidden = lm.model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
     # Last real token (the audio-start token) is what AR continues from.
-    lengths = attention_mask.sum(dim=1) - 1
-    gather = lengths.view(-1, 1, 1).expand(-1, 1, hidden.size(-1))
-    last = hidden.gather(1, gather.clamp(min=0)).squeeze(1)
-    return last.float()
+    return _gather_last_hidden(hidden, attention_mask).float()
 
 
 def _encode_train(lm, input_ids, attention_mask) -> torch.Tensor:
     hidden = lm.model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
-    lengths = attention_mask.sum(dim=1) - 1
-    gather = lengths.view(-1, 1, 1).expand(-1, 1, hidden.size(-1))
-    last = hidden.gather(1, gather.clamp(min=0)).squeeze(1)
-    return last.float()
+    return _gather_last_hidden(hidden, attention_mask).float()
+
+
+def _encode_full(lm, input_ids, attention_mask) -> torch.Tensor:
+    """Full last-hidden sequence. Prefix-hold reads every token except last."""
+    hidden = lm.model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+    return hidden.float()
+
+
+def _split_prefix_last(
+    hidden: torch.Tensor, attention_mask: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Last real token (continue) and a mask over the lyric / caption prefix.
+
+    Last real token is the audio-start continue-from token. Prefix is
+    every earlier real token — including the yaml lyrics.
+    """
+    lengths = _last_real_index(attention_mask)
+    last = _gather_last_hidden(hidden, attention_mask)
+    prefix_mask = attention_mask.clone()
+    batch = torch.arange(hidden.size(0), device=hidden.device)
+    prefix_mask[batch, lengths.clamp(min=0)] = 0
+    return last.float(), hidden, prefix_mask
+
+
+def _masked_hidden_mse(
+    pred: torch.Tensor, tgt: torch.Tensor, mask: torch.Tensor
+) -> torch.Tensor:
+    """MSE over masked prefix positions. ``mask`` is [B, T] 1/0."""
+    valid = mask.unsqueeze(-1).to(dtype=pred.dtype)
+    denom = valid.sum().clamp_min(1.0)
+    return ((pred - tgt).pow(2) * valid).sum() / denom
 
 
 def _set_scale(network: LoRANetwork, scale: float) -> None:
@@ -788,8 +924,14 @@ def _forward_teacher_forced(lm, prompt_embeds: torch.Tensor, frame_embeds: torch
     embeds = prompt_embeds if frame_embeds is None else torch.cat((prompt_embeds, frame_embeds), dim=1)
     mask = torch.ones(embeds.shape[:2], dtype=torch.long, device=embeds.device)
     hidden = lm.model(inputs_embeds=embeds, attention_mask=mask).last_hidden_state
-    prompt_last = hidden[:, prompt_embeds.shape[1] - 1]
-    margins = _frame_margins(lm, hidden[:, prompt_embeds.shape[1] - 1 :])
+    # Prompt has no padding here (ones mask), but still gather via the last-real
+    # index so this cannot silently disagree with `_encode_*` if padding appears.
+    prompt_mask = torch.ones(
+        prompt_embeds.shape[:2], dtype=torch.long, device=prompt_embeds.device
+    )
+    prompt_last = _gather_last_hidden(hidden[:, : prompt_embeds.shape[1]], prompt_mask)
+    last_idx = int(_last_real_index(prompt_mask)[0].item())
+    margins = _frame_margins(lm, hidden[:, last_idx:])
     return prompt_last.float(), margins, hidden
 
 
@@ -995,8 +1137,16 @@ def train(args: argparse.Namespace) -> Path:
         axis_pos_text = _assemble(axis_captions[0], axis_lyrics)
         axis_neg_text = _assemble(axis_captions[1], axis_lyrics)
         with torch.no_grad():
-            axis_pos_h = _encode_static(lm, *_tokenize(tokenizer, axis_pos_text, device))
-            axis_neg_h = _encode_static(lm, *_tokenize(tokenizer, axis_neg_text, device))
+            axis_pos_ids, axis_pos_mask = _tokenize(tokenizer, axis_pos_text, device)
+            axis_neg_ids, axis_neg_mask = _tokenize(tokenizer, axis_neg_text, device)
+            _assert_last_token_is_audio_start(
+                axis_pos_ids, axis_pos_mask, tokenizer, where="declared slider +"
+            )
+            _assert_last_token_is_audio_start(
+                axis_neg_ids, axis_neg_mask, tokenizer, where="declared slider −"
+            )
+            axis_pos_h = _encode_static(lm, axis_pos_ids, axis_pos_mask)
+            axis_neg_h = _encode_static(lm, axis_neg_ids, axis_neg_mask)
         slider_dir = axis_pos_h - axis_neg_h
         print(
             f"declared slider axis: {axis_captions[0]!r} / {axis_captions[1]!r} "
@@ -1006,8 +1156,16 @@ def train(args: argparse.Namespace) -> Path:
         leak_pos_text = _assemble(leak_captions[0], axis_lyrics)
         leak_neg_text = _assemble(leak_captions[1], axis_lyrics)
         with torch.no_grad():
-            leak_pos_h = _encode_static(lm, *_tokenize(tokenizer, leak_pos_text, device))
-            leak_neg_h = _encode_static(lm, *_tokenize(tokenizer, leak_neg_text, device))
+            leak_pos_ids, leak_pos_mask = _tokenize(tokenizer, leak_pos_text, device)
+            leak_neg_ids, leak_neg_mask = _tokenize(tokenizer, leak_neg_text, device)
+            _assert_last_token_is_audio_start(
+                leak_pos_ids, leak_pos_mask, tokenizer, where="declared leak +"
+            )
+            _assert_last_token_is_audio_start(
+                leak_neg_ids, leak_neg_mask, tokenizer, where="declared leak −"
+            )
+            leak_pos_h = _encode_static(lm, leak_pos_ids, leak_pos_mask)
+            leak_neg_h = _encode_static(lm, leak_neg_ids, leak_neg_mask)
         leak_dir = leak_pos_h - leak_neg_h
         if recipe == "pair_odd_sub_e":
             hold_note = "teacher=pair_odd − ê_⊥, ê_⊥=ê−(ê·û)û; hold 0"
@@ -1025,6 +1183,11 @@ def train(args: argparse.Namespace) -> Path:
             hold_note = "teacher=+ caption leftover-gated; minus MSE off; hold 0"
         elif recipe == "faithful_plus_neu":
             hold_note = "teacher=raw + caption; scale 0 fits h0; minus MSE off; hold 0"
+        elif recipe == "faithful_plus_neu_prefix":
+            hold_note = (
+                "teacher=raw + last hidden; +1 prefix → encode(neu); "
+                "scale 0 fits h0; minus MSE off; hold 0"
+            )
         else:
             hold_note = "hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd"
         print(
@@ -1044,10 +1207,22 @@ def train(args: argparse.Namespace) -> Path:
             "negative": _assemble(str(row["negative"]), lyrics),
         }
         tokens = {name: _tokenize(tokenizer, text, device) for name, text in texts.items()}
+        for name, (ids, mask) in tokens.items():
+            _assert_last_token_is_audio_start(
+                ids, mask, tokenizer, where=f"row {index} {name} caption"
+            )
         with torch.no_grad():
             pos_tgt = _encode_static(lm, *tokens["positive"])
             neg_tgt = _encode_static(lm, *tokens["negative"])
             neu_ref = _encode_static(lm, *tokens["neutral"])
+            neu_hidden = None
+            neu_prefix_mask = None
+            if recipe in PLUS_NEU_PREFIX_RECIPES:
+                neu_full = _encode_full(lm, *tokens["neutral"])
+                _last, neu_hidden, neu_prefix_mask = _split_prefix_last(
+                    neu_full, tokens["neutral"][1]
+                )
+                del _last
         target_cos = F.cosine_similarity(pos_tgt - neu_ref, neg_tgt - neu_ref, dim=-1).mean().item()
         align = None
         if slider_dir is not None:
@@ -1060,6 +1235,8 @@ def train(args: argparse.Namespace) -> Path:
                 "pos_tgt": pos_tgt,
                 "neg_tgt": neg_tgt,
                 "neu_ref": neu_ref,
+                "neu_hidden": neu_hidden,
+                "neu_prefix_mask": neu_prefix_mask,
                 "target_cos": target_cos,
                 "align": align,
             }
@@ -1140,7 +1317,17 @@ def train(args: argparse.Namespace) -> Path:
             print(
                 "faithful_plus_neu: teacher=raw + caption (no leftover-gate); "
                 "student +1 fits h+, student 0 fits h0; "
-                "no pair-odd, no h0 ± a, no minus MSE"
+                "no pair-odd, no h0 ± a, no minus MSE, no minus endreg; "
+                "early_stop on c+/p% only. Infer with the yaml neutral "
+                "caption + LoRA — do not also swap in the + caption."
+            )
+        elif recipe == "faithful_plus_neu_prefix":
+            print(
+                "faithful_plus_neu_prefix: teacher=raw + last hidden "
+                "(no leftover-gate); student +1 last fits h+, "
+                "student +1 prefix fits encode(neu) prefix (yaml lyrics), "
+                "student 0 fits h0; no pair-odd, no h0 ± a, no minus MSE, "
+                "no minus endreg; early_stop on c+/p% only"
             )
     if pole_mode == "semantic_kl":
         print("pole_mode=semantic_kl: next-token KL on the semantic band of lm_head")
@@ -1250,6 +1437,13 @@ def train(args: argparse.Namespace) -> Path:
             dropped = " teacher=faithful_plus_neu raw_h+ hold_ê=0 minus_mse=off neu_mse=on"
             if encoded["align"] is not None:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
+        elif recipe == "faithful_plus_neu_prefix":
+            dropped = (
+                " teacher=faithful_plus_neu_prefix raw_h+ prefix→encode(neu) "
+                "hold_ê=0 minus_mse=off neu_mse=on"
+            )
+            if encoded["align"] is not None:
+                dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
         elif encoded["align"] is not None:
             dropped = f" odd·û/||odd||={encoded['align']:.3f}"
             if recipe in PROJECT_RECIPES and not should_project:
@@ -1298,6 +1492,8 @@ def train(args: argparse.Namespace) -> Path:
                 "tgt_plus": tgt_plus,
                 "tgt_minus": tgt_minus,
                 "neu_ref": neu_ref,
+                "neu_hidden": encoded.get("neu_hidden"),
+                "neu_prefix_mask": encoded.get("neu_prefix_mask"),
                 "slider_dir": row_slider_dir,
                 "leak_dir": row_leak_dir,
                 "hold_weight": row_hold,
@@ -1398,29 +1594,66 @@ def train(args: argparse.Namespace) -> Path:
             pred_pos, m_pos, hid_pos = _forward_teacher_forced(lm, data["prompt_embeds"], data["frame_embeds"])
             end_pos = F.mse_loss(m_pos, data["base_margins"])
             plan_pos = F.mse_loss(hid_pos[:, data["prompt_embeds"].shape[1] :].float(), data["base_hidden"])
-
-            _set_scale(network, -1.0)
-            pred_neg, m_neg, hid_neg = _forward_teacher_forced(lm, data["prompt_embeds"], data["frame_embeds"])
-            end_neg = F.mse_loss(m_neg, data["base_margins"])
-            plan_neg = F.mse_loss(hid_neg[:, data["prompt_embeds"].shape[1] :].float(), data["base_hidden"])
             edrift_p = float((m_pos - data["base_margins"]).abs().mean().detach())
-            edrift_n = float((m_neg - data["base_margins"]).abs().mean().detach())
             pdrift_p = float(plan_pos.detach())
-            pdrift_n = float(plan_neg.detach())
-            pred_zero = None
-            if recipe in PLUS_NEU_RECIPES:
-                _set_scale(network, 0.0)
-                pred_zero, _, _ = _forward_teacher_forced(
+
+            if _minus_pole_used(recipe):
+                _set_scale(network, -1.0)
+                pred_neg, m_neg, hid_neg = _forward_teacher_forced(
                     lm, data["prompt_embeds"], data["frame_embeds"]
                 )
+                end_neg = F.mse_loss(m_neg, data["base_margins"])
+                plan_neg = F.mse_loss(
+                    hid_neg[:, data["prompt_embeds"].shape[1] :].float(), data["base_hidden"]
+                )
+                edrift_n = float((m_neg - data["base_margins"]).abs().mean().detach())
+                pdrift_n = float(plan_neg.detach())
+            else:
+                # Formulation is no minus. Do not teacher-force scale −1 or
+                # backprop minus end-margin / plan drift.
+                pred_neg = pred_pos.detach()
+                end_neg = torch.zeros((), device=device)
+                plan_neg = torch.zeros((), device=device)
+                edrift_n = 0.0
+                pdrift_n = 0.0
+            pred_zero = None
+            pred_plus_prefix = None
+            prefix_mask = None
+            if recipe in PLUS_NEU_RECIPES:
+                _set_scale(network, 0.0)
+                pred_zero, _, hid_zero = _forward_teacher_forced(
+                    lm, data["prompt_embeds"], data["frame_embeds"]
+                )
+                if recipe in PLUS_NEU_PREFIX_RECIPES:
+                    prompt_len = int(data["prompt_embeds"].shape[1])
+                    pred_plus_prefix = hid_pos[:, :prompt_len]
+                    prefix_mask = torch.ones(
+                        pred_plus_prefix.shape[:2],
+                        dtype=torch.long,
+                        device=pred_plus_prefix.device,
+                    )
+                    if prompt_len > 0:
+                        prefix_mask[:, prompt_len - 1] = 0
+                    _ = hid_zero
         else:
             if args.planreg_weight > 0:
                 raise ValueError("--planreg_weight requires the audio-end regularizer (its pre-roll supplies the plan)")
             _set_scale(network, 1.0)
-            pred_pos = _encode_train(lm, neu_ids, neu_mask)
+            pred_plus_prefix = None
+            prefix_mask = None
+            if recipe in PLUS_NEU_PREFIX_RECIPES:
+                hid_pos = _encode_full(lm, neu_ids, neu_mask)
+                pred_pos, pred_plus_prefix, prefix_mask = _split_prefix_last(
+                    hid_pos, neu_mask
+                )
+            else:
+                pred_pos = _encode_train(lm, neu_ids, neu_mask)
 
-            _set_scale(network, -1.0)
-            pred_neg = _encode_train(lm, neu_ids, neu_mask)
+            if _minus_pole_used(recipe):
+                _set_scale(network, -1.0)
+                pred_neg = _encode_train(lm, neu_ids, neu_mask)
+            else:
+                pred_neg = pred_pos.detach()
             end_pos = end_neg = torch.zeros((), device=device)
             plan_pos = plan_neg = torch.zeros((), device=device)
             edrift_p = edrift_n = 0.0
@@ -1431,14 +1664,19 @@ def train(args: argparse.Namespace) -> Path:
                 pred_zero = _encode_train(lm, neu_ids, neu_mask)
 
         v_pos = pred_pos - neu_ref
-        v_neg = pred_neg - neu_ref
         v_pos_t = tgt_plus - neu_ref
-        v_neg_t = tgt_minus - neu_ref
         cos_pos = F.cosine_similarity(v_pos, v_pos_t, dim=-1).mean()
-        cos_neg = F.cosine_similarity(v_neg, v_neg_t, dim=-1).mean()
-        collapse = F.cosine_similarity(v_pos, v_neg, dim=-1).mean()
         pperc = (torch.norm(pred_pos - tgt_plus) / torch.norm(v_pos_t).clamp_min(1e-6)).item()
-        nperc = (torch.norm(pred_neg - tgt_minus) / torch.norm(v_neg_t).clamp_min(1e-6)).item()
+        if recipe in PLUS_NEU_RECIPES:
+            cos_neg = torch.zeros((), device=pred_pos.device)
+            collapse = torch.zeros((), device=pred_pos.device)
+            nperc = 0.0
+        else:
+            v_neg = pred_neg - neu_ref
+            v_neg_t = tgt_minus - neu_ref
+            cos_neg = F.cosine_similarity(v_neg, v_neg_t, dim=-1).mean()
+            collapse = F.cosine_similarity(v_pos, v_neg, dim=-1).mean()
+            nperc = (torch.norm(pred_neg - tgt_minus) / torch.norm(v_neg_t).clamp_min(1e-6)).item()
 
         pole = lm_train_loss(
             pred_pos,
@@ -1461,8 +1699,20 @@ def train(args: argparse.Namespace) -> Path:
             plus_neu=recipe in PLUS_NEU_RECIPES,
             pred_zero=pred_zero,
             tgt_zero=neu_ref if recipe in PLUS_NEU_RECIPES else None,
+            plus_neu_prefix=recipe in PLUS_NEU_PREFIX_RECIPES,
+            pred_plus_prefix=pred_plus_prefix,
+            tgt_neu_prefix=data.get("neu_hidden"),
+            prefix_mask=prefix_mask if prefix_mask is not None else data.get("neu_prefix_mask"),
         )
-        loss = pole + 0.5 * args.endreg_weight * (end_pos + end_neg) + args.planreg_weight * (plan_pos + plan_neg)
+        if recipe in PLUS_NEU_RECIPES:
+            # Per-pole endreg strength matches bipolar's +1 term (not 0.5 · end_pos).
+            loss = pole + args.endreg_weight * end_pos + args.planreg_weight * plan_pos
+        else:
+            loss = (
+                pole
+                + 0.5 * args.endreg_weight * (end_pos + end_neg)
+                + args.planreg_weight * (plan_pos + plan_neg)
+            )
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_value_(network.parameters(), clip_value=1.0)
@@ -1504,7 +1754,14 @@ def train(args: argparse.Namespace) -> Path:
         if (
             args.early_stop
             and len(history) >= args.min_steps
-            and _early_stop_hit(history, args.early_window, args.early_cos, args.early_collapse, args.early_perc)
+            and _early_stop_hit(
+                history,
+                args.early_window,
+                args.early_cos,
+                args.early_collapse,
+                args.early_perc,
+                plus_neu=recipe in PLUS_NEU_RECIPES,
+            )
         ):
             early_fired = True
             print(
@@ -1538,6 +1795,7 @@ def train(args: argparse.Namespace) -> Path:
         "lm_target": recipe,
         "plus_only": recipe in PLUS_ONLY_RECIPES,
         "plus_neu": recipe in PLUS_NEU_RECIPES,
+        "plus_neu_prefix": recipe in PLUS_NEU_PREFIX_RECIPES,
         "even_blend_scale": float(args.even_blend_scale),
         "pole_mode": pole_mode,
         "symmetric": bool(args.symmetric),
@@ -1646,8 +1904,11 @@ def parse_args(argv=None):
         "undeclared). No pair-odd, no h0 ± a, no minus MSE. Inference "
         "may still expose a −1 fader; that fader is unconstrained. "
         "faithful_plus_neu: UNI. Student +1 fits raw h+ (never leftover-"
-        "gated, even if leak_* exists). Student scale 0 fits h0. No minus "
-        "MSE, no pair-odd, no h0 ± a. Not the default",
+        "gated, even if leak_* exists). Student scale 0 fits h0. Last-hidden "
+        "MSE only. faithful_plus_neu_prefix: UNI plus a prefix hold. Student "
+        "+1 last hidden fits raw h+, +1 prefix hidden fits encode(neu) "
+        "prefix (yaml lyrics, not encode(pos) prefix), scale 0 fits h0. "
+        "No minus MSE, no pair-odd, no h0 ± a. Not the default",
     )
     p.add_argument(
         "--even_blend_scale",
@@ -1810,7 +2071,8 @@ def parse_args(argv=None):
         "--early_stop",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="stop when a rolling window matches c+/c-/collapse/perc (replayed on all v3 LM runs)",
+        help="stop when a rolling window matches c+/c-/collapse/perc (replayed on all v3 LM runs). "
+        "plus+neu recipes ignore c-/nperc/collapse (no minus teacher)",
     )
     p.add_argument("--early_window", type=int, default=50)
     p.add_argument("--min_steps", type=int, default=100, help="never stop before this many steps")
@@ -1824,7 +2086,13 @@ def parse_args(argv=None):
 
 
 def _early_stop_hit(
-    history: list[dict], window: int, min_cos: float, max_collapse: float, max_perc: float
+    history: list[dict],
+    window: int,
+    min_cos: float,
+    max_collapse: float,
+    max_perc: float,
+    *,
+    plus_neu: bool = False,
 ) -> bool:
     if window <= 0 or len(history) < window:
         return False
@@ -1834,6 +2102,10 @@ def _early_stop_hit(
     collapse = sum(r["collapse"] for r in chunk) / window
     pperc = sum(r["pperc"] for r in chunk) / window
     nperc = sum(r["nperc"] for r in chunk) / window
+    if plus_neu:
+        # No minus teacher. Requiring c- / nperc / collapse would never fire
+        # (or would fire on dummy zeros) and is not the UNI card.
+        return cos_pos > min_cos and pperc < max_perc
     return (
         cos_pos > min_cos
         and cos_neg > min_cos
