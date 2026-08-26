@@ -75,7 +75,9 @@ from analysis.slider2d.highd import BEND_GENDER
 from conceptmod.textsliders.slider_targets import (
     DUAL_BAND_WEIGHT,
     LEAK_HOLD_WEIGHT,
+    leftover_bipolar,
     lm_axis_hold,
+    lm_faithful_gain,
     lm_blind_projector,
     lm_dual_band_pole_loss,
     lm_faithful_guard_e,
@@ -606,6 +608,7 @@ TEACHERS = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "faithful_gain",
 )
 POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_null", "dual_band")
 
@@ -624,6 +627,7 @@ def teacher_points(
     teacher: str = "pair_odd",
     leak_dir: torch.Tensor | None = None,
     common_beta: float = 0.0,
+    target_scale: float = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """The two hidden states one recipe aims at, for one row.
 
@@ -636,6 +640,8 @@ def teacher_points(
     which ``lm_hidden_targets`` makes exactly equal to ``(pos, neg)``.
     ``faithful_sub_e``: the pole with ``ê_⊥`` subtracted. Not literally a
     caption either, but one small step off one: it keeps ``c``.
+    ``faithful_gain``: ``mid ± γ·a``, live ``--lm_target faithful_gain``.
+    Keeps ``c`` untouched and scales the axis; ``γ = 1`` is ``faithful``.
     """
     pos, neg, neu = field.poles(row)
     mode = str(teacher).strip().lower()
@@ -649,6 +655,8 @@ def teacher_points(
         return lm_pair_odd_sub_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
     if mode == "faithful":
         return pos, neg
+    if mode == "faithful_gain":
+        return lm_faithful_gain(pos, neg, neu, target_scale=float(target_scale))
     if mode == "faithful_sub_e":
         if leak_dir is None:
             raise ValueError("faithful_sub_e needs a declared ê")
@@ -716,6 +724,7 @@ def fit_sheet(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    target_scale: float = 1.0,
     student: str = "odd_even",
     blind_weight: float = DUAL_BAND_WEIGHT,
     steps: int = 400,
@@ -739,7 +748,12 @@ def fit_sheet(
     lam = float(hold_weight) if held is not None else 0.0
     targets = [
         teacher_points(
-            field, row, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+            field,
+            row,
+            teacher=teacher,
+            leak_dir=leak_dir,
+            common_beta=common_beta,
+            target_scale=target_scale,
         )
         for row in range(int(field.rows))
     ]
@@ -825,6 +839,7 @@ def score_sheet(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    target_scale: float = 1.0,
     student: str = "odd_even",
     steps: int = 400,
     seed: int = 0,
@@ -837,6 +852,7 @@ def score_sheet(
         leak_dir=leak_dir,
         hold_weight=hold_weight,
         common_beta=common_beta,
+        target_scale=target_scale,
         student=student,
         steps=steps,
         seed=seed,
@@ -862,10 +878,12 @@ def score_sheet(
             "hold_weight": float(hold_weight) if held is not None else 0.0,
             "common": float(field.common),
             "common_beta": float(common_beta),
+            "target_scale": float(target_scale),
             "probe_cos": field.probe_cos(0),
             # Live log columns. Logged, never gated.
             "pair_odd_cos": cosine(d_plus, a),
             "collapse": cosine(d_plus, d_minus),
+            **leftover_bipolar(d_plus, d_minus),
             # The honest hidden-space lock: cos to the real pole displacement.
             "pole_cos": cosine(d_plus, pos - neu),
             "sheet_dir_kept": float(d_plus @ field.sheet_dir())

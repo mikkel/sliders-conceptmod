@@ -125,6 +125,11 @@ from analysis.slider2d.exam import (
     fit_exam,
     score_exam,
 )
+from analysis.slider2d.sheet import (
+    gender_like_field,
+    leaky_field,
+    score_sheet,
+)
 from conceptmod.textsliders.slider_targets import (
     leftover_bipolar,
     lm_pair_even_odd,
@@ -425,8 +430,14 @@ def frontier(summary: dict[str, dict]) -> dict:
         if e["leak_frac"] is not None and e["leak_frac"] < LEAK_FRAC_WIN
     ]
     best_leak = min(divergent_passers, key=lambda e: e["leak_frac"], default=None)
+    # Several candidates tie at the top of the margin column, because four
+    # of the five divergent gates saturate. Break that tie on ``leak_frac``
+    # so the edge reported is the useful corner and not an ordering
+    # accident.
     best_exam = max(
-        negative, key=lambda e: (e["margin"] if e["margin"] is not None else -9e9), default=None
+        negative,
+        key=lambda e: (e["margin"] if e["margin"] is not None else -9e9, -e["leak_frac"]),
+        default=None,
     )
     return {
         "best_leak_frac_among_divergent_passers": None
@@ -692,6 +703,59 @@ def pair_budget(cell: str = WIN_CELL) -> dict:
         "break_even_gain": (
             float(common.norm()) / float(axis.norm().clamp_min(1e-8))
         ),
+    }
+
+
+# The #22 sheet fixtures the compiled board actually reads ``leak_frac``
+# off (``bipolar_from``: leftover, then gender, then the exam row). Not
+# every candidate here is expressible on that cell — it has no blind
+# projector knob and no ``dual_band`` over-drive — and the ones that are
+# not get ``None`` rather than a guessed number.
+SHEET_TEACHERS = frozenset({"faithful", "pair_odd", "faithful_gain"})
+
+
+def sheet_leak(cand: Candidate, *, steps: int = 400, seed: int = 0) -> dict | None:
+    """``leak_frac`` on the sheet fixtures, so the hit holds on either read.
+
+    The criterion names ``leftover_bipolar`` without naming a fixture, and
+    the compiled board's ``leak_frac`` column is the #22 sheet cell's, not
+    the divergent exam cell's — which is why the board prints +0.03 for
+    ``faithful_raw`` where the divergent cell prints +0.015. Same
+    quantity, different pair. A recipe that only clears the criterion on
+    one of the two is not a hit, so both are reported.
+    """
+    if cand.kwargs.get("teacher", "pair_odd") not in SHEET_TEACHERS:
+        return None
+    if cand.kwargs.get("blind_gain", 1.0) != 1.0:
+        return None
+    kwargs = {
+        key: value
+        for key, value in cand.kwargs.items()
+        if key in ("pole_mode", "teacher", "common_beta", "target_scale")
+    }
+    field = leaky_field()
+    leftover = score_sheet(
+        cand.name, field, leak_dir=field.leak_e(), steps=steps, seed=seed, **kwargs
+    )
+    clean = score_sheet(
+        cand.name, gender_like_field(), steps=steps, seed=seed, **kwargs
+    )
+    return {
+        "leftover_leak_frac": leftover["leak_frac"],
+        "leftover_same_dir": leftover["same_dir"],
+        "leftover_leak_tok": leftover["leak_tok"],
+        "leftover_pass": bool(leftover["pass"]),
+        "leftover_garble": leftover["garble"],
+        "gender_leak_frac": clean["leak_frac"],
+        "gender_pass": bool(clean["pass"]),
+        "board_leak_frac": leftover["leak_frac"],
+        "board_wins": bool(leftover["leak_frac"] < LEAK_FRAC_WIN),
+    }
+
+
+def sheet_table(*, steps: int = 400, seed: int = 0) -> dict[str, dict | None]:
+    return {
+        cand.name: sheet_leak(cand, steps=steps, seed=seed) for cand in candidates()
     }
 
 

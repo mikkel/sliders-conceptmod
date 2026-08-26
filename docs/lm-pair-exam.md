@@ -116,6 +116,17 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 | `faithful_raw` | hidden | `faithful` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.702 | +0.015 | 0.05 | 0.0064 | **PASS** |
 | `semantic_kl_midpoint` | semantic_kl | `pair_odd` | 0.943 | 0.73 | 1.000 | 0.005 | +0.94 | N/A | +0.922 | -0.996 | 0.39 | 0.0002 | **FAIL** *(near same_words)* |
 | `semantic_kl_poles` | semantic_kl | `faithful` | 1.000 | 0.90 | 1.000 | 0.000 | +1.00 | N/A | +0.625 | +0.082 | 0.53 | 0.0003 | **PASS** |
+| `faithful_sub_e_if_unused` | hidden | `faithful_sub_e_if_unused` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.702 | +0.015 | 0.05 | 0.0064 | **PASS** |
+| `semantic_kl_null` | semantic_kl_null | `faithful` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.707 | +0.000 | 0.46 | 0.0045 | **PASS** |
+| `hidden_kl_poles` | hidden_kl | `faithful` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.702 | +0.015 | 0.05 | 0.0064 | **PASS** |
+| `unrolled_kl` | unrolled_kl | `faithful` | 1.000 | 1.22 | 1.000 | 0.000 | +1.00 | N/A | +0.706 | +0.003 | 0.46 | 0.0003 | **PASS** |
+| `faithful_guard_e` | hidden | `faithful_guard_e` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.702 | +0.015 | 0.05 | 0.0064 | **PASS** |
+| `faithful_gain` | hidden | `faithful_gain` | 1.000 | 0.99 | 1.000 | 0.000 | +1.00 | N/A | +0.828 | -0.372 | 0.05 | 0.0103 | **PASS** |
+| `faithful_gain_blind` | hidden | `faithful_gain` | 1.000 | 0.77 | 1.000 | 0.000 | +1.00 | N/A | +0.723 | -0.360 | 0.05 | 0.0101 | **PASS** *(near same_words)* |
+| `faithful_common_agree` | hidden | `faithful_common_agree` | 1.000 | 0.72 | 1.000 | 0.000 | +1.00 | N/A | +0.838 | -0.404 | 0.05 | 0.0045 | **FAIL** *(near same_words)* |
+| `dual_band_poles` | dual_band | `faithful` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.709 | +0.000 | 0.45 | 0.0008 | **PASS** |
+| `dual_band_guard_e` | dual_band | `faithful_guard_e` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.709 | +0.000 | 0.45 | 0.0008 | **PASS** |
+| `dual_band_midpoint` | dual_band | `pair_odd` | 0.979 | 0.72 | 1.000 | 0.005 | +0.98 | N/A | +0.999 | -0.997 | 0.07 | 0.0007 | **FAIL** *(near same_words)* |
 | `hold_e_perp_l8` | hidden | `pair_odd` | 0.974 | 0.54 | 1.000 | 0.026 | +0.97 | N/A | +0.653 | -1.000 | 0.76 | 0.4356 | **FAIL** |
 | `pair_odd_sub_e` | hidden | `pair_odd_sub_e` | 0.979 | 0.55 | 0.982 | 0.005 | +0.96 | N/A | +0.628 | -1.000 | 0.05 | 0.0012 | **FAIL** |
 | `faithful_sub_e` | hidden | `faithful_sub_e` | 0.917 | 0.67 | 0.917 | 0.000 | +0.83 | N/A | +0.330 | +0.447 | 0.05 | 0.0045 | **FAIL** *(near coherence)* |
@@ -125,6 +136,17 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 - `faithful_raw`: on-continuation
 - `semantic_kl_midpoint`: continuation drifts off the pole's own; because KL-small / hidden-far
 - `semantic_kl_poles`: on-continuation (despite KL-small / hidden-far)
+- `faithful_sub_e_if_unused`: on-continuation
+- `semantic_kl_null`: on-continuation
+- `hidden_kl_poles`: on-continuation
+- `unrolled_kl`: on-continuation
+- `faithful_guard_e`: on-continuation
+- `faithful_gain`: on-continuation
+- `faithful_gain_blind`: on-continuation
+- `faithful_common_agree`: continuation drifts off the pole's own
+- `dual_band_poles`: on-continuation
+- `dual_band_guard_e`: on-continuation
+- `dual_band_midpoint`: continuation drifts off the pole's own
 - `hold_e_perp_l8`: continuation drifts off the pole's own
 - `pair_odd_sub_e`: continuation drifts off the pole's own; because blend teacher + axis eaten by ê
 - `faithful_sub_e`: continuation drifts off the pole's own; because blend teacher + axis eaten by ê
@@ -138,11 +160,33 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 | `faithful_raw` | hidden | `faithful` | 1.000 | 1.16 | 0.982 | 0.000 | +1.00 | N/A | +0.735 | -0.080 | 0.05 | 0.0018 | **PASS** |
 | `semantic_kl_midpoint` | semantic_kl | `pair_odd` | 0.849 | 0.47 | 0.958 | 0.000 | +0.41 | N/A | +0.119 | -1.000 | 0.99 | 0.0000 | **FAIL** *(near continuation)* |
 | `semantic_kl_poles` | semantic_kl | `faithful` | 0.906 | 0.46 | 0.958 | 0.000 | +0.39 | N/A | +0.017 | +0.958 | 0.95 | 0.0000 | **FAIL** |
+| `faithful_sub_e_if_unused` | hidden | `faithful_sub_e_if_unused` | 1.000 | 1.16 | 0.982 | 0.000 | +1.00 | N/A | +0.735 | -0.080 | 0.05 | 0.0018 | **PASS** |
+| `semantic_kl_null` | semantic_kl_null | `faithful` | 1.000 | 1.16 | 0.988 | 0.000 | +0.99 | N/A | +0.776 | -0.203 | 0.60 | 0.0086 | **PASS** |
+| `hidden_kl_poles` | hidden_kl | `faithful` | 1.000 | 1.16 | 0.982 | 0.000 | +1.00 | N/A | +0.735 | -0.080 | 0.05 | 0.0018 | **PASS** |
+| `unrolled_kl` | unrolled_kl | `faithful` | 1.000 | 1.16 | 0.988 | 0.000 | +0.99 | N/A | +0.782 | -0.223 | 0.55 | 0.0002 | **PASS** |
+| `faithful_guard_e` | hidden | `faithful_guard_e` | 1.000 | 1.16 | 0.982 | 0.000 | +1.00 | N/A | +0.735 | -0.080 | 0.05 | 0.0018 | **PASS** |
+| `faithful_gain` | hidden | `faithful_gain` | 1.000 | 1.15 | 0.982 | 0.000 | +1.01 | N/A | +0.852 | -0.451 | 0.05 | 0.0030 | **PASS** |
+| `faithful_gain_blind` | hidden | `faithful_gain` | 1.000 | 1.14 | 0.982 | 0.000 | +1.01 | N/A | +0.952 | -0.825 | 0.05 | 0.0094 | **PASS** |
+| `faithful_common_agree` | hidden | `faithful_common_agree` | 1.000 | 1.16 | 0.982 | 0.000 | +1.00 | N/A | +0.735 | -0.080 | 0.05 | 0.0018 | **PASS** |
+| `dual_band_poles` | dual_band | `faithful` | 1.000 | 1.16 | 0.988 | 0.000 | +0.99 | N/A | +0.776 | -0.203 | 0.60 | 0.0010 | **PASS** |
+| `dual_band_guard_e` | dual_band | `faithful_guard_e` | 1.000 | 1.16 | 0.988 | 0.000 | +0.99 | N/A | +0.776 | -0.203 | 0.60 | 0.0010 | **PASS** |
+| `dual_band_midpoint` | dual_band | `pair_odd` | 0.969 | 1.11 | 0.982 | 0.000 | +0.97 | N/A | +1.000 | -1.000 | 0.05 | 0.0010 | **PASS** |
 
 - `pair_odd_midpoint`: on-continuation
 - `faithful_raw`: on-continuation
 - `semantic_kl_midpoint`: no audible swing; because KL-small / hidden-far
 - `semantic_kl_poles`: no audible swing; because KL-small / hidden-far
+- `faithful_sub_e_if_unused`: on-continuation
+- `semantic_kl_null`: on-continuation
+- `hidden_kl_poles`: on-continuation
+- `unrolled_kl`: on-continuation
+- `faithful_guard_e`: on-continuation
+- `faithful_gain`: on-continuation
+- `faithful_gain_blind`: on-continuation
+- `faithful_common_agree`: on-continuation
+- `dual_band_poles`: on-continuation
+- `dual_band_guard_e`: on-continuation
+- `dual_band_midpoint`: on-continuation
 
 ## The `unused_e` cell — one song plus an unpinned attribute inside a (the #22 cell)
 
@@ -152,6 +196,17 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 | `faithful_raw` | hidden | `faithful` | 1.000 | 1.03 | 1.000 | 0.000 | +1.00 | +0.228 | +0.702 | +0.015 | 0.05 | 0.0026 | **PASS** |
 | `semantic_kl_midpoint` | semantic_kl | `pair_odd` | 0.990 | 0.95 | 1.000 | 0.000 | +0.94 | +0.227 | +0.951 | -0.994 | 0.31 | 0.0004 | **PASS** |
 | `semantic_kl_poles` | semantic_kl | `faithful` | 1.000 | 0.93 | 1.000 | 0.000 | +0.90 | +0.227 | +0.691 | -0.053 | 0.66 | 0.0004 | **PASS** |
+| `faithful_sub_e_if_unused` | hidden | `faithful_sub_e_if_unused` | 0.974 | 1.00 | 0.982 | 0.021 | +0.99 | +0.000 | +0.618 | +0.098 | 0.05 | 0.0024 | **PASS** |
+| `semantic_kl_null` | semantic_kl_null | `faithful` | 1.000 | 1.03 | 1.000 | 0.000 | +1.00 | +0.227 | +0.742 | -0.102 | 0.63 | 0.0014 | **PASS** |
+| `hidden_kl_poles` | hidden_kl | `faithful` | 1.000 | 1.03 | 1.000 | 0.000 | +1.00 | +0.228 | +0.702 | +0.015 | 0.05 | 0.0026 | **PASS** |
+| `unrolled_kl` | unrolled_kl | `faithful` | 1.000 | 1.03 | 1.000 | 0.000 | +1.00 | +0.227 | +0.743 | -0.104 | 0.62 | 0.0004 | **PASS** |
+| `faithful_guard_e` | hidden | `faithful_guard_e` | 0.974 | 1.00 | 0.982 | 0.021 | +0.99 | +0.000 | +0.618 | +0.098 | 0.05 | 0.0024 | **PASS** |
+| `faithful_gain` | hidden | `faithful_gain` | 1.000 | 0.99 | 1.000 | 0.000 | +1.02 | +0.123 | +0.828 | -0.372 | 0.05 | 0.0041 | **PASS** |
+| `faithful_gain_blind` | hidden | `faithful_gain` | 1.000 | 1.03 | 1.000 | 0.000 | +1.00 | +0.228 | +0.712 | -0.256 | 0.05 | 0.0035 | **PASS** |
+| `faithful_common_agree` | hidden | `faithful_common_agree` | 1.000 | 1.03 | 1.000 | 0.000 | +1.00 | +0.228 | +0.702 | +0.015 | 0.05 | 0.0026 | **PASS** |
+| `dual_band_poles` | dual_band | `faithful` | 1.000 | 1.03 | 1.000 | 0.000 | +1.00 | +0.227 | +0.742 | -0.102 | 0.63 | 0.0005 | **PASS** |
+| `dual_band_guard_e` | dual_band | `faithful_guard_e` | 1.000 | 1.02 | 1.000 | 0.000 | +1.01 | -0.000 | +0.659 | -0.025 | 0.65 | 0.0006 | **PASS** |
+| `dual_band_midpoint` | dual_band | `pair_odd` | 1.000 | 1.00 | 1.000 | 0.000 | +0.99 | +0.227 | +0.999 | -0.994 | 0.08 | 0.0005 | **PASS** |
 | `hold_e_perp_l8` | hidden | `pair_odd` | 0.984 | 0.99 | 0.988 | 0.016 | +0.98 | +0.005 | +0.925 | -1.000 | 0.39 | 0.0450 | **PASS** |
 | `pair_odd_sub_e` | hidden | `pair_odd_sub_e` | 0.964 | 0.99 | 0.982 | 0.031 | +0.96 | +0.000 | +0.920 | -1.000 | 0.05 | 0.0011 | **PASS** |
 | `faithful_sub_e` | hidden | `faithful_sub_e` | 0.974 | 1.00 | 0.982 | 0.021 | +0.99 | +0.000 | +0.618 | +0.098 | 0.05 | 0.0024 | **PASS** |
@@ -161,6 +216,17 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 - `faithful_raw`: on-continuation
 - `semantic_kl_midpoint`: on-continuation (despite KL-small / hidden-far)
 - `semantic_kl_poles`: on-continuation (despite KL-small / hidden-far)
+- `faithful_sub_e_if_unused`: on-continuation
+- `semantic_kl_null`: on-continuation
+- `hidden_kl_poles`: on-continuation
+- `unrolled_kl`: on-continuation
+- `faithful_guard_e`: on-continuation
+- `faithful_gain`: on-continuation
+- `faithful_gain_blind`: on-continuation
+- `faithful_common_agree`: on-continuation
+- `dual_band_poles`: on-continuation
+- `dual_band_guard_e`: on-continuation
+- `dual_band_midpoint`: on-continuation
 - `hold_e_perp_l8`: on-continuation
 - `pair_odd_sub_e`: on-continuation
 - `faithful_sub_e`: on-continuation
@@ -310,6 +376,9 @@ argument, measured directly, with the model that trained the halves.
 
 - [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — the compiled board this
   cell is joined into.
+- [lm-odd-leak-frac.md](lm-odd-leak-frac.md) — the search for a recipe
+  that passes the divergent cell with `leak_frac < 0`, and the algebra
+  that says which ones can.
 - [lm-sheet-goodhart.md](lm-sheet-goodhart.md) — the single-token sheet
   readout and the pair-odd lock this cell inherits its discipline from.
 - [lm-highd-leftover.md](lm-highd-leftover.md) — leftover ê, λ·D/2 and

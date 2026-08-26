@@ -18,7 +18,12 @@ pair-odd minus ``ê_⊥ = ê−(ê·û)û`` (the λ→∞ hold limit, no stiffne
 poles (midpoint stays ½(h++h−)); ``--lm_target faithful_sub_e_if_unused``
 subtracts leftover ê only when unused. ``--lm_target faithful_guard_e``
 subtracts leftover ê only while the cleaned target stays nearer its
-own caption than the pair midpoint. ``--pole_mode semantic_kl`` is
+own caption than the pair midpoint. ``--lm_target faithful_gain`` keeps
+the caption pair's own midpoint and scales only the axis
+(``t± = mid ± γ·a``, ``γ = --target_scale``, which it requires); that is
+the one direction that flips ``leak_frac`` negative without deleting the
+common term, and its window is swept in ``docs/lm-odd-leak-frac.md``.
+``--pole_mode semantic_kl`` is
 next-token KL on the semantic band. ``--pole_mode semantic_kl_null``
 (aliases ``semantic_kl_plus_hidden``, ``semantic_kl_pin``) adds hidden
 MSE on ``ker(lm_head)``. ``--pole_mode hidden_kl`` is full hidden MSE
@@ -82,6 +87,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_dual_band_pole_loss,
     lm_e_overlap_a,
     lm_e_unused_decision,
+    lm_faithful_gain,
     lm_faithful_guard_e,
     lm_faithful_sub_e,
     lm_faithful_sub_e_if_unused,
@@ -111,6 +117,7 @@ LM_RECIPES = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "faithful_gain",
 )
 # Canonical live pole modes. ``semantic_kl_plus_hidden`` (#32) and
 # ``semantic_kl_pin`` (#29) are aliases of ``semantic_kl_null`` (#33) —
@@ -137,6 +144,10 @@ V9_RECIPES = frozenset({"v9", "v9_project", "v9_always"})
 SUB_E_RECIPES = frozenset({"pair_odd_sub_e", "faithful_sub_e", "faithful_guard_e"})
 GATED_SUB_E_RECIPES = frozenset({"faithful_sub_e_if_unused"})
 PAIR_ODD_RECIPES = frozenset({"pair_odd_sub_e"})
+# ``faithful_gain`` *is* the gain: at --target_scale 1.0 it is byte-for-byte
+# ``faithful``, so the trainer refuses that rather than silently training a
+# differently-named copy of another recipe.
+GAIN_RECIPES = frozenset({"faithful_gain"})
 TARGET_REPLACE = ["Qwen3Attention"]
 
 # Row fields this trainer actually consumes (`attributes` is expanded away by
@@ -177,6 +188,29 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     if recipe == "symmetric" and not symmetric:
         raise ValueError("lm_target=symmetric requires --symmetric")
     return recipe
+
+
+def resolve_gain_scale(recipe: str, target_scale: float) -> float:
+    """``--target_scale`` for ``faithful_gain``, which needs a real one.
+
+    ``mid ± γ·a`` at γ = 1 is ``(pos, neg)`` exactly. Training that under a
+    second name would put a row on the board that is a duplicate of
+    ``faithful``, so this refuses instead. The pair-exam cell sweeps the
+    window; see ``docs/lm-odd-leak-frac.md``.
+    """
+    gain = float(target_scale)
+    if recipe not in GAIN_RECIPES:
+        return gain
+    if gain == 1.0:
+        raise ValueError(
+            "lm_target=faithful_gain is 'the caption midpoint with the axis "
+            "scaled', so it needs --target_scale != 1 (at 1.0 it is exactly "
+            "--lm_target faithful). See docs/lm-odd-leak-frac.md for the "
+            "swept window on the pair-exam cell."
+        )
+    if gain <= 0.0:
+        raise ValueError(f"--target_scale must be > 0, got {target_scale!r}")
+    return gain
 
 
 def resolve_pole_mode(pole_mode: str) -> str:
@@ -351,6 +385,11 @@ def lm_train_targets(
             slider_dir=slider_dir,
             target_scale=target_scale,
             unused=e_unused,
+        )
+        return plus, minus, None, None
+    if recipe == "faithful_gain":
+        plus, minus = lm_faithful_gain(
+            pos, neg, neu, target_scale=resolve_gain_scale(recipe, target_scale)
         )
         return plus, minus, None, None
     if recipe == "faithful_guard_e":
@@ -809,6 +848,14 @@ def train(args: argparse.Namespace) -> Path:
             "--leak_positive / --leak_negative, or YAML leak_positive / "
             "leak_negative (or leak: [pos, neg]). Do not hold û_⊥ — that "
             "eats a clean pair."
+        )
+    if recipe in GAIN_RECIPES:
+        gain = resolve_gain_scale(recipe, args.target_scale)
+        print(
+            f"lm_target=faithful_gain: t± = ½(h₊+h₋) ± {gain:g}·(h₊−h₋)/2. The "
+            "caption pair's own midpoint, axis scaled. ‖even‖ is unchanged, so "
+            "leak_frac moves by lengthening the axis and not by dropping "
+            "same-direction content — see docs/lm-odd-leak-frac.md."
         )
     if recipe in V9_RECIPES | SUB_E_RECIPES and float(args.common_beta) != 0.0:
         print(
