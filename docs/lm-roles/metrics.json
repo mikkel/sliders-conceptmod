@@ -1,0 +1,253 @@
+{
+  "scale": "role-split UNI: lyric_recall vs gender_move",
+  "flag": "faithful_plus_neu_roles",
+  "not_the_bipolar_board": true,
+  "scored": [
+    "lyric_recall",
+    "cover",
+    "neu_hold",
+    "gender_move"
+  ],
+  "gates": {
+    "lyric_recall_min": 0.85,
+    "cover_min": 0.85,
+    "neu_hold_min": 0.85,
+    "gender_move_min": 0.85
+  },
+  "recipes": [
+    "faithful_plus_neu",
+    "faithful_plus_neu_prefix",
+    "faithful_plus_neu_roles"
+  ],
+  "cells": [
+    "divergent",
+    "close"
+  ],
+  "steps": 400,
+  "seed": 0,
+  "verdict": {
+    "want_box": true,
+    "roles_grit_lyric": true,
+    "roles_gender_move": true,
+    "uni_grit_lyric": false,
+    "uni_gender_move": false,
+    "prefix_grit_lyric": true,
+    "prefix_gender_move": false,
+    "uni_sings_lyric_divergent": "punk punk punk punk | punk punk punk punk | punk punk punk punk",
+    "prefix_sings_concept_close": "lead lead lead | lead lead lead | lead lead lead",
+    "roles_sings_lyric_divergent": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+    "roles_sings_concept_close": "woman woman woman | woman woman woman | woman woman woman",
+    "uni_lyric_recall": [
+      0.0,
+      1.0
+    ],
+    "prefix_lyric_recall": [
+      1.0,
+      1.0
+    ],
+    "roles_lyric_recall": [
+      1.0,
+      1.0
+    ],
+    "uni_gender_move_scores": [
+      0.6695294193217807,
+      0.669529261317451
+    ],
+    "prefix_gender_move_scores": [
+      7.127692676854038e-08,
+      8.739271298325498e-08
+    ],
+    "roles_gender_move_scores": [
+      0.9506172579814173,
+      0.9506172393101536
+    ]
+  },
+  "rank": [
+    {
+      "name": "faithful_plus_neu_roles",
+      "in_box": true,
+      "lyric_recall": 1.0,
+      "cover": 0.9333445718956439,
+      "neu_hold": 0.9999999603939573,
+      "gender_move": 0.9506172486457855,
+      "lyric_hit_divergent": true,
+      "gender_hit_close": true,
+      "prefix_hold": false,
+      "roles": true,
+      "plus_neu": true,
+      "rank": 1
+    },
+    {
+      "name": "faithful_plus_neu_prefix",
+      "in_box": false,
+      "lyric_recall": 1.0,
+      "cover": 0.9333445550356545,
+      "neu_hold": 0.9999999705899733,
+      "gender_move": 7.933481987589768e-08,
+      "lyric_hit_divergent": true,
+      "gender_hit_close": false,
+      "prefix_hold": true,
+      "roles": false,
+      "plus_neu": true,
+      "rank": 2
+    },
+    {
+      "name": "faithful_plus_neu",
+      "in_box": false,
+      "lyric_recall": 0.5,
+      "cover": 0.9333445815404307,
+      "neu_hold": 0.9999999507571415,
+      "gender_move": 0.6695293403196159,
+      "lyric_hit_divergent": false,
+      "gender_hit_close": false,
+      "prefix_hold": false,
+      "roles": false,
+      "plus_neu": true,
+      "rank": 3
+    }
+  ],
+  "rows": {
+    "divergent": [
+      {
+        "name": "faithful_plus_neu",
+        "cell": "divergent",
+        "teacher": "faithful_plus_neu",
+        "plus_only": false,
+        "plus_neu": true,
+        "prefix_hold": false,
+        "roles": false,
+        "lyric_recall": 0.0,
+        "cover": 0.9319808736424312,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999583483484,
+        "gender_move": 0.6695294193217807,
+        "lyric_hit": false,
+        "gender_hit": false,
+        "hit": false,
+        "sings_lyric": "punk punk punk punk | punk punk punk punk | punk punk punk punk",
+        "sings_concept": "punk punk punk | punk punk punk | punk punk punk",
+        "sings_plus": "punk punk punk punk slam slam slam slam | punk punk punk punk punk punk punk punk | punk punk punk punk punk slam slam slam",
+        "sings_zero": "hush male hush lull hush hush hush hush | lull slam lull lull lull lull lull lull | lull punk female punk punk punk punk punk",
+        "off_lyric": 1.0,
+        "pole_cos": 1.0000001192092896
+      },
+      {
+        "name": "faithful_plus_neu_prefix",
+        "cell": "divergent",
+        "teacher": "faithful_plus_neu",
+        "plus_only": false,
+        "plus_neu": true,
+        "prefix_hold": true,
+        "roles": false,
+        "lyric_recall": 1.0,
+        "cover": 0.9319808505994803,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999431923007,
+        "gender_move": 7.127692676854038e-08,
+        "lyric_hit": true,
+        "gender_hit": false,
+        "hit": false,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_concept": "lead lead lead | lead lead lead | lead lead lead",
+        "sings_plus": "punk punk punk punk slam slam slam slam | punk punk punk punk punk punk punk punk | punk punk punk punk punk slam slam slam",
+        "sings_zero": "hush male hush lull hush hush hush hush | lull slam lull lull lull lull lull lull | lull punk female punk punk punk punk punk",
+        "off_lyric": 0.0,
+        "pole_cos": 1.0000001192092896
+      },
+      {
+        "name": "faithful_plus_neu_roles",
+        "cell": "divergent",
+        "teacher": "faithful_plus_neu",
+        "plus_only": false,
+        "plus_neu": true,
+        "prefix_hold": false,
+        "roles": true,
+        "lyric_recall": 1.0,
+        "cover": 0.9319808847795645,
+        "off_caption": 0.0,
+        "neu_hold": 0.999999958125083,
+        "gender_move": 0.9506172579814173,
+        "lyric_hit": true,
+        "gender_hit": true,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_concept": "punk punk punk | punk punk punk | punk punk punk",
+        "sings_plus": "punk punk punk punk slam slam slam slam | punk punk punk punk punk punk punk punk | punk punk punk punk punk slam slam slam",
+        "sings_zero": "hush male hush lull hush hush hush hush | lull slam lull lull lull lull lull lull | lull punk female punk punk punk punk punk",
+        "off_lyric": 0.0,
+        "pole_cos": 1.0
+      }
+    ],
+    "close": [
+      {
+        "name": "faithful_plus_neu",
+        "cell": "close",
+        "teacher": "faithful_plus_neu",
+        "plus_only": false,
+        "plus_neu": true,
+        "prefix_hold": false,
+        "roles": false,
+        "lyric_recall": 1.0,
+        "cover": 0.9347082894384302,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999431659345,
+        "gender_move": 0.669529261317451,
+        "lyric_hit": true,
+        "gender_hit": false,
+        "hit": false,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_concept": "woman woman woman | woman woman woman | woman woman woman",
+        "sings_plus": "punk slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam",
+        "sings_zero": "hush male hush lull hush hush hush hush | lull slam lull lull lull lull lull lull | lull punk female punk punk punk punk punk",
+        "off_lyric": 0.0,
+        "pole_cos": 0.9999999403953552
+      },
+      {
+        "name": "faithful_plus_neu_prefix",
+        "cell": "close",
+        "teacher": "faithful_plus_neu",
+        "plus_only": false,
+        "plus_neu": true,
+        "prefix_hold": true,
+        "roles": false,
+        "lyric_recall": 1.0,
+        "cover": 0.9347082594718286,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999979876458,
+        "gender_move": 8.739271298325498e-08,
+        "lyric_hit": true,
+        "gender_hit": false,
+        "hit": false,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_concept": "lead lead lead | lead lead lead | lead lead lead",
+        "sings_plus": "punk slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam",
+        "sings_zero": "hush male hush lull hush hush hush hush | lull slam lull lull lull lull lull lull | lull punk female punk punk punk punk punk",
+        "off_lyric": 0.0,
+        "pole_cos": 1.0
+      },
+      {
+        "name": "faithful_plus_neu_roles",
+        "cell": "close",
+        "teacher": "faithful_plus_neu",
+        "plus_only": false,
+        "plus_neu": true,
+        "prefix_hold": false,
+        "roles": true,
+        "lyric_recall": 1.0,
+        "cover": 0.9347082590117233,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999626628315,
+        "gender_move": 0.9506172393101536,
+        "lyric_hit": true,
+        "gender_hit": true,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_concept": "woman woman woman | woman woman woman | woman woman woman",
+        "sings_plus": "punk slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam",
+        "sings_zero": "hush male hush lull hush hush hush hush | lull slam lull lull lull lull lull lull | lull punk female punk punk punk punk punk",
+        "off_lyric": 0.0,
+        "pole_cos": 1.0
+      }
+    ]
+  }
+}

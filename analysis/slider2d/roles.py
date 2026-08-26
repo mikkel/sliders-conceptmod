@@ -225,14 +225,26 @@ def gender_move_score(student: torch.Tensor, neu: torch.Tensor, pos: torch.Tenso
 
 
 def concept_tokens(field: PairField, concept: torch.Tensor) -> list[str]:
-    """Local VD vocab: lead (neu), woman (delivery), punk (+ track)."""
+    """Local VD vocab on the *delta* from ungendered neu.
+
+    Raw sheet mass is in both neu and pos Vocal Details, so decoding
+    the absolute hidden always sings ``lead``. Woman / punk only become
+    visible once we read how far the span left neu.
+    """
+    delta = concept - concept_embeds_neu(field)
     weight = torch.stack(
         [field.sheet_dir(), field.delivery_dir(), field.plus_track()],
         dim=0,
     )
     names = ("lead", "woman", "punk")
-    logits = float(field.gain) * concept @ weight.T
-    return [names[int(row.argmax())] for row in logits]
+    logits = float(field.gain) * delta @ weight.T
+    out: list[str] = []
+    for row, hidden in zip(logits, delta):
+        if float(hidden.norm()) <= 1e-5:
+            out.append("lead")
+            continue
+        out.append(names[int(row.argmax())])
+    return out
 
 
 def fit_role_exam(

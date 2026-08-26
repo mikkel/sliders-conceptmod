@@ -235,13 +235,13 @@ def write_markdown(
     lines += [
         "## Verdict",
         "",
-        f"- last-token UNI grit lyric: **{_hit(verdict['uni_grit_lyric'])}** "
+        f"- last-token UNI grit lyric: {_hit(verdict['uni_grit_lyric'])} "
         f"(`{verdict['uni_sings_lyric_divergent']}`)",
-        f"- whole-prefix hold gender_move: **{_hit(verdict['prefix_gender_move'])}** "
+        f"- whole-prefix hold gender_move: {_hit(verdict['prefix_gender_move'])} "
         f"(close VD `{verdict['prefix_sings_concept_close']}`)",
-        f"- role-split grit lyric: **{_hit(verdict['roles_grit_lyric'])}** "
+        f"- role-split grit lyric: {_hit(verdict['roles_grit_lyric'])} "
         f"(`{verdict['roles_sings_lyric_divergent']}`)",
-        f"- role-split gender_move: **{_hit(verdict['roles_gender_move'])}** "
+        f"- role-split gender_move: {_hit(verdict['roles_gender_move'])} "
         f"(close VD `{verdict['roles_sings_concept_close']}`)",
         f"- want-box: **{want}**",
         "",
