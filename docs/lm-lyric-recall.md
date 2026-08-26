@@ -115,8 +115,15 @@ CUDA_VISIBLE_DEVICES=N python conceptmod/textsliders/train_lm_slider_music3.py \
 v4 yaml is not rewritten. Infer plus+neu with the **neutral**
 caption + LoRA, not the + caption.
 
+Prefix-hold is not free on a **close** pair: the concept there *is* a
+prefix caption span, so a hold whose support covers it pins the
+concept away. [lm-lyric-gender.md](lm-lyric-gender.md) scores that
+trade on both pair types and narrows the hold to the lyric span
+(`--lm_target faithful_plus_neu_lyric`).
+
 ## Related cells
 
+- [lm-lyric-gender.md](lm-lyric-gender.md) — +1 lyric survival vs prefix gender, both pair types.
 - [lm-plus-neu-exam.md](lm-plus-neu-exam.md) — last-hidden cover / neu_hold / off-caption.
 - [lm-plus-exam.md](lm-plus-exam.md) — plus-only cover / off-caption.
 - [lm-pair-exam.md](lm-pair-exam.md) — bipolar continuation / same_words / off_corpus / coherence.

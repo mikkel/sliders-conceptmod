@@ -173,8 +173,14 @@ scale 0 (no leftover-gate, no minus MSE) and is ranked on
 card can sit in the cover / neu_hold want-box and still shred yaml
 lyrics. Existing-metric OOD (sheet `lyric_mass` / continuation vs the
 lyric sheet) and the `faithful_plus_neu` implementation hunt live on
-[docs/lm-lyric-recall.md](docs/lm-lyric-recall.md). Default stays
-`--lm_target v9` / `--pole_mode hidden`.
+[docs/lm-lyric-recall.md](docs/lm-lyric-recall.md).
+`--lm_target faithful_plus_neu_prefix` holds the whole `encode(neu)`
+prefix, which buys the lyrics back and pins a close pair's moved Vocal
+Details away with them; `--lm_target faithful_plus_neu_lyric` narrows
+the hold to the `<|lyrics_start|> … <|lyrics_end|>` span so the caption
+span stays free. Both holds are opt-in and are scored against each
+other on [docs/lm-lyric-gender.md](docs/lm-lyric-gender.md). Default
+stays `--lm_target v9` / `--pole_mode hidden`.
 
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.

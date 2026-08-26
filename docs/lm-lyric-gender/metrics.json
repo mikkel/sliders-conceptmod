@@ -1,0 +1,946 @@
+{
+  "scale": "uni-lyric-gender",
+  "not_the_bipolar_board": true,
+  "pick": "faithful_plus_neu_lyric",
+  "live_flag": "--lm_target faithful_plus_neu_lyric",
+  "scored": {
+    "divergent": [
+      "lyric_recall",
+      "cover",
+      "neu_hold"
+    ],
+    "close": [
+      "lyric_recall",
+      "gender_move"
+    ]
+  },
+  "not_scored": [
+    "exam_score",
+    "leak_frac",
+    "c_plus",
+    "pperc",
+    "pair_odd_cos"
+  ],
+  "gates": {
+    "lyric_recall_min": 0.85,
+    "gender_move_min": 0.85,
+    "cover_min": 0.85,
+    "neu_hold_min": 0.85,
+    "off_caption_max": 0.05
+  },
+  "fixture": {
+    "caption_len": 2,
+    "lyric_len": 4,
+    "attend": 1.0,
+    "common_stream": 2.5,
+    "audio_channel": 0.25,
+    "caption_share": 0.5
+  },
+  "recipes": [
+    "faithful_plus_neu",
+    "faithful_plus_neu_prefix",
+    "faithful_plus_neu_prefix@0.25",
+    "faithful_plus_neu_orth",
+    "concept_prefix_teacher",
+    "faithful_plus_neu_lyric"
+  ],
+  "fixture_only": [
+    "concept_prefix_teacher"
+  ],
+  "cells": [
+    "divergent",
+    "close"
+  ],
+  "steps": 400,
+  "seed": 0,
+  "verdict": {
+    "pick": "faithful_plus_neu_lyric",
+    "one_recipe_wins": true,
+    "winners": [
+      "faithful_plus_neu_lyric",
+      "concept_prefix_teacher"
+    ],
+    "live_winners": [
+      "faithful_plus_neu_lyric"
+    ],
+    "fixture_only": [
+      "concept_prefix_teacher"
+    ],
+    "baselines_split_as_reported": true,
+    "grit": {
+      "faithful_plus_neu": {
+        "lyric_recall": 0.3333333333333333,
+        "cover": 0.9999997450992925,
+        "neu_hold": 0.9999999264433828,
+        "hit": false
+      },
+      "faithful_plus_neu_prefix": {
+        "lyric_recall": 1.0,
+        "cover": 0.9855525864411186,
+        "neu_hold": 0.9999999557637721,
+        "hit": true
+      },
+      "faithful_plus_neu_prefix@0.25": {
+        "lyric_recall": 1.0,
+        "cover": 0.9957014554138158,
+        "neu_hold": 0.9999998812189745,
+        "hit": true
+      },
+      "faithful_plus_neu_orth": {
+        "lyric_recall": 1.0,
+        "cover": 0.4826541434348564,
+        "neu_hold": 0.9999999755767868,
+        "hit": false
+      },
+      "concept_prefix_teacher": {
+        "lyric_recall": 1.0,
+        "cover": 0.985552579886547,
+        "neu_hold": 0.9999998866240736,
+        "hit": true
+      },
+      "faithful_plus_neu_lyric": {
+        "lyric_recall": 1.0,
+        "cover": 0.9804129947232694,
+        "neu_hold": 0.9999999238089305,
+        "hit": true
+      }
+    },
+    "gender": {
+      "faithful_plus_neu": {
+        "lyric_recall": 1.0,
+        "gender_move": 0.8716031687080084,
+        "cover": 0.9999997323375546,
+        "hit": true
+      },
+      "faithful_plus_neu_prefix": {
+        "lyric_recall": 1.0,
+        "gender_move": 0.0,
+        "cover": 0.9861888546198606,
+        "hit": false
+      },
+      "faithful_plus_neu_prefix@0.25": {
+        "lyric_recall": 1.0,
+        "gender_move": 0.0,
+        "cover": 0.9958937963467167,
+        "hit": false
+      },
+      "faithful_plus_neu_orth": {
+        "lyric_recall": 1.0,
+        "gender_move": 0.8716029945680622,
+        "cover": 0.5958648030267734,
+        "hit": true
+      },
+      "concept_prefix_teacher": {
+        "lyric_recall": 1.0,
+        "gender_move": 0.9753087172956448,
+        "cover": 0.9861887592236084,
+        "hit": true
+      },
+      "faithful_plus_neu_lyric": {
+        "lyric_recall": 1.0,
+        "gender_move": 1.0,
+        "cover": 0.9812687174905402,
+        "hit": true
+      }
+    },
+    "gates": {
+      "lyric_recall": 0.85,
+      "gender_move": 0.85,
+      "cover": 0.85,
+      "neu_hold": 0.85,
+      "off_caption_max": 0.05
+    }
+  },
+  "rank": [
+    {
+      "name": "faithful_plus_neu_lyric",
+      "is": "hold the lyric span only; caption span free",
+      "live_flag": true,
+      "both": true,
+      "hit_divergent": true,
+      "hit_close": true,
+      "grit_lyric_recall": 1.0,
+      "grit_cover": 0.9804129947232694,
+      "grit_neu_hold": 0.9999999238089305,
+      "gender_lyric_recall": 1.0,
+      "gender_move": 1.0,
+      "gender_cover": 0.9812687174905402,
+      "lyric_recall": 1.0,
+      "rank": 1
+    },
+    {
+      "name": "concept_prefix_teacher",
+      "is": "caption span \u2192 encode(pos) caption span, lyric span \u2192 encode(neu)",
+      "live_flag": false,
+      "both": true,
+      "hit_divergent": true,
+      "hit_close": true,
+      "grit_lyric_recall": 1.0,
+      "grit_cover": 0.985552579886547,
+      "grit_neu_hold": 0.9999998866240736,
+      "gender_lyric_recall": 1.0,
+      "gender_move": 0.9753087172956448,
+      "gender_cover": 0.9861887592236084,
+      "lyric_recall": 1.0,
+      "rank": 2
+    },
+    {
+      "name": "faithful_plus_neu_orth",
+      "is": "last-delta projected off the lyric span; no prefix term",
+      "live_flag": true,
+      "both": false,
+      "hit_divergent": false,
+      "hit_close": true,
+      "grit_lyric_recall": 1.0,
+      "grit_cover": 0.4826541434348564,
+      "grit_neu_hold": 0.9999999755767868,
+      "gender_lyric_recall": 1.0,
+      "gender_move": 0.8716029945680622,
+      "gender_cover": 0.5958648030267734,
+      "lyric_recall": 1.0,
+      "rank": 3
+    },
+    {
+      "name": "faithful_plus_neu_prefix",
+      "is": "baseline: hold the whole encode(neu) prefix (#48)",
+      "live_flag": true,
+      "both": false,
+      "hit_divergent": true,
+      "hit_close": false,
+      "grit_lyric_recall": 1.0,
+      "grit_cover": 0.9855525864411186,
+      "grit_neu_hold": 0.9999999557637721,
+      "gender_lyric_recall": 1.0,
+      "gender_move": 0.0,
+      "gender_cover": 0.9861888546198606,
+      "lyric_recall": 1.0,
+      "rank": 4
+    },
+    {
+      "name": "faithful_plus_neu_prefix@0.25",
+      "is": "the same clamp, softer \u2014 a slide, not a split",
+      "live_flag": true,
+      "both": false,
+      "hit_divergent": true,
+      "hit_close": false,
+      "grit_lyric_recall": 1.0,
+      "grit_cover": 0.9957014554138158,
+      "grit_neu_hold": 0.9999998812189745,
+      "gender_lyric_recall": 1.0,
+      "gender_move": 0.0,
+      "gender_cover": 0.9958937963467167,
+      "lyric_recall": 1.0,
+      "rank": 5
+    },
+    {
+      "name": "faithful_plus_neu",
+      "is": "baseline: last-hidden MSE only (#46)",
+      "live_flag": true,
+      "both": false,
+      "hit_divergent": false,
+      "hit_close": true,
+      "grit_lyric_recall": 0.3333333333333333,
+      "grit_cover": 0.9999997450992925,
+      "grit_neu_hold": 0.9999999264433828,
+      "gender_lyric_recall": 1.0,
+      "gender_move": 0.8716031687080084,
+      "gender_cover": 0.9999997323375546,
+      "lyric_recall": 0.6666666666666666,
+      "rank": 6
+    }
+  ],
+  "sensitivity": {
+    "verdict": {
+      "settings": 21,
+      "settings_reproducing_the_live_split": 16,
+      "pick_wins_both_where_split_reproduces": 16,
+      "robust": true,
+      "counterexamples": []
+    },
+    "rows": [
+      {
+        "knob": "COMMON_STREAM",
+        "value": 1.5,
+        "default": false,
+        "baselines_split": false,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8307044868191499,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 6.75662990997955e-05,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804011814158183,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "COMMON_STREAM",
+        "value": 2.0,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8538367148436848,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804039808822487,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "COMMON_STREAM",
+        "value": 2.5,
+        "default": true,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8715760028764116,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804018423410916,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "COMMON_STREAM",
+        "value": 3.5,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.0,
+        "uni_gender_move": 0.8969950366735714,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.00016282084963481646,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804005050529453,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "COMMON_STREAM",
+        "value": 5.0,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.0,
+        "uni_gender_move": 0.9209171634937677,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 4.701778545604326e-06,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9803967297580901,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "AUDIO_CHANNEL",
+        "value": 0.0,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.897811056461153,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804027562584384,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "AUDIO_CHANNEL",
+        "value": 0.25,
+        "default": true,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8715760028764116,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804018423410916,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "AUDIO_CHANNEL",
+        "value": 1.0,
+        "default": false,
+        "baselines_split": false,
+        "pick_wins_both": true,
+        "winners": [
+          "concept_prefix_teacher",
+          "faithful_plus_neu_lyric"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8013178484892846,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804001599807024,
+        "pick_gender_move": 0.9717207454301858
+      },
+      {
+        "knob": "AUDIO_CHANNEL",
+        "value": 2.0,
+        "default": false,
+        "baselines_split": false,
+        "pick_wins_both": false,
+        "winners": [
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.6666666666666666,
+        "uni_gender_move": 0.7232972318633109,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 5.746618222405287e-05,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804025409536723,
+        "pick_gender_move": 0.7250717179144112
+      },
+      {
+        "knob": "CAPTION_SHARE",
+        "value": 0.3,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 1.0,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804018423410916,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "CAPTION_SHARE",
+        "value": 0.5,
+        "default": true,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8715760028764116,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804018423410916,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "CAPTION_SHARE",
+        "value": 0.8,
+        "default": false,
+        "baselines_split": false,
+        "pick_wins_both": true,
+        "winners": [
+          "concept_prefix_teacher",
+          "faithful_plus_neu_lyric"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.54473487182576,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804018423410916,
+        "pick_gender_move": 0.8715891601588929
+      },
+      {
+        "knob": "ATTEND",
+        "value": 0.5,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.0,
+        "uni_gender_move": 1.0,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9736621463504008,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "ATTEND",
+        "value": 1.0,
+        "default": true,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8715760028764116,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804018423410916,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "ATTEND",
+        "value": 2.0,
+        "default": false,
+        "baselines_split": false,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 1.0,
+        "uni_gender_move": 0.614657588508685,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.014302984475674492,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9883442269466313,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "CAPTION_LEN",
+        "value": 1,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8741851416893297,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 9.873734945769085e-05,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.982475786011792,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "CAPTION_LEN",
+        "value": 2,
+        "default": true,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8715760028764116,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804018423410916,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "CAPTION_LEN",
+        "value": 4,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8683444878960122,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9773419640898524,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "LYRIC_LEN",
+        "value": 2,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.86834413961612,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9773419311111232,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "LYRIC_LEN",
+        "value": 4,
+        "default": true,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8715760028764116,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 0.0,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9804018423410916,
+        "pick_gender_move": 1.0
+      },
+      {
+        "knob": "LYRIC_LEN",
+        "value": 8,
+        "default": false,
+        "baselines_split": true,
+        "pick_wins_both": true,
+        "winners": [
+          "faithful_plus_neu_lyric",
+          "concept_prefix_teacher"
+        ],
+        "uni_grit_lyric_recall": 0.3333333333333333,
+        "uni_gender_move": 0.8741851416893297,
+        "prefix_grit_lyric_recall": 1.0,
+        "prefix_gender_move": 9.891148940382434e-05,
+        "pick_grit_lyric_recall": 1.0,
+        "pick_grit_cover": 0.9824758132303907,
+        "pick_gender_move": 1.0
+      }
+    ]
+  },
+  "rows": {
+    "divergent": [
+      {
+        "name": "faithful_plus_neu",
+        "cell": "divergent",
+        "hold": "none",
+        "hold_weight": 0.0,
+        "live_flag": true,
+        "lyric_recall": 0.3333333333333333,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": null,
+        "caption_move": 0.8727542064910212,
+        "cover": 0.9999997450992925,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999264433828,
+        "overlap_pos": 1.0,
+        "lyric_hit": false,
+        "gender_hit": null,
+        "hit": false,
+        "sings_lyric": "punk punk punk punk | lyric1 lyric1 lyric1 lyric1 | punk punk punk punk",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "punk punk punk punk punk punk punk punk | punk punk punk punk slam punk slam slam | punk punk punk punk punk punk punk slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_ref_plus": "\u2014 | \u2014 | \u2014"
+      },
+      {
+        "name": "faithful_plus_neu_prefix",
+        "cell": "divergent",
+        "hold": "prefix",
+        "hold_weight": 1.0,
+        "live_flag": true,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": null,
+        "caption_move": 0.0,
+        "cover": 0.9855525864411186,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999557637721,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": null,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "punk punk punk punk punk punk punk punk | punk punk slam punk punk slam slam slam | punk punk punk punk punk punk punk slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_ref_plus": "\u2014 | \u2014 | \u2014"
+      },
+      {
+        "name": "faithful_plus_neu_prefix@0.25",
+        "cell": "divergent",
+        "hold": "prefix",
+        "hold_weight": 0.25,
+        "live_flag": true,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": null,
+        "caption_move": 1.2230959949561068e-05,
+        "cover": 0.9957014554138158,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999998812189745,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": null,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "punk punk punk punk punk punk punk punk | punk punk slam punk punk slam slam slam | punk punk punk punk punk punk punk slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_ref_plus": "\u2014 | \u2014 | \u2014"
+      },
+      {
+        "name": "faithful_plus_neu_orth",
+        "cell": "divergent",
+        "hold": "orth",
+        "hold_weight": 0.0,
+        "live_flag": true,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": null,
+        "caption_move": 0.16905238679914494,
+        "cover": 0.4826541434348564,
+        "off_caption": 0.03125,
+        "neu_hold": 0.9999999755767868,
+        "overlap_pos": 0.96875,
+        "lyric_hit": true,
+        "gender_hit": null,
+        "hit": false,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "slam slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_ref_plus": "\u2014 | \u2014 | \u2014"
+      },
+      {
+        "name": "concept_prefix_teacher",
+        "cell": "divergent",
+        "hold": "concept",
+        "hold_weight": 1.0,
+        "live_flag": false,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": null,
+        "caption_move": 0.9753086086406898,
+        "cover": 0.985552579886547,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999998866240736,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": null,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "punk punk punk punk punk punk punk punk | punk punk slam punk punk slam slam slam | punk punk punk punk punk punk punk slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_ref_plus": "\u2014 | \u2014 | \u2014"
+      },
+      {
+        "name": "faithful_plus_neu_lyric",
+        "cell": "divergent",
+        "hold": "lyric",
+        "hold_weight": 1.0,
+        "live_flag": true,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": null,
+        "caption_move": 1.0,
+        "cover": 0.9804129947232694,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999238089305,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": null,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "punk punk punk punk punk punk punk punk | punk punk slam punk punk slam slam slam | punk punk punk punk punk punk punk slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_ref_plus": "\u2014 | \u2014 | \u2014"
+      }
+    ],
+    "close": [
+      {
+        "name": "faithful_plus_neu",
+        "cell": "close",
+        "hold": "none",
+        "hold_weight": 0.0,
+        "live_flag": true,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": 0.8716031687080084,
+        "caption_move": 0.8715664069688168,
+        "cover": 0.9999997323375546,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999377166237,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": true,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk female slam slam slam slam slam slam | female female slam slam slam slam slam slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "female | female | female",
+        "reads_vocal_ref_plus": "female | female | female"
+      },
+      {
+        "name": "faithful_plus_neu_prefix",
+        "cell": "close",
+        "hold": "prefix",
+        "hold_weight": 1.0,
+        "live_flag": true,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": 0.0,
+        "caption_move": 0.0,
+        "cover": 0.9861888546198606,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999998568288552,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": false,
+        "hit": false,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk female slam slam slam slam slam slam | female female slam slam slam slam slam slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_ref_plus": "female | female | female"
+      },
+      {
+        "name": "faithful_plus_neu_prefix@0.25",
+        "cell": "close",
+        "hold": "prefix",
+        "hold_weight": 0.25,
+        "live_flag": true,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": 0.0,
+        "caption_move": 8.131498586353718e-07,
+        "cover": 0.9958937963467167,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999998735374939,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": false,
+        "hit": false,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk female slam slam slam slam slam slam | female female slam slam slam slam slam slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_ref_plus": "female | female | female"
+      },
+      {
+        "name": "faithful_plus_neu_orth",
+        "cell": "close",
+        "hold": "orth",
+        "hold_weight": 0.0,
+        "live_flag": true,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": 0.8716029945680622,
+        "caption_move": 0.47062097846592293,
+        "cover": 0.5958648030267734,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999999612142773,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": true,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk punk slam slam slam slam slam slam | female female slam slam slam slam slam slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "female | female | female",
+        "reads_vocal_ref_plus": "female | female | female"
+      },
+      {
+        "name": "concept_prefix_teacher",
+        "cell": "close",
+        "hold": "concept",
+        "hold_weight": 1.0,
+        "live_flag": false,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": 0.9753087172956448,
+        "caption_move": 0.9753086520670674,
+        "cover": 0.9861887592236084,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999998752305675,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": true,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk female slam slam slam slam slam slam | female female slam slam slam slam slam slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "female | female | female",
+        "reads_vocal_ref_plus": "female | female | female"
+      },
+      {
+        "name": "faithful_plus_neu_lyric",
+        "cell": "close",
+        "hold": "lyric",
+        "hold_weight": 1.0,
+        "live_flag": true,
+        "lyric_recall": 1.0,
+        "lyric_recall_zero": 1.0,
+        "lyric_recall_ref_plus": 1.0,
+        "gender_move": 1.0,
+        "caption_move": 1.0,
+        "cover": 0.9812687174905402,
+        "off_caption": 0.0,
+        "neu_hold": 0.9999998741966967,
+        "overlap_pos": 1.0,
+        "lyric_hit": true,
+        "gender_hit": true,
+        "hit": true,
+        "sings_lyric": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_lyric_ref_plus": "lyric0 lyric0 lyric0 lyric0 | lyric1 lyric1 lyric1 lyric1 | lyric2 lyric2 lyric2 lyric2",
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk female slam slam slam slam slam slam | female female slam slam slam slam slam slam",
+        "reads_vocal_neu": "\u2014 | \u2014 | \u2014",
+        "reads_vocal_plus": "female | female | female",
+        "reads_vocal_ref_plus": "female | female | female"
+      }
+    ]
+  }
+}
