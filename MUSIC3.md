@@ -161,6 +161,35 @@ reproduces all three listens and
 board and the next card (`gender-lm-v19`: `--lm_target faithful
 --pole_mode hidden`).
 
+**Two opt-in flags now cover both pair types with one recipe name.**
+Both are new, both are off by default, and the default is still
+`--lm_target v9` / `--pole_mode hidden`.
+
+- `--lm_target faithful_guard_e` — ê-cleaned real poles, but the
+  subtraction is taken only while the result is still nearer the pole
+  caption it claims to be than `½(h₊+h₋)` (`lm_blend_guard`). That test
+  needs no threshold and no training: on energy-v4 the ê-cleaned target
+  sits 0.78‖a‖ from its caption and 0.63‖a‖ from the midpoint, so the
+  guard refuses and the teacher stays `faithful`; on a yaml whose `ê`
+  really is a leftover it is taken and the leak goes to 0.000. A yaml
+  with no `leak_*` (gender-v4) is a guard with nothing to decide. The
+  setup line prints `guard=REFUSED (poles)` / `guard=sub_e` / `guard=no-ê`
+  with the two distances, so one setup pass falsifies it.
+- `--pole_mode dual_band` — the v16 semantic KL plus hidden MSE on the
+  band that KL is blind to (`lm_dual_band_pole_loss`; the blind band is
+  one SVD of the centered semantic band of `lm_head`). This is the
+  smallest change to the recipe that garbled `gender-lm-v16`: same
+  target, one added term where the KL's gradient is exactly zero. The
+  run prints how many blind dims it found; **0 means the band's row
+  space fills the hidden width and the mode is plain `semantic_kl`** —
+  raise `--blind_cut` before reading anything into the result.
+
+On the CPU board `faithful_guard_e` is the only recipe that passes every
+cell it is read on without rewriting a caption, and the 2×2 there says
+both halves are load-bearing: a caption target with no blind-band
+gradient loses the close pair, and a blind-band gradient onto the v9
+midpoint loses the divergent pair.
+
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
 Published Hub floor is `--lm_target hub` and still leaks — not the default.
@@ -914,6 +943,20 @@ $PY conceptmod/textsliders/train_lm_slider_music3.py \
   --lm_target faithful_sub_e --pole_mode semantic_kl \
   --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \
   --save_dir /ml2/music/sliders-conceptmod/models/energy-lm-v16 \
+  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 --no-early_stop --device 0
+```
+
+The board's new energy card. `faithful_guard_e` reads energy-v4's
+`leak_*` as written and refuses to subtract it, so this is the one flag
+that can be pointed at both v4 yamls; on gender-v4 it prints
+`guard=no-ê` and is `faithful` exactly:
+
+```bash
+$PY conceptmod/textsliders/train_lm_slider_music3.py \
+  --name energy-lm-v20 \
+  --lm_target faithful_guard_e --pole_mode hidden \
+  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \
+  --save_dir /ml2/music/sliders-conceptmod/models/energy-lm-v20 \
   --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 --no-early_stop --device 0
 ```
 
