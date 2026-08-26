@@ -1,41 +1,26 @@
-"""+1 lyric_recall: yaml lyrics on a continuation, not last-hidden cover.
+"""OOD detection with existing metrics + last-token transplant fixture.
 
-The plus+neu exam scores caption-word cover and scale-0 neu_hold off a
-**last hidden**. Live UNI (``faithful_plus_neu``) matches that last
-token to raw ``h+`` and still shreds lyrics. Two failures, not mixed:
+The plus+neu exam scores cover / neu_hold / off-caption off a **last
+hidden**. Live UNI (``faithful_plus_neu``) matches that last token to
+raw ``h+`` and still shreds lyrics on grit-like plus LoRAs. This cell
+does two things, in this order:
 
-1. Two-song yaml (v4): ``h+`` is another track. High ``c+`` = arrived
-   at the other song. Not this page.
-2. Last-token transplant (uni-v2, same-room yaml): student =
-   encode(neu tokens, LoRA @ +1), teacher last = encode(pos tokens).
-   Loss is last-hidden MSE only. The last real token is the
-   continue-from token. The LoRA still rewrites every prefix token,
-   including the yaml lyrics. Matching last hidden to ``h+`` does not
-   match the KV of the neu prefix. Generation then has a pos-like last
-   hidden and a neu KV. + REF (pos caption, no LoRA) still sings the
-   yaml line.
+1. Score **existing** logged metrics (plus-exam off-caption, pair-exam
+   ``same_words`` / ``off_corpus`` / coherence, sheet garble,
+   sheet ``lyric_mass`` / continuation vs the yaml lyric sheet) on
+   last-hidden vs prefix sung-line. Show which ones would have flagged
+   grit-like +1 shred vs gender/tempo keep. Do not invent a new scale
+   unless an existing one cannot see the miss.
+2. Keep a cheap sequence fixture so those metrics have a prefix sung
+   line to read. Last-hidden-only scoring cannot see a prefix KV
+   rewrite: decoding from a last hidden that already equals ``h+``
+   reproduces the + caption rollout.
 
-The last-hidden plus+neu fixture cannot see (2): decoding from a last
-hidden that already equals ``h+`` reproduces the + caption's own
-rollout, lyrics included. This cell is the smallest sequence that can:
-
-- prefix tokens = yaml ``lyrics`` (shared song)
-- last token = continue
-- LoRA residual on all positions (shared weights + prefix extra)
-- last hidden is causal in the prefix (attention mix)
-
-``lyric_recall`` is scored on the student's **sung line** — the
-continuation read off the prefix KV — against the yaml lyric sheet,
-not against + caption words (punk / loud / grit). Scale-0 lyric_recall
-and + REF are logged so REF+ high + student +1 low diagnoses a
-last-token transplant.
-
-A hit is high +1 lyric_recall AND high cover (still the concept) AND
-high neu_hold at 0. Rank key is lyric_recall@+1, then cover. Not
-scored: ``leak_frac``, ``c+``, ``p%``, pair-odd, ``exam_score``.
-
-CPU only. No Hub, no GPU, no Music 3 weights. Does not change the live
-default (``--lm_target v9`` / ``--pole_mode hidden``).
+Prefix-hold (``faithful_plus_neu_prefix``) is secondary — already
+wired, not the point. Not scored: ``leak_frac``, ``c+``, ``p%``,
+pair-odd, ``exam_score``. CPU only. No Hub, no GPU, no Music 3
+weights. Does not change the live default (``--lm_target v9`` /
+``--pole_mode hidden``).
 """
 
 from __future__ import annotations
@@ -45,7 +30,17 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 
-from analysis.slider2d.exam import PairField, close_field, divergent_field, rollouts
+from analysis.slider2d.exam import (
+    EXAM_COHERENCE,
+    EXAM_MATCH_KEPT,
+    EXAM_ROLL_OFF_MAX,
+    EXAM_ROLL_OVERLAP,
+    OFF_SHEET_TOKENS,
+    TOKEN_SIDE,
+    PairField,
+    close_field,
+    divergent_field,
+)
 from analysis.slider2d.plus_exam import (
     PLUS_COVER_MIN,
     PLUS_OFF_MAX,
@@ -57,6 +52,7 @@ from analysis.slider2d.plus_exam import (
     plus_bags,
     plus_cover,
 )
+from analysis.slider2d.sheet import GARBLE_MAX
 from analysis.slider2d.plus_neu_exam import (
     PLUS_NEU_HOLD_MIN,
     drift_from_neu,
@@ -72,9 +68,22 @@ from conceptmod.textsliders.slider_targets import (
     lm_slider_loss,
 )
 
-LYRIC_RECALL_MIN = 0.85
+# Existing pair-exam continuation floor, applied to the yaml lyric sheet
+# (sheet ``lyric_mass`` / continuation vs lyrics). Not a new scale.
+LYRIC_RECALL_MIN = EXAM_ROLL_OVERLAP
 PREFIX_LEN = 4
 ATTEND = 1.0
+
+# Existing gates reused as-is. A metric "flags" when it would have
+# called grit-like shred OOD (or gender-like keep OOD — a false alarm).
+EXISTING_OOD_METRICS = (
+    "plus_off_caption",
+    "pair_off_corpus",
+    "pair_same_words",
+    "pair_coherence",
+    "sheet_garble",
+    "sheet_lyric_mass",
+)
 
 LYRIC_CELLS = {
     "divergent": divergent_field,
@@ -227,12 +236,11 @@ def sung_line(field: PairField, prefix: torch.Tensor) -> list[int]:
 
 
 def lyric_recall(field: PairField, prefix: torch.Tensor, row: int) -> float:
-    """Sortable [0, 1]: yaml-lyric overlap on the sung-line continuation.
+    """Sheet ``lyric_mass`` on the prefix sung line (existing lyric sheet).
 
-    Reference is the yaml ``lyrics`` field, not + caption words. The
-    sung line is the greedy continuation of the prefix KV. Overlap is
-    the share of those tokens that are on the lyric sheet; it equals
-    ``1 − off_lyric`` on this bag. Gate: ``≥ 0.85``.
+    Same number as pair-exam continuation overlap against the yaml
+    ``lyrics`` field, not + caption words. Gate is the existing
+    pair-exam continuation floor ``EXAM_ROLL_OVERLAP`` (0.85).
     """
     bag = lyric_bag(field, row)
     seq = sung_line(field, prefix)
@@ -248,6 +256,139 @@ def off_lyric(field: PairField, prefix: torch.Tensor, row: int) -> float:
     if not seq:
         return 1.0
     return sum(1.0 for t in seq if t not in bag) / float(len(seq))
+
+
+def _match_kept(seqs: list[list[int]], refs: list[list[int]]) -> float:
+    """Pair-exam ``same_words`` / ``roll_match_kept`` on token draws."""
+    hits: list[float] = []
+    if not refs:
+        return 0.0
+    for index, seq in enumerate(seqs):
+        ref = refs[index % len(refs)]
+        n = min(len(seq), len(ref))
+        if n <= 0:
+            continue
+        hits.append(sum(1.0 for x, y in zip(seq[:n], ref[:n]) if x == y) / float(n))
+    return sum(hits) / len(hits) if hits else 0.0
+
+
+def _coherence(field: PairField, seqs: list[list[int]]) -> float:
+    """Pair-exam ``roll_coherence``: consecutive tokens stay on one side."""
+    head = field.readout()
+    scores: list[float] = []
+    for seq in seqs:
+        sides = [TOKEN_SIDE.get(head.tokens[t], 0.0) for t in seq]
+        pairs = list(zip(sides, sides[1:]))
+        if not pairs:
+            scores.append(1.0)
+            continue
+        scores.append(sum(1.0 for x, y in pairs if x * y >= 0.0) / float(len(pairs)))
+    return sum(scores) / len(scores) if scores else 1.0
+
+
+def _garble_share(field: PairField, seqs: list[list[int]]) -> float:
+    """Sheet garble: share of ``garble_hi`` / ``garble_lo`` tokens."""
+    head = field.readout()
+    off = {head.index(name) for name in OFF_SHEET_TOKENS if name in head.tokens}
+    hits: list[float] = []
+    for seq in seqs:
+        if not seq:
+            continue
+        hits.append(sum(1.0 for t in seq if t in off) / float(len(seq)))
+    return sum(hits) / len(hits) if hits else 0.0
+
+
+def existing_metrics_on_seqs(
+    field: PairField,
+    seqs: list[list[int]],
+    row: int,
+    teacher_plus: list[list[int]],
+) -> dict:
+    """Existing logged metrics on one continuation surface.
+
+    ``sheet_lyric_mass`` is continuation vs the yaml lyric sheet — the
+    only existing column that can split grit shred from gender keep
+    once the sung line is the prefix KV, not the last hidden.
+    """
+    bags = plus_bags(field)
+    pair_corpus = frozenset(bags["pos"] | bags["neg"] | bags["shared"])
+    lyric = lyric_bag(field, row)
+    values = {
+        "plus_off_caption": _off_share(seqs, bags["plus_corpus"]),
+        "pair_off_corpus": _off_share(seqs, pair_corpus),
+        "pair_same_words": _match_kept(seqs, teacher_plus),
+        "pair_coherence": _coherence(field, seqs),
+        "sheet_garble": _garble_share(field, seqs),
+        "sheet_lyric_mass": _token_share(seqs, lyric),
+    }
+    flags = {
+        "plus_off_caption": values["plus_off_caption"] > PLUS_OFF_MAX,
+        "pair_off_corpus": values["pair_off_corpus"] > EXAM_ROLL_OFF_MAX,
+        "pair_same_words": values["pair_same_words"] < EXAM_MATCH_KEPT,
+        "pair_coherence": values["pair_coherence"] < EXAM_COHERENCE,
+        "sheet_garble": values["sheet_garble"] > GARBLE_MAX,
+        "sheet_lyric_mass": values["sheet_lyric_mass"] < EXAM_ROLL_OVERLAP,
+    }
+    return {"values": values, "flags": flags}
+
+
+def _mean_existing(rows: list[dict]) -> dict:
+    if not rows:
+        empty = {name: 0.0 for name in EXISTING_OOD_METRICS}
+        return {
+            "values": empty,
+            "flags": {name: False for name in EXISTING_OOD_METRICS},
+        }
+    values = {
+        name: sum(r["values"][name] for r in rows) / len(rows)
+        for name in EXISTING_OOD_METRICS
+    }
+    flags = {
+        "plus_off_caption": values["plus_off_caption"] > PLUS_OFF_MAX,
+        "pair_off_corpus": values["pair_off_corpus"] > EXAM_ROLL_OFF_MAX,
+        "pair_same_words": values["pair_same_words"] < EXAM_MATCH_KEPT,
+        "pair_coherence": values["pair_coherence"] < EXAM_COHERENCE,
+        "sheet_garble": values["sheet_garble"] > GARBLE_MAX,
+        "sheet_lyric_mass": values["sheet_lyric_mass"] < EXAM_ROLL_OVERLAP,
+    }
+    return {"values": values, "flags": flags}
+
+
+def existing_ood_verdict(table: dict[str, list[dict]]) -> dict:
+    """Which existing metrics flag grit UNI shred vs gender UNI keep."""
+    by: dict[str, dict[str, dict]] = {
+        cell: {r["name"]: r for r in rows} for cell, rows in table.items()
+    }
+    uni_div = by["divergent"]["faithful_plus_neu"]
+    uni_close = by["close"]["faithful_plus_neu"]
+    useful: list[str] = []
+    false_alarm: list[str] = []
+    blind: list[str] = []
+    for surface in ("last_hidden", "prefix_sung"):
+        grit_flags = uni_div["existing"][surface]["flags"]
+        keep_flags = uni_close["existing"][surface]["flags"]
+        for name in EXISTING_OOD_METRICS:
+            key = f"{surface}.{name}"
+            if grit_flags[name] and not keep_flags[name]:
+                useful.append(key)
+            elif keep_flags[name] and not grit_flags[name]:
+                false_alarm.append(key)
+            elif grit_flags[name] and keep_flags[name]:
+                blind.append(f"{key} (flags both)")
+            else:
+                blind.append(key)
+    return {
+        "useful": useful,
+        "false_alarm": false_alarm,
+        "blind": blind,
+        "only_prefix_lyric_sheet": useful == ["prefix_sung.sheet_lyric_mass"],
+        "grit": uni_div["existing"],
+        "gender": uni_close["existing"],
+        "grit_sings_prefix": uni_div["sings_lyric"],
+        "gender_sings_prefix": uni_close["sings_lyric"],
+        "grit_sings_last_hidden": uni_div["sings_plus"],
+        "gender_sings_last_hidden": uni_close["sings_plus"],
+    }
 
 
 def last_hidden_cannot_see_transplant(field: PairField) -> dict:
@@ -376,6 +517,8 @@ def score_lyric_exam(
     canary_overlap: list[float] = []
     canary_off: list[float] = []
     canary_landed: list[str] = []
+    last_ood_rows: list[dict] = []
+    prefix_ood_rows: list[dict] = []
     head = field.readout()
     for row in range(int(field.rows)):
         pos, neg, neu = field.poles(row)
@@ -408,9 +551,15 @@ def score_lyric_exam(
         canary_overlap.append(_token_share(minus_seqs, bags["neg"]))
         canary_off.append(_off_share(minus_seqs, bags["minus_corpus"]))
         canary_landed.append(nearest_pole(last_m, pos, neu, neg))
+        lyric_seq = sung_line(field, pref_p)
+        teacher_plus = _continue(field, pos, row=row, sign=1.0)
+        last_ood_rows.append(existing_metrics_on_seqs(field, plus_seqs, row, teacher_plus))
+        prefix_ood_rows.append(
+            existing_metrics_on_seqs(field, [lyric_seq], row, teacher_plus)
+        )
         sings_plus.append(" ".join(head.tokens[t] for t in plus_seqs[0]))
         sings_zero.append(" ".join(head.tokens[t] for t in zero_seqs[0]))
-        sings_lyric.append(" ".join(head.tokens[t] for t in sung_line(field, pref_p)))
+        sings_lyric.append(" ".join(head.tokens[t] for t in lyric_seq))
         sings_ref.append(" ".join(head.tokens[t] for t in sung_line(field, ref_pref)))
         _ = ref_last
     cover = sum(cover_rows) / len(cover_rows)
@@ -457,6 +606,10 @@ def score_lyric_exam(
         "sings_zero": " | ".join(sings_zero),
         "sings_lyric": " | ".join(sings_lyric),
         "sings_ref_plus": " | ".join(sings_ref),
+        "existing": {
+            "last_hidden": _mean_existing(last_ood_rows),
+            "prefix_sung": _mean_existing(prefix_ood_rows),
+        },
         "canary": {
             "scored": False,
             "minus_overlap_neg": sum(canary_overlap) / len(canary_overlap),
@@ -578,4 +731,5 @@ def lyric_verdict(table: dict[str, list[dict]]) -> dict:
             cell: last_hidden_cannot_see_transplant(LYRIC_CELLS[cell]())
             for cell in required
         },
+        "existing_ood": existing_ood_verdict(table) if "divergent" in by and "close" in by else None,
     }

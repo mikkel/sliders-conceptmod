@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""+1 lyric_recall scale: yaml lyrics on a continuation. Separate scale."""
+"""OOD detection with existing metrics + faithful_plus_neu bug hunt."""
 
 from __future__ import annotations
 
@@ -12,25 +12,42 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+import numpy as np
 
 _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from analysis.slider2d.plus_exam import PLUS_COVER_MIN, PLUS_OFF_MAX
-from analysis.slider2d.plus_neu_exam import PLUS_NEU_HOLD_MIN
+from analysis.slider2d.exam import (
+    EXAM_COHERENCE,
+    EXAM_MATCH_KEPT,
+    EXAM_ROLL_OFF_MAX,
+    EXAM_ROLL_OVERLAP,
+)
 from analysis.slider2d.lyric_recall import (
+    EXISTING_OOD_METRICS,
     LYRIC_CELLS,
-    LYRIC_RECALL_MIN,
     LYRIC_RECIPES,
+    existing_ood_verdict,
     lyric_exam_table,
     lyric_rank,
     lyric_verdict,
 )
+from analysis.slider2d.plus_exam import PLUS_COVER_MIN, PLUS_OFF_MAX
+from analysis.slider2d.plus_neu_exam import PLUS_NEU_HOLD_MIN
+from analysis.slider2d.sheet import GARBLE_MAX
 
 
 DEFAULT_OUT = _REPO / "docs" / "lm-lyric-recall"
+
+METRIC_LABELS = {
+    "plus_off_caption": "plus-exam off_caption",
+    "pair_off_corpus": "pair-exam off_corpus",
+    "pair_same_words": "pair-exam same_words",
+    "pair_coherence": "pair-exam coherence",
+    "sheet_garble": "sheet garble",
+    "sheet_lyric_mass": "sheet lyric_mass / vs lyric sheet",
+}
 
 
 def _f(value, spec: str = ".3f", empty: str = "N/A") -> str:
@@ -39,74 +56,39 @@ def _f(value, spec: str = ".3f", empty: str = "N/A") -> str:
     return format(float(value), spec)
 
 
-def _train_label(row: dict) -> str:
-    if row.get("prefix_hold"):
-        return "plus+neu+prefix"
-    if row.get("plus_neu"):
-        return "plus+neu"
-    if row.get("plus_only"):
-        return "plus-only"
-    return "bipolar ±"
+def _flag(flagged: bool) -> str:
+    return "**FLAG**" if flagged else "—"
 
 
-def plot_lyric_scale(table: dict[str, list[dict]], path: Path) -> None:
-    """lyric_recall@+1 vs cover. Want-box is high both. Not the bipolar board."""
-    fig, ax = plt.subplots(figsize=(8.6, 5.6))
-    marks = {"divergent": "o", "close": "s"}
-    colors = {
-        "faithful_plus_neu_prefix": "#1e8449",
-        "faithful_plus_neu": "#7d3c98",
-        "faithful_plus": "#b9770e",
-        "leftover_gate_bipolar": "#2471a3",
-        "pair_odd_midpoint": "#c0392b",
-    }
-    want = Rectangle(
-        (PLUS_COVER_MIN, LYRIC_RECALL_MIN),
-        1.0 - PLUS_COVER_MIN,
-        1.0 - LYRIC_RECALL_MIN,
-        facecolor="#d5f5e3",
-        edgecolor="#1e8449",
-        lw=1.0,
-        alpha=0.55,
-        zorder=1,
-        label="want-box (high lyric_recall@+1 AND high cover)",
+def _useful(key: str, useful: list[str]) -> str:
+    return "**yes**" if key in useful else "no"
+
+
+def plot_existing_ood(ood: dict, path: Path) -> None:
+    """Existing metrics on UNI grit vs gender, last-hidden vs prefix sung."""
+    fig, axes = plt.subplots(1, 2, figsize=(10.2, 4.8), sharey=True)
+    names = list(EXISTING_OOD_METRICS)
+    labels = [METRIC_LABELS[n] for n in names]
+    y = np.arange(len(names))
+    for ax, surface, title in (
+        (axes[0], "last_hidden", "scored on last-hidden continuation"),
+        (axes[1], "prefix_sung", "scored on prefix sung line"),
+    ):
+        grit = [ood["grit"][surface]["values"][n] for n in names]
+        gender = [ood["gender"][surface]["values"][n] for n in names]
+        ax.barh(y - 0.18, grit, height=0.36, color="#7d3c98", label="grit-like UNI")
+        ax.barh(y + 0.18, gender, height=0.36, color="#1e8449", label="gender-like UNI")
+        ax.set_yticks(y)
+        ax.set_yticklabels(labels, fontsize=8)
+        ax.set_xlim(0.0, 1.05)
+        ax.set_title(title, fontsize=10)
+        ax.grid(axis="x", alpha=0.25)
+    axes[1].legend(fontsize=8, loc="lower right")
+    fig.suptitle(
+        "Existing metrics on UNI +1 — not a new scale\n"
+        "only prefix sung lyric_mass splits grit shred from gender keep",
+        fontsize=11,
     )
-    ax.add_patch(want)
-    for cell, rows in table.items():
-        for row in rows:
-            neu = max(0.0, min(1.0, float(row["neu_hold"])))
-            size = 70 + 220 * neu
-            ax.scatter(
-                [row["cover"]],
-                [row["lyric_recall"]],
-                c=[colors.get(row["name"], "#7f8c8d")],
-                marker=marks.get(cell, "o"),
-                s=size,
-                zorder=3,
-                edgecolors="#1b2631",
-                linewidths=0.8,
-            )
-            ax.annotate(
-                f"{row['name']}\n{cell}",
-                (row["cover"], row["lyric_recall"]),
-                fontsize=6.2,
-                xytext=(5, 4),
-                textcoords="offset points",
-            )
-    for name, color in colors.items():
-        ax.scatter([], [], c=color, marker="o", s=58, label=name)
-    ax.axvline(PLUS_COVER_MIN, color="#7f8c8d", ls=":", lw=0.9)
-    ax.axhline(LYRIC_RECALL_MIN, color="#7f8c8d", ls=":", lw=0.9)
-    ax.set_xlabel("cover of the + state  [0, 1]  (higher is better)")
-    ax.set_ylabel("lyric_recall at +1  [0, 1]  (higher is better)")
-    ax.set_title(
-        "+1 lyric scale — not the bipolar board\n"
-        "lyric_recall@+1 vs cover; marker size = neu_hold at 0"
-    )
-    ax.set_xlim(-0.02, 1.05)
-    ax.set_ylim(-0.02, 1.05)
-    ax.grid(alpha=0.25)
-    ax.legend(fontsize=7.0, loc="lower left")
     fig.tight_layout()
     fig.savefig(path, dpi=140)
     plt.close(fig)
@@ -116,82 +98,131 @@ def write_markdown(
     table: dict[str, list[dict]],
     verdict: dict,
     ranked: list[dict],
+    ood: dict,
     path: Path,
 ) -> None:
-    replicated = "yes" if verdict["replicated_last_token_transplant"] else "no"
-    lifts = "yes" if verdict["prefix_lifts_lyric_recall"] else "no"
-    keeps = "yes" if verdict["prefix_keeps_cover"] else "no"
-    uni_div = verdict["uni_lyric_recall"][0]
+    grit_p = ood["grit"]["prefix_sung"]
+    gender_p = ood["gender"]["prefix_sung"]
+    grit_l = ood["grit"]["last_hidden"]
+    gender_l = ood["gender"]["last_hidden"]
+    useful = ood["useful"]
     lines = [
-        "# +1 lyric_recall: yaml lyrics on a continuation",
+        "# OOD detection + `faithful_plus_neu` bug hunt",
         "",
         "Generated by `analysis/slider2d/run_lm_lyric_recall.py`. CPU only, no Hub,",
         "no GPU, no Music 3 weights. Does not change the live trainer default",
-        "(`--lm_target v9` / `--pole_mode hidden`). This is a **separate",
-        "scale** from the plus+neu exam, plus-only exam, pair-exam,",
-        "leftover-sheet `leak_frac`, and the compiled bipolar board. Those",
-        "pages are not updated here.",
+        "(`--lm_target v9` / `--pole_mode hidden`). This is **not** a new",
+        "lyric-recall leaderboard. We already have cover / neu_hold /",
+        "off-caption / pair-exam / sheet. The job is: which of those would",
+        "have flagged grit-like +1 lyric shred vs gender/tempo keep, and",
+        "which `faithful_plus_neu` implementation mistakes would cause OOD",
+        "even if the math (MSE +1 last → raw h+, MSE 0 → h0, no minus) is",
+        "right.",
         "",
-        "Cover ≠ lyrics. The plus+neu exam ranked `faithful_plus_neu` first",
-        "on caption-word cover and neu_hold at scale 0. It does not score",
-        "yaml-lyric survival at +1. Live UNI still shreds lyrics on several",
-        "plus LoRAs. Train `c+` / `p%` call those a hit. Whisper lyric",
-        "recall does not.",
-        "",
-        "## Two failures, do not mix",
+        "Two failures, do not mix:",
         "",
         "1. **Two-song yaml (v4):** `h+` is another track. High `c+` =",
         "   arrived at the other song. Not this page.",
         "2. **Last-token transplant (uni-v2, same-room yaml):** student =",
-        "   encode(neu tokens, LoRA @ +1), teacher last = encode(pos tokens)",
-        "   (same lyrics, + words flipped). Loss is last-hidden MSE only.",
-        "   The last real token is the continue-from token. The LoRA still",
-        "   rewrites every prefix token, including lyrics. Matching last",
-        "   hidden to `h+` does not match the KV of the neu prefix.",
-        "   Generation then has a pos-like last hidden and a neu KV.",
-        "   + REF (pos caption, no LoRA) still sings the yaml line.",
-        "   That is this page.",
+        "   encode(neu tokens, LoRA @ +1), teacher last = encode(pos tokens).",
+        "   Loss is last-hidden MSE only. The last real token is",
+        "   `<|audio_start|>`. The LoRA still rewrites every prefix token,",
+        "   including lyrics. Matching last hidden to `h+` does not match",
+        "   the KV of the neu prefix. + REF (pos caption, no LoRA) still",
+        "   sings the yaml line. That is this page.",
         "",
-        f"**Replicated last-token transplant? `{replicated}`** — UNI",
-        f"+1 lyric_recall on divergent (grit-like) is `{_f(uni_div)}` while",
-        "cover / neu_hold / off-caption stay in the old plus+neu want-box.",
-        f"+ REF lyric_recall is `{_f(verdict['uni_ref_plus'][0])}`.",
+        "## 1. Existing metrics — which ones fire",
         "",
-        "The last-hidden plus+neu fixture cannot see this. Decoding from a",
-        "last hidden that already equals `h+` reproduces the + caption",
-        "rollout (concept words). Lyrics live in the prefix KV. This cell",
-        "is the smallest sequence that can: prefix tokens = yaml lyrics,",
-        "last token = continue, LoRA on all positions, last hidden causal",
-        "in the prefix.",
+        "Last-hidden scoring of **every** existing caption metric misses",
+        "the transplant: if last = `h+`, off-caption / garble /",
+        "`same_words` / coherence look like a + caption hit. Last-hidden",
+        "sheet `lyric_mass` is 0 on **both** cells (the + caption rollout",
+        "is concept words), so it flags grit *and* gender and cannot",
+        "split them.",
         "",
-        "## The metric",
+        "On the **prefix sung line**, grit UNI sings on-caption concept",
+        f"words (`{ood['grit_sings_prefix']}`). Plus-exam off-caption,",
+        "pair-exam `off_corpus` / `same_words` / coherence, and sheet",
+        "garble stay green. Gender/tempo-like UNI keeps the yaml line",
+        f"(`{ood['gender_sings_prefix']}`).",
         "",
-        "1. **lyric_recall@+1** — share of the +1 student's sung-line",
-        "   continuation (greedy tokens read off the prefix KV) that is",
-        "   on the yaml `lyrics` field. Not + caption words (punk / loud",
-        "   / grit). Sortable in `[0, 1]`. Gate: `≥ 0.85` (same as",
-        "   `off-lyric ≤ 0.05` on this bag).",
-        "2. **cover** of the + last hidden (same as plus-only / plus+neu):",
-        f"   `min(overlap_with_pos, 1 − blend_toward_mid)`. Gate: `≥ {PLUS_COVER_MIN}`.",
-        "3. **neu_hold** at scale 0 (same as plus+neu). Gate:",
-        f"   `≥ {PLUS_NEU_HOLD_MIN}`.",
-        "4. **off-caption** on the + last-hidden continuation. Logged.",
-        f"   Gate suggestion `{PLUS_OFF_MAX}`; not the rank key.",
+        "The only existing column that flags grit shred and keeps gender",
+        "is **sheet `lyric_mass` / continuation vs the yaml lyric sheet**,",
+        "scored on the prefix sung line — not a new scale. Gate is the",
+        f"existing pair-exam continuation floor `{EXAM_ROLL_OVERLAP:g}`.",
         "",
-        "Also logged, not a rank key: scale-0 lyric_recall and + REF",
-        "(pos caption, no student). REF+ high + student +1 low = last-token",
-        "transplant (failure 2). A hit is high +1 lyric_recall AND high",
-        "cover AND high neu_hold at 0. Not scored: `leak_frac`, `c+`, `p%`,",
-        "pair-odd, `exam_score`.",
+        "| metric | last-hidden grit | last-hidden gender | prefix grit | prefix gender | flags grit-not-gender? |",
+        "|---|---:|---:|---:|---:|---|",
+    ]
+    for name in EXISTING_OOD_METRICS:
+        key = f"prefix_sung.{name}"
+        lines.append(
+            "| {label} | {lg} {flg} | {lgen} {flgen} | {pg} {fpg} | {pgen} {fpgen} | {use} |".format(
+                label=METRIC_LABELS[name],
+                lg=_f(grit_l["values"][name]),
+                flg=_flag(grit_l["flags"][name]),
+                lgen=_f(gender_l["values"][name]),
+                flgen=_flag(gender_l["flags"][name]),
+                pg=_f(grit_p["values"][name]),
+                fpg=_flag(grit_p["flags"][name]),
+                pgen=_f(gender_p["values"][name]),
+                fpgen=_flag(gender_p["flags"][name]),
+                use=_useful(key, useful),
+            )
+        )
+    lines += [
         "",
-        "## Train card (opt-in, only because prefix-hold lifts +1 lyrics)",
+        f"Useful (flags grit, not gender): `{', '.join(useful) or 'none'}`.",
+        f"False alarm (flags gender keep): `{', '.join(ood['false_alarm']) or 'none'}`.",
         "",
-        "`--lm_target faithful_plus_neu_prefix --pole_mode hidden`.",
-        "Student +1 last hidden fits raw `h+`. Student +1 prefix hidden",
-        "fits encode(neu) prefix (yaml lyrics), not encode(pos) prefix.",
-        "Student scale 0 fits `h0`. No minus teacher, no leftover-gate.",
-        "`faithful_plus_neu` and `faithful_plus` stay unchanged.",
-        "Default stays `--lm_target v9` / `--pole_mode hidden`.",
+        "![existing metrics on UNI grit vs gender](lm-lyric-recall/existing-ood.png)",
+        "",
+        "Live implication: a last-hidden off-caption / garble / `c+` board",
+        "would have called grit UNI a hit. Whisper vs the yaml lyric sheet",
+        "is the existing listen analog of prefix `lyric_mass`.",
+        "",
+        "## 2. `faithful_plus_neu` implementation bugs",
+        "",
+        "Formulation stays: MSE +1 last → raw `h+`, MSE 0 → `h0`, no minus,",
+        "no leftover-gate, student = encode(neu)+LoRA. These are",
+        "implementation mistakes that would cause OOD even if that math is",
+        "right.",
+        "",
+        "| check | status |",
+        "|---|---|",
+        "| Teacher encoded before LoRA exists (`_encode_static` / `@torch.no_grad`) | ok |",
+        "| Student tokens are `neu_ids`, not `pos_ids` | ok |",
+        "| Teacher is raw `h+` (not leftover-gated) | ok |",
+        "| Scale 0 sets LoRA multiplier 0 (identity) | ok |",
+        "| LoRA wraps `Qwen3Attention` only (not `embed_tokens`) | ok |",
+        "| `_assemble` ends with `{im_end}{audio_start}` | ok |",
+        "| Last-hidden gather used **shape-1**, not the mask | **fixed** — now `_gather_last_hidden` / last-real index |",
+        "| No assert last token is `<|audio_start|>` | **fixed** — fail closed when the tokenizer can say |",
+        "| Plus+neu still teacher-forced scale **−1** endreg / planreg | **fixed** — minus pole skipped |",
+        "| Default `early_stop` required `c-` / `nperc` / collapse | **fixed** — plus+neu uses `c+` / `p%` only |",
+        "| `infer_music3` default prompt was yaml `target` (often +) | **fixed** — prefers `neutral`; warns on plus+neu sidecars |",
+        "| `generate_listen` already uses yaml `neutral` + LoRA | ok; now prints the double-+ warning |",
+        "",
+        "Endreg at +1 still regularizes prompt-last + ~250 frames. That",
+        "does not pin the lyric prefix KV, so it does not by itself cause",
+        "the transplant — but backpropping minus-side end-margin on a",
+        "no-minus card was a formulation leak.",
+        "",
+        "Default stays `--lm_target v9` / `--pole_mode hidden`. No v4",
+        "rewrite. No GPU train on this branch.",
+        "",
+        "## 3. Prefix-hold (secondary, already wired)",
+        "",
+        "Opt-in `--lm_target faithful_plus_neu_prefix` holds the +1 prefix",
+        "hidden to encode(neu). Cheap leftover from the previous pass.",
+        "Not the point. UNI last-token MSE still sits in the old plus+neu",
+        "want-box (cover / neu_hold / off-caption) while prefix",
+        f"`lyric_mass` is `{_f(verdict['uni_lyric_recall'][0])}` on grit",
+        f"and `{_f(verdict['uni_lyric_recall'][1])}` on close.",
+        "",
+        f"Prefix-hold lifts grit lyric-sheet mass: **{'yes' if verdict['prefix_lifts_lyric_recall'] else 'no'}**",
+        f"({', '.join(_f(x) for x in verdict['prefix_lyric_recall'])}).",
+        f"Keeps cover: **{'yes' if verdict['prefix_keeps_cover'] else 'no'}**.",
         "",
         "```bash",
         "CUDA_VISIBLE_DEVICES=N python conceptmod/textsliders/train_lm_slider_music3.py \\",
@@ -202,120 +233,16 @@ def write_markdown(
         "  --no-early_stop --endreg_weight 1.0 --device 0",
         "```",
         "",
-        "v4 yaml is not rewritten. Uni yamls can swap in later. No live",
-        "listen on this branch. No Hub, no GPU, no Music 3 weights here.",
+        "v4 yaml is not rewritten. Infer plus+neu with the **neutral**",
+        "caption + LoRA, not the + caption.",
         "",
-        "## Combined rank (divergent + close)",
+        "## Related cells",
         "",
-        "Rank by lyric_recall@+1, then cover. Averages over the two",
-        "required cells. Divergent is grit-like (same-room lyrics, last-",
-        "token transplant garbles). Close is gender-like (keeps lyrics).",
-        "",
-        "| rank | recipe | train | lyric_recall@+1 | cover | neu_hold | off-caption | hit Δ | hit close |",
-        "|---:|---|---|---:|---:|---:|---:|---|---|",
-    ]
-    for row in ranked:
-        lines.append(
-            "| {rank} | `{name}` | {train} | {lyric} | {cover} | {hold} | {off} | {hd} | {hc} |".format(
-                rank=row["rank"],
-                name=row["name"],
-                train=_train_label(row),
-                lyric=_f(row["lyric_recall"]),
-                cover=_f(row["cover"]),
-                hold=_f(row["neu_hold"]),
-                off=_f(row["off_caption"]),
-                hd="**HIT**" if row["hit_divergent"] else "—",
-                hc="**HIT**" if row["hit_close"] else "—",
-            )
-        )
-    lines += [
-        "",
-        "## The board (400 Adam steps, seed 0)",
-        "",
-        "This is the +1 lyric scale, not the bipolar board.",
-        "`faithful_plus_neu` is the live UNI last-token card.",
-        "`faithful_plus_neu_prefix` holds the lyric prefix.",
-        "`faithful_plus` is leftover-gated plus-only.",
-        "`leftover_gate_bipolar` is current `faithful` / leftover-gate ±.",
-        "`pair_odd_midpoint` is the known fail (keeps lyrics here, misses cover).",
-        "",
-    ]
-    for cell in LYRIC_CELLS:
-        rows = sorted(
-            table[cell],
-            key=lambda r: (-float(r["lyric_recall"]), -float(r["cover"]), str(r["name"])),
-        )
-        lines += [
-            f"### `{cell}`",
-            "",
-            "| recipe | train | lyric_recall@+1 | lyric@0 | + REF | cover | neu_hold | off-caption | old box | hit |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---|---|",
-        ]
-        for row in rows:
-            lines.append(
-                "| `{name}` | {train} | {ly} | {ly0} | {ref} | {cover} | {hold} | {off} | {old} | {hit} |".format(
-                    name=row["name"],
-                    train=_train_label(row),
-                    ly=_f(row["lyric_recall"]),
-                    ly0=_f(row["lyric_recall_zero"]),
-                    ref=_f(row["lyric_recall_ref_plus"]),
-                    cover=_f(row["cover"]),
-                    hold=_f(row["neu_hold"]),
-                    off=_f(row["off_caption"]),
-                    old="**yes**" if row["old_box"] else "—",
-                    hit="**HIT**" if row["hit"] else "—",
-                )
-            )
-        lines.append("")
-        lines.append("Sung line at +1 (prefix KV), then + REF:")
-        lines.append("")
-        for row in rows:
-            lines.append(f"- `{row['name']}`: `{row['sings_lyric']}`")
-            lines.append(f"  REF+: `{row['sings_ref_plus']}`")
-        lines.append("")
-    lines += [
-        "![lyric_recall@+1 vs cover on the +1 lyric scale](lm-lyric-recall/lyric-recall-scale.png)",
-        "",
-        "Want-box is high lyric_recall@+1 AND high cover. Marker size is",
-        "neu_hold at scale 0. Title says this is the +1 lyric scale, not",
-        "the bipolar board.",
-        "",
-        "## What the numbers say",
-        "",
-        f"- Last-token transplant replicated: **{replicated}**.",
-        f"- UNI (`faithful_plus_neu`) +1 lyric_recall: "
-        f"{', '.join(_f(x) for x in verdict['uni_lyric_recall'])} "
-        f"(divergent, close). + REF: "
-        f"{', '.join(_f(x) for x in verdict['uni_ref_plus'])}.",
-        f"- UNI still in the old plus+neu want-box (cover / neu_hold / "
-        f"off-caption): **{'yes' if all(verdict['uni_old_box']) else 'no'}** "
-        f"(cover {', '.join(_f(x) for x in verdict['uni_cover'])}, "
-        f"neu_hold {', '.join(_f(x) for x in verdict['uni_neu_hold'])}).",
-        f"- Prefix-hold lifts +1 lyric_recall: **{lifts}** "
-        f"({', '.join(_f(x) for x in verdict['prefix_lyric_recall'])}).",
-        f"- Prefix-hold keeps + cover: **{keeps}** "
-        f"({', '.join(_f(x) for x in verdict['prefix_cover'])}).",
-        f"- Prefix-hold hits both required pairs: "
-        f"**{'yes' if verdict['prefix_hits_required'] else 'no'}**.",
-        "",
-        (
-            "**Answer: last-token-only MSE is the bug on this fixture.** "
-            "Prefix-hold restores the yaml line at +1 without killing cover "
-            "or neu_hold. Close / gender-like already keeps lyrics under "
-            "last-token UNI; divergent / grit-like does not. That split "
-            "matches the live listen (gender/tempo keep lyrics; grit/"
-            "distortion/energy do not)."
-            if verdict["prefix_lifts_lyric_recall"] and verdict["prefix_keeps_cover"]
-            else "**Answer: prefix-hold did not earn a train card on this fixture.**"
-        ),
-        "",
-        "## Related cells (not this scale)",
-        "",
-        "- [lm-plus-neu-exam.md](lm-plus-neu-exam.md) — cover / neu_hold / off-caption.",
+        "- [lm-plus-neu-exam.md](lm-plus-neu-exam.md) — last-hidden cover / neu_hold / off-caption.",
         "- [lm-plus-exam.md](lm-plus-exam.md) — plus-only cover / off-caption.",
-        "- [lm-pair-exam.md](lm-pair-exam.md) — bipolar continuation gates.",
-        "- [lm-even-leftover.md](lm-even-leftover.md) — leftover-sheet `leak_frac`.",
-        "- [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — compiled bipolar board.",
+        "- [lm-pair-exam.md](lm-pair-exam.md) — bipolar continuation / same_words / off_corpus / coherence.",
+        "- [lm-sheet-goodhart.md](lm-sheet-goodhart.md) — sheet on-sheet / garble / lyric_mass.",
+        "- [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — compiled bipolar board (not updated).",
         "",
         "## How to run",
         "",
@@ -327,6 +254,7 @@ def write_markdown(
         "CPU only. No Hub, no GPU, no Music 3 weights. Seed `0`, `400` Adam steps.",
         "",
     ]
+    _ = (table, ranked, PLUS_COVER_MIN, PLUS_NEU_HOLD_MIN, PLUS_OFF_MAX, GARBLE_MAX)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -341,45 +269,39 @@ def main() -> None:
     table = lyric_exam_table(steps=args.steps, seed=args.seed)
     verdict = lyric_verdict(table)
     ranked = lyric_rank(table)
+    ood = verdict["existing_ood"] or existing_ood_verdict(table)
     blob = {
-        "scale": "+1 lyric_recall",
+        "scale": "existing-metric OOD + faithful_plus_neu bug hunt",
+        "not_a_new_leaderboard": True,
         "not_the_bipolar_board": True,
-        "scored": ["lyric_recall", "cover", "neu_hold"],
-        "logged": ["off_caption", "lyric_recall_zero", "lyric_recall_ref_plus"],
-        "not_scored": [
-            "leak_frac",
-            "collapse",
-            "pair_odd_cos",
-            "c+",
-            "p%",
-            "exam_score",
-        ],
+        "scored": list(EXISTING_OOD_METRICS),
         "gates": {
-            "lyric_recall_min": LYRIC_RECALL_MIN,
-            "cover_min": PLUS_COVER_MIN,
-            "neu_hold_min": PLUS_NEU_HOLD_MIN,
-            "off_caption_max": PLUS_OFF_MAX,
+            "plus_off_caption_max": PLUS_OFF_MAX,
+            "pair_off_corpus_max": EXAM_ROLL_OFF_MAX,
+            "pair_same_words_min": EXAM_MATCH_KEPT,
+            "pair_coherence_min": EXAM_COHERENCE,
+            "sheet_garble_max": GARBLE_MAX,
+            "sheet_lyric_mass_min": EXAM_ROLL_OVERLAP,
         },
         "recipes": [c["name"] for c in LYRIC_RECIPES],
         "cells": list(LYRIC_CELLS),
         "steps": args.steps,
         "seed": args.seed,
-        "verdict": {
-            k: v for k, v in verdict.items() if k != "last_hidden_blind"
-        },
+        "existing_ood": ood,
+        "verdict": {k: v for k, v in verdict.items() if k not in {"last_hidden_blind", "existing_ood"}},
         "last_hidden_blind": verdict["last_hidden_blind"],
-        "rank": ranked,
+        "rank_secondary": ranked,
         "rows": table,
     }
     (args.out / "metrics.json").write_text(
         json.dumps(blob, indent=2, default=str) + "\n", encoding="utf-8"
     )
-    plot_lyric_scale(table, args.out / "lyric-recall-scale.png")
-    write_markdown(table, verdict, ranked, _REPO / "docs" / "lm-lyric-recall.md")
+    plot_existing_ood(ood, args.out / "existing-ood.png")
+    write_markdown(table, verdict, ranked, ood, _REPO / "docs" / "lm-lyric-recall.md")
     print(
-        f"wrote {args.out}  transplant={verdict['replicated_last_token_transplant']} "
-        f"prefix_lifts={verdict['prefix_lifts_lyric_recall']} "
-        f"keeps_cover={verdict['prefix_keeps_cover']}"
+        f"wrote {args.out}  useful={ood['useful']} "
+        f"false_alarm={ood['false_alarm']} "
+        f"only_prefix_lyric_sheet={ood['only_prefix_lyric_sheet']}"
     )
 
 

@@ -1335,3 +1335,79 @@ def test_hidden_pole_mode_leaves_v9_and_pair_odd_sub_e_unchanged():
     expected_sub = lm_pair_odd_sub_e(pos, neg, neu, leftover, slider_dir=E_SLIDER)
     assert torch.allclose(sub_plus, expected_sub[0])
     assert torch.allclose(sub_minus, expected_sub[1])
+
+
+def test_plus_neu_skips_minus_endreg_and_minus_early_stop():
+    from conceptmod.textsliders.train_lm_slider_music3 import (
+        _early_stop_hit,
+        _endreg_uses_minus,
+        _minus_pole_used,
+    )
+
+    assert _endreg_uses_minus("v9") is True
+    assert _endreg_uses_minus("faithful_plus") is True
+    assert _endreg_uses_minus("faithful_plus_neu") is False
+    assert _endreg_uses_minus("faithful_plus_neu_prefix") is False
+    assert _minus_pole_used("faithful_plus_neu") is False
+    src = Path("conceptmod/textsliders/train_lm_slider_music3.py").read_text()
+    assert "if _minus_pole_used(recipe):" in src
+    assert "plus_neu=recipe in PLUS_NEU_RECIPES" in src
+    # Dummy minus metrics must not block plus+neu early-stop.
+    window = [
+        {
+            "cos_pos": 0.99,
+            "cos_neg": 0.0,
+            "collapse": 0.0,
+            "pperc": 0.05,
+            "nperc": 0.0,
+        }
+    ] * 50
+    assert _early_stop_hit(window, 50, 0.97, -0.95, 0.20, plus_neu=True) is True
+    assert _early_stop_hit(window, 50, 0.97, -0.95, 0.20, plus_neu=False) is False
+    # Bipolar still requires c- and collapse.
+    bipolar = [
+        {
+            "cos_pos": 0.99,
+            "cos_neg": 0.99,
+            "collapse": -0.98,
+            "pperc": 0.05,
+            "nperc": 0.05,
+        }
+    ] * 50
+    assert _early_stop_hit(bipolar, 50, 0.97, -0.95, 0.20, plus_neu=False) is True
+
+
+def test_last_token_is_audio_start_and_respects_padding():
+    from conceptmod.textsliders.train_lm_slider_music3 import (
+        _AUDIO_START,
+        _assert_last_token_is_audio_start,
+        _gather_last_hidden,
+        _last_real_index,
+    )
+
+    class _Tok:
+        def convert_tokens_to_ids(self, token: str):
+            return 99 if token == _AUDIO_START else 0
+
+    ids = torch.tensor([[1, 2, 99]])
+    mask = torch.tensor([[1, 1, 1]])
+    _assert_last_token_is_audio_start(ids, mask, _Tok(), where="ok")
+    bad = torch.tensor([[1, 2, 3]])
+    with pytest.raises(RuntimeError, match="audio_start"):
+        _assert_last_token_is_audio_start(bad, mask, _Tok(), where="bad")
+    padded = torch.tensor([[1, 2, 99, 0]])
+    pad_mask = torch.tensor([[1, 1, 1, 0]])
+    _assert_last_token_is_audio_start(padded, pad_mask, _Tok(), where="pad")
+    hidden = torch.arange(32, dtype=torch.float32).view(1, 4, 8)
+    last = _gather_last_hidden(hidden, pad_mask)
+    assert torch.allclose(last, hidden[:, 2])
+    assert int(_last_real_index(pad_mask).item()) == 2
+
+
+def test_infer_default_prompt_prefers_neutral_over_target():
+    infer = Path("conceptmod/textsliders/infer_music3.py").read_text()
+    listen = Path("conceptmod/textsliders/generate_listen.py").read_text()
+    assert 'item.get("neutral") or item.get("target")' in infer
+    assert "plus+neu adapter" in infer
+    assert "plus+neu adapter" in listen
+    assert "double +" in listen

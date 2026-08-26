@@ -1,8 +1,8 @@
-"""+1 lyric_recall: yaml lyrics on a continuation. Separate scale.
+"""Existing-metric OOD + faithful_plus_neu last-token transplant fixture.
 
 CPU geometry only. Does not change the live trainer default.
 Does not fold into exam_score, leak_frac, or the compiled bipolar board.
-Does not change faithful_plus_neu or faithful_plus.
+Does not invent a new lyric-recall leaderboard as the main deliverable.
 """
 
 from __future__ import annotations
@@ -15,12 +15,15 @@ import torch
 from analysis.slider2d.exam import close_field, divergent_field
 from analysis.slider2d.plus_exam import PLUS_COVER_MIN, PLUS_OFF_MAX
 from analysis.slider2d.plus_neu_exam import PLUS_NEU_HOLD_MIN
+from analysis.slider2d.exam import EXAM_ROLL_OVERLAP
 from analysis.slider2d.lyric_recall import (
     ATTEND,
+    EXISTING_OOD_METRICS,
     LYRIC_RECALL_MIN,
     LYRIC_RECIPES,
     SequenceResidual,
     encode_sequence,
+    existing_ood_verdict,
     last_hidden_cannot_see_transplant,
     lyric_bag,
     lyric_embeds,
@@ -114,6 +117,10 @@ def test_prefix_loss_is_last_plus_zero_plus_prefix():
     )
     assert float(moved_prefix) > 0.0
     assert float(moved_minus_ignored) == pytest.approx(0.0, abs=1e-8)
+
+
+def test_lyric_recall_gate_is_existing_pair_exam_continuation_floor():
+    assert LYRIC_RECALL_MIN == pytest.approx(EXAM_ROLL_OVERLAP)
 
 
 def test_lyric_recall_is_yaml_lyrics_not_plus_caption():
@@ -221,6 +228,49 @@ def test_verdict_replicates_transplant_and_prefix_fixes_it():
     assert verdict["prefix_hits_required"] is True
     assert verdict["uni_lyric_recall"][0] < LYRIC_RECALL_MIN
     assert verdict["uni_ref_plus"][0] >= LYRIC_RECALL_MIN
+
+
+def test_existing_metrics_only_prefix_lyric_sheet_flags_grit_not_gender():
+    """Last-hidden off-caption/garble/same_words miss grit shred.
+
+    Prefix sung-line off-caption/garble/same_words/coherence also miss:
+    grit sings on-caption concept words (`punk`). Only sheet lyric_mass
+    / continuation vs the yaml lyric sheet on the prefix sung line
+    flags grit (0) and keeps gender (1).
+    """
+    ood = existing_ood_verdict(table())
+    assert ood["only_prefix_lyric_sheet"] is True
+    assert ood["useful"] == ["prefix_sung.sheet_lyric_mass"]
+    grit_prefix = ood["grit"]["prefix_sung"]
+    gender_prefix = ood["gender"]["prefix_sung"]
+    grit_last = ood["grit"]["last_hidden"]
+    gender_last = ood["gender"]["last_hidden"]
+    # Caption/garble/coherence stay green on both cells: grit shred is
+    # still on-caption (`punk`). last-hidden lyric_mass flags both.
+    for name in ("plus_off_caption", "pair_off_corpus", "pair_coherence", "sheet_garble"):
+        assert grit_prefix["flags"][name] is False
+        assert gender_prefix["flags"][name] is False
+        assert grit_last["flags"][name] is False
+        assert gender_last["flags"][name] is False
+    assert grit_last["flags"]["sheet_lyric_mass"] is True
+    assert gender_last["flags"]["sheet_lyric_mass"] is True
+    assert grit_prefix["values"]["sheet_lyric_mass"] == pytest.approx(0.0)
+    assert gender_prefix["values"]["sheet_lyric_mass"] == pytest.approx(1.0)
+    assert grit_prefix["values"]["plus_off_caption"] == pytest.approx(0.0)
+    assert grit_prefix["values"]["sheet_garble"] == pytest.approx(0.0)
+    # same_words vs the + caption rollout can false-alarm gender keep
+    # (prefix sings lyrics; last-hidden + sings concept words).
+    assert grit_prefix["flags"]["pair_same_words"] is False
+    assert "prefix_sung.pair_same_words" in ood["false_alarm"] or (
+        gender_prefix["flags"]["pair_same_words"] is False
+    )
+    assert "punk" in ood["grit_sings_prefix"]
+    assert "lyric0" in ood["gender_sings_prefix"]
+
+
+def test_verdict_includes_existing_ood():
+    verdict = lyric_verdict(table())
+    assert verdict["existing_ood"]["only_prefix_lyric_sheet"] is True
 
 
 def test_sequence_last_hidden_is_causal_in_prefix():

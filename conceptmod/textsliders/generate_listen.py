@@ -315,6 +315,16 @@ def generate(args: argparse.Namespace) -> list[Path]:
     alpha = float(args.alpha if args.alpha is not None else meta.get("alpha", 8.0))
     unit_scale = _unit_scale(meta, raw_scales=bool(getattr(args, "raw_scales", False)))
     row = _load_prompt_row(Path(args.prompts_file), row=int(getattr(args, "row", 0) or 0))
+    if meta.get("plus_neu") or str(meta.get("lm_target") or "") in {
+        "faithful_plus_neu",
+        "faithful_plus_neu_prefix",
+    }:
+        print(
+            "plus+neu adapter: slider clips use the yaml neutral caption + LoRA. "
+            "REF+ is the + caption with the slider off. Do not also swap the "
+            "+ caption onto a +1 slider clip (that is double +).",
+            flush=True,
+        )
     scales = [float(part) for part in args.scales.split(",") if part.strip()]
     requested = float(args.duration)
     jobs = _jobs(args, row)
