@@ -243,9 +243,12 @@ def plot_off_caption(rows: list[dict], path: Path) -> None:
             )
         value = float(row["off_caption"])
         pair = (row.get("off_caption_pair") or "").replace("exam_", "") or "?"
+        mid_y = bar.get_y() + bar.get_height() / 2.0
+        if value <= 1e-12:
+            ax.plot(0.0, mid_y, marker="o", color=SMEAR_COLOR["zero"], markersize=5.5, zorder=4)
         ax.text(
-            value + 0.004,
-            bar.get_y() + bar.get_height() / 2.0,
+            max(value, 0.0) + 0.004,
+            mid_y,
             f"{value:.3f}  {pair}",
             va="center",
             ha="left",
