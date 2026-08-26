@@ -159,7 +159,10 @@ See [docs/lm-pair-exam.md](docs/lm-pair-exam.md) for the CPU cell that
 reproduces all three listens and
 [docs/lm-2d-scoreboard.md](docs/lm-2d-scoreboard.md) for the compiled
 board and the next card (`gender-lm-v19`: `--lm_target faithful
---pole_mode hidden`).
+--pole_mode hidden`). Leftover-gate still sits at leftover-sheet
+`leak_frac` +0.105; the even leftover search
+([docs/lm-even-leftover.md](docs/lm-even-leftover.md)) is
+`--lm_target faithful_even_blend` (opt-in, default untouched).
 
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.

@@ -80,8 +80,11 @@ from conceptmod.textsliders.slider_targets import (
     lm_blend_guard,
     lm_blind_projector,
     lm_dual_band_pole_loss,
+    EVEN_BLEND_SCALE,
     lm_e_overlap_a,
     lm_e_unused_decision,
+    lm_even_leftover_dir,
+    lm_faithful_gate_odd_sub_even,
     lm_faithful_guard_e,
     lm_faithful_sub_e,
     lm_faithful_sub_e_if_unused,
@@ -111,6 +114,7 @@ LM_RECIPES = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "faithful_even_blend",
 )
 # Canonical live pole modes. ``semantic_kl_plus_hidden`` (#32) and
 # ``semantic_kl_pin`` (#29) are aliases of ``semantic_kl_null`` (#33) —
@@ -135,7 +139,8 @@ NEEDS_READOUT = frozenset(
 PROJECT_RECIPES = frozenset({"v9_project", "v9_always"})
 V9_RECIPES = frozenset({"v9", "v9_project", "v9_always"})
 SUB_E_RECIPES = frozenset({"pair_odd_sub_e", "faithful_sub_e", "faithful_guard_e"})
-GATED_SUB_E_RECIPES = frozenset({"faithful_sub_e_if_unused"})
+GATED_SUB_E_RECIPES = frozenset({"faithful_sub_e_if_unused", "faithful_even_blend"})
+EVEN_BLEND_RECIPES = frozenset({"faithful_even_blend"})
 PAIR_ODD_RECIPES = frozenset({"pair_odd_sub_e"})
 TARGET_REPLACE = ["Qwen3Attention"]
 
@@ -160,7 +165,9 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     subtracts leftover ê only when ``|ê̂_⊥ · â|`` is below the unused
     floor; otherwise it keeps the raw poles. ``faithful_guard_e``
     subtracts leftover ê only while the cleaned target stays nearer
-    its own caption than the pair midpoint.
+    its own caption than the pair midpoint. ``faithful_even_blend``
+    leftover-gates the odd part and subtracts half the leak-pair even
+    leftover; not the default.
     """
     recipe = str(lm_target).strip().lower()
     if recipe not in LM_RECIPES:
@@ -299,6 +306,8 @@ def lm_train_targets(
     project_align_min: float | None = None,
     should_project: bool | None = None,
     e_unused: bool | None = None,
+    even_dir: torch.Tensor | None = None,
+    even_scale: float = EVEN_BLEND_SCALE,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
     """Pole targets for the live LM trainer. Delegates to ``slider_targets``.
 
@@ -366,6 +375,19 @@ def lm_train_targets(
             )
         plus, minus = lm_faithful_guard_e(
             pos, neg, neu, leak_dir, slider_dir=slider_dir, target_scale=target_scale
+        )
+        return plus, minus, None, None
+    if recipe == "faithful_even_blend":
+        plus, minus = lm_faithful_gate_odd_sub_even(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=slider_dir,
+            even_dir=even_dir,
+            unused=e_unused,
+            target_scale=target_scale,
+            scale=float(even_scale),
         )
         return plus, minus, None, None
     if recipe in PROJECT_RECIPES:
@@ -853,6 +875,7 @@ def train(args: argparse.Namespace) -> Path:
     beta = float(args.common_beta)
     slider_dir = None
     leak_dir = None
+    leak_pos_h = leak_neg_h = None
     axis_lyrics = str(rows[0].get("lyrics") or "")
     if axis_captions is not None:
         axis_pos_text = _assemble(axis_captions[0], axis_lyrics)
@@ -880,6 +903,10 @@ def train(args: argparse.Namespace) -> Path:
             hold_note = "teacher=raw poles or ê-cleaned poles if |ê̂_⊥·â| < unused floor"
         elif recipe == "faithful_guard_e":
             hold_note = "teacher=ê-cleaned poles if blend guard admits, else raw poles"
+        elif recipe == "faithful_even_blend":
+            hold_note = (
+                "teacher=leftover-gated odd + half leak-pair even leftover; hold 0"
+            )
         else:
             hold_note = "hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd"
         print(
@@ -929,10 +956,17 @@ def train(args: argparse.Namespace) -> Path:
         ]
         e_unused = lm_e_unused_decision(e_overlaps)
         mean_e = sum(e_overlaps) / len(e_overlaps)
+        odd_note = (
+            "unused → leftover-gate subtracts odd ê_⊥"
+            if e_unused
+            else "ê restates the pair → leftover-gate keeps odd poles"
+        )
+        if recipe == "faithful_even_blend":
+            odd_note += "; even-blend still applies"
         print(
             f"leftover gate: mean |ê̂_⊥·â|={mean_e:.3f} floor={UNUSED_E_OVERLAP_MAX:g} "
             f"rows={[round(o, 3) for o in e_overlaps]} "
-            f"{'unused → subtract ê_⊥' if e_unused else 'ê restates the pair → raw poles'}"
+            f"{odd_note}"
         )
     if recipe in PROJECT_RECIPES and slider_dir is not None:
         decisions = lm_project_decisions(aligns, align_min, align_scope)
@@ -970,6 +1004,12 @@ def train(args: argparse.Namespace) -> Path:
             print(
                 "faithful_guard_e: subtract leftover ê only while the cleaned "
                 "target stays nearer its caption than ½(h++h−); else raw poles"
+            )
+        elif recipe == "faithful_even_blend":
+            print(
+                "faithful_even_blend: leftover-gate odd ê, subtract "
+                f"{float(args.even_blend_scale):g} of leak-pair even leftover "
+                "(caption even stays; not t± = h0 ± a)"
             )
     if pole_mode == "semantic_kl":
         print("pole_mode=semantic_kl: next-token KL on the semantic band of lm_head")
@@ -1012,7 +1052,7 @@ def train(args: argparse.Namespace) -> Path:
         row_slider_dir = slider_dir
         row_leak_dir = leak_dir
         row_hold = hold_w if (recipe not in {"v9"} | SUB_E_RECIPES | GATED_SUB_E_RECIPES or leak_dir is not None) else 0.0
-        if recipe in SUB_E_RECIPES | GATED_SUB_E_RECIPES:
+        if recipe in SUB_E_RECIPES | GATED_SUB_E_RECIPES | EVEN_BLEND_RECIPES:
             row_hold = 0.0
         if recipe == "v9":
             dropped = " teacher=odd"
@@ -1064,6 +1104,13 @@ def train(args: argparse.Namespace) -> Path:
                     )
             if encoded["align"] is not None:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
+        elif recipe == "faithful_even_blend":
+            dropped = (
+                f" teacher=faithful_even_blend scale={float(args.even_blend_scale):g} "
+                "hold_ê=0"
+            )
+            if encoded["align"] is not None:
+                dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
         elif encoded["align"] is not None:
             dropped = f" odd·û/||odd||={encoded['align']:.3f}"
             if recipe in PROJECT_RECIPES and not should_project:
@@ -1096,6 +1143,14 @@ def train(args: argparse.Namespace) -> Path:
             anchor_autocal=args.anchor_autocal,
             should_project=should_project if recipe in PROJECT_RECIPES else None,
             e_unused=e_unused,
+            even_dir=(
+                lm_even_leftover_dir(
+                    leak_pos_h, leak_neg_h, neu_ref, slider_dir=slider_dir
+                )
+                if leak_pos_h is not None and leak_neg_h is not None
+                else None
+            ),
+            even_scale=float(args.even_blend_scale),
         )
         row_data.append(
             {
@@ -1427,7 +1482,18 @@ def parse_args(argv=None):
         "target must stay nearer the pole caption than ½(h++h−), which "
         "refuses on energy-v4 where ê restates the axis and keeps the "
         "caption instead. Safe with no leak_* declared (then it is "
-        "faithful). Not the default",
+        "faithful). faithful_even_blend: leftover-gate the odd part "
+        "and subtract --even_blend_scale of the leak-pair even leftover "
+        "(half by default). Caption even stays; scale 1.0 fails "
+        "exam_divergent. Not the default",
+    )
+    p.add_argument(
+        "--even_blend_scale",
+        type=float,
+        default=EVEN_BLEND_SCALE,
+        help="faithful_even_blend only: how much of leak-pair even leftover "
+        "to subtract. Default 0.5. 1.0 drops all ê_even and fails the "
+        "divergent pair exam; 0 is leftover-gate alone",
     )
     p.add_argument(
         "--pole_mode",

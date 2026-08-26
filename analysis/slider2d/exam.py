@@ -93,9 +93,18 @@ from conceptmod.textsliders.slider_targets import (
     lm_axis_hold,
     lm_blind_projector,
     lm_dual_band_pole_loss,
+    lm_even_axis_hold,
+    lm_even_leftover_dir,
+    lm_faithful_gate_odd_sub_even,
     lm_faithful_guard_e,
     lm_faithful_sub_e,
     lm_faithful_sub_e_if_unused,
+    lm_faithful_sub_even_blend,
+    lm_faithful_sub_even_blend_guard,
+    lm_faithful_sub_even_blend_if_unused,
+    lm_faithful_sub_even_e,
+    lm_faithful_sub_even_e_guard,
+    lm_faithful_sub_even_e_if_unused,
     lm_hidden_targets,
     lm_hold_dir,
     lm_next_token_logits,
@@ -472,6 +481,40 @@ class PairField:
         )
         return None if float(vec.norm()) <= 1e-8 else vec
 
+    def declared_e_even(self) -> torch.Tensor | None:
+        """Even leftover of the yaml ``leak_*`` pair: half of each leak caption.
+
+        ``declared_e`` is the leak-pair *difference* (track split on
+        energy-v4). This is the leak-pair *sum* — the blend of the two
+        mix/BPM fragments. Unused leftover (``e_unused``) is odd and does
+        not appear here. Near-zero when the pair declares no track ê.
+        """
+        vec = 0.5 * float(self.e_track) * (self.plus_track() + self.minus_track())
+        return None if float(vec.norm()) <= 1e-8 else vec
+
+    def declared_e_poles(self, neu: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        """Stand-in leak₊ / leak₋ embeddings whose odd matches ``declared_e``.
+
+        Live the trainer already encodes both leak captions. This is the
+        CPU fixture for that pair: leak₊ sits on the plus track, leak₋ on
+        the minus track, with the same û / unused mix ``declared_e`` uses.
+        """
+        base = torch.zeros(self.dim) if neu is None else neu
+        half = 0.5 * float(self.e_track)
+        plus = (
+            base
+            + half * self.plus_track()
+            + 0.5 * float(self.e_on_u) * self.short_u()
+            + 0.5 * float(self.e_unused) * self.unused_dir()
+        )
+        minus = (
+            base
+            + half * self.minus_track()
+            - 0.5 * float(self.e_on_u) * self.short_u()
+            - 0.5 * float(self.e_unused) * self.unused_dir()
+        )
+        return plus, minus
+
     def has_unused(self) -> bool:
         """Is there an unpinned attribute for a leak column to measure?"""
         return abs(float(self.unused)) > 1e-8
@@ -663,6 +706,14 @@ TEACHERS = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "faithful_sub_even_e",
+    "faithful_sub_even_e_if_unused",
+    "faithful_sub_even_e_guard",
+    "faithful_sub_even_blend",
+    "faithful_sub_even_blend_if_unused",
+    "faithful_sub_even_blend_guard",
+    "faithful_gate_odd_sub_even",
+    "faithful_gate_odd_sub_even_blend",
 )
 # Live race modes plus fixture-only ``unrolled_kl`` (no live --pole_mode).
 POLE_MODES = (
@@ -682,6 +733,19 @@ def hold_direction(field: PairField, leak_dir: torch.Tensor | None) -> torch.Ten
     return lm_hold_dir(leak_dir, slider_dir=field.short_u(), mode="slider")
 
 
+def _even_dir(field: PairField, leak_dir: torch.Tensor | None) -> torch.Tensor | None:
+    """Leak-pair even leftover, from the fixture leak embeddings."""
+    declared = field.declared_e_even()
+    if declared is not None:
+        return lm_hold_dir(declared, slider_dir=field.short_u(), mode="slider")
+    if leak_dir is None:
+        return None
+    leak_plus, leak_minus = field.declared_e_poles(field.poles(0)[2])
+    return lm_even_leftover_dir(
+        leak_plus, leak_minus, field.poles(0)[2], slider_dir=field.short_u()
+    )
+
+
 def teacher_points(
     field: PairField,
     row: int,
@@ -689,10 +753,12 @@ def teacher_points(
     teacher: str = "pair_odd",
     leak_dir: torch.Tensor | None = None,
     common_beta: float = 0.0,
+    even_scale: float = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """The two hidden states one recipe aims at, via the live functions."""
     pos, neg, neu = field.poles(row)
     mode = str(teacher).strip().lower()
+    even_dir = _even_dir(field, leak_dir)
     if mode == "pair_odd":
         return lm_hidden_targets(
             pos, neg, neu, target_mode="symmetric", common_beta=float(common_beta)
@@ -703,9 +769,67 @@ def teacher_points(
         return lm_faithful_sub_e_if_unused(
             pos, neg, neu, leak_dir, slider_dir=field.short_u()
         )
-    if mode == "faithful_guard_e" and leak_dir is None:
+    if mode == "faithful_sub_even_e_if_unused":
+        if leak_dir is None:
+            return pos, neg
+        return lm_faithful_sub_even_e_if_unused(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=field.short_u(),
+            scale=float(even_scale),
+        )
+    if mode == "faithful_sub_even_blend":
+        return lm_faithful_sub_even_blend(
+            pos, neg, neu, even_dir, scale=float(even_scale)
+        )
+    if mode == "faithful_sub_even_blend_if_unused":
+        return lm_faithful_sub_even_blend_if_unused(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            even_dir,
+            slider_dir=field.short_u(),
+            scale=float(even_scale),
+        )
+    if mode == "faithful_sub_even_blend_guard":
+        return lm_faithful_sub_even_blend_guard(
+            pos, neg, neu, even_dir, scale=float(even_scale)
+        )
+    if mode == "faithful_gate_odd_sub_even":
+        return lm_faithful_gate_odd_sub_even(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=field.short_u(),
+            scale=float(even_scale),
+        )
+    if mode == "faithful_gate_odd_sub_even_blend":
+        return lm_faithful_gate_odd_sub_even(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=field.short_u(),
+            even_dir=even_dir,
+            scale=float(even_scale),
+        )
+    if mode in (
+        "faithful_guard_e",
+        "faithful_sub_even_e",
+        "faithful_sub_even_e_guard",
+        "faithful_gate_odd_sub_even",
+        "faithful_gate_odd_sub_even_blend",
+    ) and leak_dir is None:
         return pos, neg
-    if leak_dir is None:
+    if leak_dir is None and mode not in (
+        "faithful_sub_even_blend",
+        "faithful_sub_even_blend_if_unused",
+        "faithful_sub_even_blend_guard",
+    ):
         raise ValueError(f"{mode} needs a declared ê")
     if mode == "pair_odd_sub_e":
         return lm_pair_odd_sub_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
@@ -713,6 +837,24 @@ def teacher_points(
         return lm_faithful_sub_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
     if mode == "faithful_guard_e":
         return lm_faithful_guard_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
+    if mode == "faithful_sub_even_e":
+        return lm_faithful_sub_even_e(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=field.short_u(),
+            scale=float(even_scale),
+        )
+    if mode == "faithful_sub_even_e_guard":
+        return lm_faithful_sub_even_e_guard(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=field.short_u(),
+            scale=float(even_scale),
+        )
     raise ValueError(f"teacher must be one of {TEACHERS}, got {teacher!r}")
 
 
@@ -722,6 +864,7 @@ def target_geometry(
     teacher: str,
     leak_dir: torch.Tensor | None = None,
     common_beta: float = 0.0,
+    even_scale: float = 1.0,
 ) -> dict:
     """Where the target point sits. No optimizer in the loop.
 
@@ -736,7 +879,12 @@ def target_geometry(
     mid = 0.5 * (pos + neg)
     a = field.odd(row)
     t_plus, t_minus = teacher_points(
-        field, row, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+        field,
+        row,
+        teacher=teacher,
+        leak_dir=leak_dir,
+        common_beta=common_beta,
+        even_scale=even_scale,
     )
     # What is left of the slider axis: the target pair's own odd part.
     kept = 0.5 * (t_plus - t_minus)
@@ -1026,6 +1174,8 @@ def fit_exam(
     unroll_steps: int = 1,
     blind_weight: float = DUAL_BAND_WEIGHT,
     blind_cut: float = 0.0,
+    even_scale: float = 1.0,
+    even_hold: bool = False,
     steps: int = 400,
     lr: float = 0.08,
     seed: int = 0,
@@ -1046,10 +1196,20 @@ def fit_exam(
         else None
     )
     held = hold_direction(field, leak_dir)
-    lam = float(hold_weight) if held is not None else 0.0
+    even_held = None
+    if even_hold:
+        even_held = _even_dir(field, leak_dir)
+        if even_held is None:
+            even_held = held
+    lam = float(hold_weight) if (held is not None or even_held is not None) else 0.0
     targets = [
         teacher_points(
-            field, row, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+            field,
+            row,
+            teacher=teacher,
+            leak_dir=leak_dir,
+            common_beta=common_beta,
+            even_scale=even_scale,
         )
         for row in range(int(field.rows))
     ]
@@ -1065,7 +1225,9 @@ def fit_exam(
             pred_plus = neu + residual.delta(1.0)
             pred_minus = neu + residual.delta(-1.0)
             hold = None
-            if held is not None and lam > 0.0:
+            if even_held is not None and lam > 0.0:
+                hold = lm_even_axis_hold(pred_plus, pred_minus, neu, even_held)
+            elif held is not None and lam > 0.0:
                 hold = lm_axis_hold(pred_plus, pred_minus, neu, held)
             hold_w = lam if hold is not None else 0.0
             if mode in ("hidden", "hidden_kl"):
@@ -1164,6 +1326,8 @@ def score_exam(
     unroll_steps: int = 1,
     blind_weight: float = DUAL_BAND_WEIGHT,
     blind_cut: float = 0.0,
+    even_scale: float = 1.0,
+    even_hold: bool = False,
     steps: int = 400,
     seed: int = 0,
 ) -> dict:
@@ -1178,6 +1342,8 @@ def score_exam(
         unroll_steps=unroll_steps,
         blind_weight=blind_weight,
         blind_cut=blind_cut,
+        even_scale=even_scale,
+        even_hold=even_hold,
         steps=steps,
         seed=seed,
     )
@@ -1206,14 +1372,23 @@ def score_exam(
         corpus=words,
     )
     geom = target_geometry(
-        field, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+        field,
+        teacher=teacher,
+        leak_dir=leak_dir,
+        common_beta=common_beta,
+        even_scale=even_scale,
     )
 
     a = field.odd(0)
     pos, _neg, neu = field.poles(0)
     targets = [
         teacher_points(
-            field, r, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+            field,
+            r,
+            teacher=teacher,
+            leak_dir=leak_dir,
+            common_beta=common_beta,
+            even_scale=even_scale,
         )
         for r in range(int(field.rows))
     ]

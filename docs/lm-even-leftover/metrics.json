@@ -1,0 +1,1313 @@
+[
+  {
+    "name": "faithful_raw",
+    "teacher": "faithful",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": 0.015000030398368835,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": 0.015000030398368835,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_e_if_unused",
+    "teacher": "faithful_sub_e_if_unused",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": 0.015000030398368835,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": 0.015000030398368835,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_guard_e",
+    "teacher": "faithful_guard_e",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": 0.015000030398368835,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": 0.015000030398368835,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "pair_odd_midpoint",
+    "teacher": "pair_odd",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": false,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": -0.9999999403953552,
+    "leak_frac_divergent": -1.0,
+    "leftover_leak": 0.2277248389701753,
+    "sheet_leftover": false,
+    "divergent_reason": "continuation drifts off the pole's own",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": true,
+    "exam": {
+      "divergent": {
+        "pass": false,
+        "leak_frac": -1.0,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9947916567187503,
+        "coherence": 1.0,
+        "reason": "continuation drifts off the pole's own",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.9999999403953552,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9746835324595416,
+        "coherence": 0.9285714285714285,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": -1.0,
+        "leftover_leak": 0.22745715415647033,
+        "overlap": 0.984375,
+        "swing": 1.005376333707943,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": -0.9999999403953552,
+      "leftover_leak": 0.2277248389701753,
+      "on_sheet_kept": 0.3671766958027202,
+      "sheet_dir_kept": 0.0
+    }
+  },
+  {
+    "name": "faithful_sub_even_e",
+    "teacher": "faithful_sub_even_e",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": 0.015000030398368835,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": 0.015000030398368835,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_even_e_if_unused",
+    "teacher": "faithful_sub_even_e_if_unused",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": 0.015000030398368835,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": 0.015000030398368835,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_even_e_guard",
+    "teacher": "faithful_sub_even_e_guard",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": 0.015000030398368835,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": 0.015000030398368835,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_even_blend",
+    "teacher": "faithful_sub_even_blend",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": false,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": -0.4041036069393158,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "continuation drifts off the pole's own",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": false,
+        "leak_frac": -0.4041036069393158,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "continuation drifts off the pole's own",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_even_blend_if_unused",
+    "teacher": "faithful_sub_even_blend_if_unused",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": 0.015000030398368835,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": 0.015000030398368835,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_even_blend_guard",
+    "teacher": "faithful_sub_even_blend_guard",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": false,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": -0.4041036069393158,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "continuation drifts off the pole's own",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": false,
+        "leak_frac": -0.4041036069393158,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "continuation drifts off the pole's own",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_gate_odd_sub_even",
+    "teacher": "faithful_gate_odd_sub_even",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": 0.015000030398368835,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": 0.015000030398368835,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_gate_odd_sub_even_blend",
+    "teacher": "faithful_gate_odd_sub_even_blend",
+    "even_scale": 1.0,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": false,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": -0.4041036069393158,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "continuation drifts off the pole's own",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": false,
+        "leak_frac": -0.4041036069393158,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "continuation drifts off the pole's own",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_even_blend_s50",
+    "teacher": "faithful_sub_even_blend",
+    "even_scale": 0.5,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": -0.26910677552223206,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": true,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": -0.26910677552223206,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_even_blend_s25",
+    "teacher": "faithful_sub_even_blend",
+    "even_scale": 0.25,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": -0.13294841349124908,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": true,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": -0.13294841349124908,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_even_blend_s60",
+    "teacher": "faithful_sub_even_blend",
+    "even_scale": 0.6,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": -0.31460803747177124,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": true,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": -0.31460803747177124,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_sub_even_blend_s75",
+    "teacher": "faithful_sub_even_blend",
+    "even_scale": 0.75,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": -0.36773163080215454,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": true,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": -0.36773163080215454,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "gate_odd_even_blend_s50",
+    "teacher": "faithful_gate_odd_sub_even_blend",
+    "even_scale": 0.5,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": -0.26910677552223206,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": true,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": -0.26910677552223206,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "gate_odd_even_blend_s25",
+    "teacher": "faithful_gate_odd_sub_even_blend",
+    "even_scale": 0.25,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": -0.13294841349124908,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": true,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": -0.13294841349124908,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "gate_odd_even_blend_s75",
+    "teacher": "faithful_gate_odd_sub_even_blend",
+    "even_scale": 0.75,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": -0.36773163080215454,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": true,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": -0.36773163080215454,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "gate_odd_even_blend_s85",
+    "teacher": "faithful_gate_odd_sub_even_blend",
+    "even_scale": 0.85,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": -0.3907890021800995,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": true,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": -0.3907890021800995,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "gate_odd_even_blend_s90",
+    "teacher": "faithful_gate_odd_sub_even_blend",
+    "even_scale": 0.9,
+    "even_hold": false,
+    "hold_weight": 0.0,
+    "exam_divergent": true,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": -0.3981546461582184,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "on-continuation",
+    "blend_teacher": false,
+    "hit": true,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": true,
+        "leak_frac": -0.3981546461582184,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "faithful_hold_even_e_l8",
+    "teacher": "faithful",
+    "even_scale": 1.0,
+    "even_hold": true,
+    "hold_weight": 8.0,
+    "exam_divergent": false,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.029979798942804337,
+    "leak_frac_divergent": -0.40366727113723755,
+    "leftover_leak": 0.22772480160222092,
+    "sheet_leftover": false,
+    "divergent_reason": "continuation drifts off the pole's own",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": false,
+        "leak_frac": -0.40366727113723755,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "continuation drifts off the pole's own",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.015000082552433014,
+        "leftover_leak": 0.22772485185744074,
+        "overlap": 1.0,
+        "swing": 0.9999999896774194,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": false,
+      "leak_frac": 0.029979798942804337,
+      "leftover_leak": 0.22772480160222092,
+      "on_sheet_kept": 0.9925922301547728,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  },
+  {
+    "name": "gate_odd_hold_even_e_l8",
+    "teacher": "faithful_sub_e_if_unused",
+    "even_scale": 1.0,
+    "even_hold": true,
+    "hold_weight": 8.0,
+    "exam_divergent": false,
+    "exam_close": true,
+    "exam_unused_e": true,
+    "leak_frac_sheet": 0.10467623919248581,
+    "leak_frac_divergent": -0.40366727113723755,
+    "leftover_leak": 0.0,
+    "sheet_leftover": true,
+    "divergent_reason": "continuation drifts off the pole's own",
+    "blend_teacher": false,
+    "hit": false,
+    "goodhart": false,
+    "exam": {
+      "divergent": {
+        "pass": false,
+        "leak_frac": -0.40366727113723755,
+        "leftover_leak": null,
+        "overlap": 1.0,
+        "swing": 0.9999999900000002,
+        "coherence": 1.0,
+        "reason": "continuation drifts off the pole's own",
+        "blend_teacher": false
+      },
+      "close": {
+        "pass": true,
+        "leak_frac": -0.0799998939037323,
+        "leftover_leak": null,
+        "overlap": 0.9947916666666666,
+        "swing": 0.9936708740009614,
+        "coherence": 0.9404761904761904,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      },
+      "unused_e": {
+        "pass": true,
+        "leak_frac": 0.09761635959148407,
+        "leftover_leak": 0.0,
+        "overlap": 0.9791666666666666,
+        "swing": 1.0215053657995146,
+        "coherence": 1.0,
+        "reason": "on-continuation",
+        "blend_teacher": false
+      }
+    },
+    "sheet": {
+      "pass": true,
+      "leak_frac": 0.10467623919248581,
+      "leftover_leak": 0.0,
+      "on_sheet_kept": 0.9390532841483372,
+      "sheet_dir_kept": 0.999982050147664
+    }
+  }
+]

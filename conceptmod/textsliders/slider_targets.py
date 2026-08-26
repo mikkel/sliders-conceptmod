@@ -29,7 +29,10 @@ Formulas are copied from:
   ``--lm_target faithful_guard_e`` is the threshold-free sibling:
   subtract leftover ê only while the cleaned target stays nearer its
   own caption than the pair midpoint (``lm_blend_guard``). No
-  ``leak_*`` → raw poles. ``--pole_mode dual_band`` is KL on the
+  ``leak_*`` → raw poles. ``--lm_target faithful_even_blend`` leftover-
+  gates the odd part and subtracts ``EVEN_BLEND_SCALE`` of leak-pair
+  even leftover (opt-in; default stays ``v9``). ``--pole_mode dual_band``
+  is KL on the
   semantic band plus hidden MSE on the centered-readout blind band
   (``P_blind`` from SVD). Neither is the default.
   ``--lm_target v9_project`` is the old slider-level project+hold
@@ -79,6 +82,11 @@ BLIND_SPECTRAL_CUT = 0.0
 # punches û. The live path orthogonalizes ê to û first.
 LEAK_HOLD_WEIGHT = 8.0
 SAME_DIR_MAX = 0.06
+HOLD_DIR_EPS = 1e-6
+# Half the leak-pair even leftover. Scale 1.0 (drop all ê_even) fails
+# exam_divergent on energy-v4; 0.25 … 0.90 still pass with leak_frac < 0.
+# 0.5 is the named half-step: enough to cross zero, far from the α=1 fail.
+EVEN_BLEND_SCALE = 0.5
 
 
 def sd_noise_target(
@@ -624,6 +632,271 @@ def lm_faithful_guard_e(
     return pos, neg
 
 
+def lm_even_residual(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+) -> torch.Tensor:
+    """``c = ½((h₊−h0) + (h₋−h0))`` — the even residual."""
+    return 0.5 * ((pos - neu) + (neg - neu))
+
+
+def lm_even_leftover_dir(
+    leak_pos: torch.Tensor,
+    leak_neg: torch.Tensor,
+    neu: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor | None = None,
+) -> torch.Tensor | None:
+    """Even leftover of a declared leak pair.
+
+    ``ê`` is ``leak₊ − leak₋`` (odd). The even counterpart is
+    ``ê_even = ½((leak₊−h0) + (leak₋−h0))`` — half of each leak caption
+    at once. On energy-v4 that is the blend of the two mix/BPM fragments.
+    Orthogonalize to ``û`` when a slider direction is declared, same as
+    ``ê_⊥``. Near-zero leftover returns ``None``.
+    """
+    even = lm_even_residual(leak_pos, leak_neg, neu)
+    if slider_dir is not None:
+        return lm_hold_dir(even, slider_dir=slider_dir, mode="slider")
+    if float(even.norm()) <= HOLD_DIR_EPS:
+        return None
+    return even
+
+
+def lm_subtract_even_dir(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    direction: torch.Tensor | None,
+    *,
+    scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Keep the odd teacher; drop only the even component along ``direction``.
+
+        c  = ½((h₊−h0) + (h₋−h0))
+        c' = c − scale · (c · d̂) d̂
+        t± = h0 + c' ± a
+
+    ``scale = 1`` removes that leftover even. This is not ``t± = h0 ± a``:
+    even orthogonal to ``d`` (shared song / caption sheet) stays. A missing
+    or near-zero direction is a no-op.
+    """
+    if direction is None or abs(float(scale)) <= 1e-12:
+        return pos, neg
+    unit = lm_unit(direction)
+    even = lm_even_residual(pos, neg, neu)
+    coeff = even.flatten() @ unit
+    if float(coeff.abs()) <= HOLD_DIR_EPS:
+        return pos, neg
+    drop = float(scale) * (coeff * unit).view_as(even)
+    return pos - drop, neg - drop
+
+
+def lm_faithful_sub_even_e(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor,
+    target_scale: float = 1.0,
+    scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Raw-pole odd; leftover ``ê_⊥`` subtracted from even only.
+
+        ê_⊥ = ê − (ê·û)û
+        c'  = c − scale · (c · ê̂_⊥) ê̂_⊥
+        t±  = h0 + c' ± a
+
+    Leftover-gate / ``faithful_sub_e`` subtract unused ê from the *odd*
+    part and leave even alone — that is why they still sit at
+    ``leak_frac > 0``. This is the even sibling. Does not delete all of
+    ``c`` and is not ``t± = h0 ± a``.
+    """
+    if float(target_scale) != 1.0:
+        raise ValueError("--target_scale is defined for symmetric targets only")
+    held = lm_hold_dir(leak_dir, slider_dir=slider_dir, mode="slider")
+    return lm_subtract_even_dir(pos, neg, neu, held, scale=scale)
+
+
+def lm_faithful_sub_even_e_if_unused(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+    unused: bool | None = None,
+    floor: float = UNUSED_E_OVERLAP_MAX,
+    scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Subtract even leftover ê only when leftover ê is unused.
+
+    Same unused floor as ``faithful_sub_e_if_unused``. Energy-v4 restates
+    the tracks (overlap 0.778) → keep the poles. Unused leftover
+    (0.32–0.39) → drop even-along-ê_⊥.
+    """
+    if leak_dir is None:
+        return pos, neg
+    if unused is None:
+        unused, _overlap = lm_e_is_unused(
+            pos, neg, leak_dir, slider_dir=slider_dir, floor=floor
+        )
+    if not unused:
+        return pos, neg
+    if slider_dir is None:
+        raise ValueError(
+            "faithful_sub_even_e_if_unused subtracts ê_⊥ from even; "
+            "needs a declared slider_dir"
+        )
+    return lm_faithful_sub_even_e(
+        pos,
+        neg,
+        neu,
+        leak_dir,
+        slider_dir=slider_dir,
+        target_scale=target_scale,
+        scale=scale,
+    )
+
+
+def lm_faithful_sub_even_e_guard(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor,
+    *,
+    slider_dir: torch.Tensor,
+    target_scale: float = 1.0,
+    scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """``lm_faithful_sub_even_e`` only while the blend guard admits it."""
+    plus, minus = lm_faithful_sub_even_e(
+        pos,
+        neg,
+        neu,
+        leak_dir,
+        slider_dir=slider_dir,
+        target_scale=target_scale,
+        scale=scale,
+    )
+    if lm_blend_guard(plus, minus, pos, neg)["admissible"]:
+        return plus, minus
+    if float(target_scale) != 1.0:
+        raise ValueError("--target_scale is defined for symmetric targets only")
+    return pos, neg
+
+
+def lm_faithful_sub_even_blend(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    even_dir: torch.Tensor | None,
+    *,
+    scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Subtract the leak-pair even leftover; keep caption even orthogonal to it.
+
+    ``even_dir`` is ``lm_even_leftover_dir(leak₊, leak₋, h0)`` — the blend
+    of the two leak captions, not odd ê. Missing ``even_dir`` is a no-op.
+    """
+    return lm_subtract_even_dir(pos, neg, neu, even_dir, scale=scale)
+
+
+def lm_faithful_sub_even_blend_if_unused(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None,
+    even_dir: torch.Tensor | None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    unused: bool | None = None,
+    floor: float = UNUSED_E_OVERLAP_MAX,
+    scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Subtract leak-pair even leftover only when odd ê is unused leftover."""
+    if leak_dir is None or even_dir is None:
+        return pos, neg
+    if unused is None:
+        unused, _overlap = lm_e_is_unused(
+            pos, neg, leak_dir, slider_dir=slider_dir, floor=floor
+        )
+    if not unused:
+        return pos, neg
+    return lm_faithful_sub_even_blend(pos, neg, neu, even_dir, scale=scale)
+
+
+def lm_faithful_sub_even_blend_guard(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    even_dir: torch.Tensor | None,
+    *,
+    scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Subtract leak-pair even leftover only while the blend guard admits it."""
+    plus, minus = lm_faithful_sub_even_blend(pos, neg, neu, even_dir, scale=scale)
+    if even_dir is None or lm_blend_guard(plus, minus, pos, neg)["admissible"]:
+        return plus, minus
+    return pos, neg
+
+
+def lm_faithful_gate_odd_sub_even(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    even_dir: torch.Tensor | None = None,
+    unused: bool | None = None,
+    floor: float = UNUSED_E_OVERLAP_MAX,
+    scale: float = 1.0,
+    target_scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Leftover-gate the odd part, then subtract leftover even.
+
+    Odd: ``faithful_sub_e_if_unused`` (ê_⊥ out of ``a`` only when unused).
+    Even: drop ``even_dir`` if given, else even-along-ê_⊥. Caption even
+    orthogonal to that direction stays.
+    """
+    plus, minus = lm_faithful_sub_e_if_unused(
+        pos,
+        neg,
+        neu,
+        leak_dir,
+        slider_dir=slider_dir,
+        target_scale=target_scale,
+        unused=unused,
+        floor=floor,
+    )
+    direction = even_dir
+    if direction is None and leak_dir is not None and slider_dir is not None:
+        direction = lm_hold_dir(leak_dir, slider_dir=slider_dir, mode="slider")
+    return lm_subtract_even_dir(plus, minus, neu, direction, scale=scale)
+
+
+def lm_even_axis_hold(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor,
+) -> torch.Tensor:
+    """Hold the *even* residual along ``ê`` only.
+
+    ``lm_axis_hold`` penalizes ``(h(±1)−h0)·ê`` on each pole — odd and even
+    leftover together. This penalizes ``(c · ê̂)²`` with
+    ``c = ½((h₊−h0)+(h₋−h0))``, so leftover even is held and leftover odd
+    is not. Teacher stays whatever the caller set (usually the captions).
+    """
+    unit = lm_unit(leak_dir)
+    even = lm_even_residual(pred_plus, pred_minus, neu).flatten()
+    return (even @ unit).pow(2)
+
+
 def lm_project_odd_axis(
     pos: torch.Tensor,
     neg: torch.Tensor,
@@ -664,9 +937,6 @@ def lm_ortho_hold(
         return delta - (delta @ unit) * unit
 
     return 0.5 * (_ortho(pred_plus).pow(2).mean() + _ortho(pred_minus).pow(2).mean())
-
-
-HOLD_DIR_EPS = 1e-6
 
 
 def lm_hold_dir(
