@@ -181,8 +181,10 @@ and teaches Vocal Details / caption toward encode(pos) so woman can
 move on a neu listen; it is ranked on
 [docs/lm-roles.md](docs/lm-roles.md). Existing-metric OOD
 (sheet `lyric_mass` / continuation vs the lyric sheet) lives on
-[docs/lm-lyric-recall.md](docs/lm-lyric-recall.md). Default stays
-`--lm_target v9` / `--pole_mode hidden`.
+[docs/lm-lyric-recall.md](docs/lm-lyric-recall.md). The one-number UNI
+expect ranking of those live recipes (grit lyrics AND gender, not
+`exam_score`) is [docs/lm-uni-expect.md](docs/lm-uni-expect.md).
+Default stays `--lm_target v9` / `--pole_mode hidden`.
 
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
