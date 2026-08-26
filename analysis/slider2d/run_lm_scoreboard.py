@@ -232,8 +232,9 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "live energy win on a divergent pair and the live gender garble on a",
         "close one, so no single verdict for the recipe is honest and",
         "`works-on-some-pairs` names which. `faithful_raw` and its data-fixed",
-        "sibling `faithful_attrs` are the only recipes that pass every pair",
-        "they are read on.",
+        "sibling `faithful_attrs` pass every pair they are read on;",
+        "`faithful_sub_e_if_unused` is the leftover-gated sibling that also",
+        "clears unused ê without a human picking faithful vs faithful_sub_e.",
         "",
         "## Short verdict",
         "",
@@ -242,11 +243,11 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         names = ", ".join(f"`{r['id']}`" for r in winners)
         lines.append(
             f"**Works on every pair it is read on:** {names}. "
-            "`faithful_attrs` is `--lm_target faithful --pole_mode hidden` plus "
-            "the data fix — the unpinned attribute written into both pole "
-            "captions, the way energy-v4 already pins the singer with "
-            "`attributes` — so there is no leftover ê in the text for the "
-            "sheet cell to charge it for."
+            "`faithful_sub_e_if_unused` is `--lm_target faithful_sub_e_if_unused "
+            "--pole_mode hidden`: subtract leftover ê only when "
+            "`|ê̂_⊥ · â| < 0.50`, else keep the raw poles. "
+            "`faithful_attrs` is the data fix — unused gender/BPM pinned in "
+            "the captions — so leftover ê is not in the text."
         )
     else:
         lines.append("No recipe passed on every pair it is read on.")
@@ -259,8 +260,8 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
             "the same target reached through `--lm_target symmetric "
             "--common_beta 1`) passes all three pair cells and is charged only "
             "by the unused-ê sheet — which is a leak gender-v4 has no `leak_*` "
-            "to trip, so it is the next live card. `semantic_kl_poles` is the "
-            "row the live exam is about: the energy win and the gender garble.",
+            "to trip. `semantic_kl_poles` is the row the live exam is about: "
+            "the energy win and the gender garble.",
         ]
     lines += [
         "",
@@ -309,35 +310,34 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "",
         "## The next live card the board points at",
         "",
-        "`faithful_raw` — `--lm_target faithful --pole_mode hidden` — is the",
-        "only recipe besides its own data-fixed sibling that passes every pair",
-        "it is read on, and it has **no live run**. It is the untrained winner.",
-        "",
-        "It is also the one recipe that fixes what `gender-lm-v16` actually",
-        "did wrong. Both aim at the same target — the real pole captions — so",
-        "the target point is not the difference. The difference is that hidden",
-        "MSE pins the whole state, including the part of it the semantic band",
-        "does not read at `<|audio_start|>`, which on a close pair is where the",
-        "axis lives. In the pair-exam cell that recipe copies 1.00 of the",
-        "invisible block against semantic KL's 0.00, and it is the swing over",
-        "the continuation that separates them, not the loss.",
+        "`faithful_sub_e_if_unused` — `--lm_target faithful_sub_e_if_unused",
+        "--pole_mode hidden` — is the leftover-gated recipe: one flag for",
+        "leaky close-pair sliders and divergent energy-class sliders. It",
+        "subtracts ê_⊥ only when `|ê̂_⊥ · â| < 0.50` (unused leftover",
+        "measures 0.32–0.39; energy-v4 restates the tracks at 0.778) and",
+        "keeps the raw poles otherwise. gender-v4 declares no `leak_*`, so",
+        "the gate is a no-op and the teacher is `faithful`. It has **no live",
+        "run**. Hidden MSE is required: semantic KL still cannot see a close",
+        "pair's axis.",
         "",
         "```bash",
         "python conceptmod/textsliders/train_lm_slider_music3.py \\",
-        "  --name gender-lm-v19 \\",
-        "  --prompts_file conceptmod/textsliders/data/prompts-gender-v4.yaml \\",
-        "  --lm_target faithful --pole_mode hidden \\",
+        "  --name energy-lm-v19 \\",
+        "  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \\",
+        "  --lm_target faithful_sub_e_if_unused --pole_mode hidden \\",
         "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
         "  --no-early_stop --endreg_weight 1.0",
         "```",
         "",
-        "gender-v4 declares no `leak_*`, so hold is 0 and the sheet cell's",
-        "leftover-leak charge against `faithful` does not apply to this yaml.",
-        "What to watch: `p%` / `n%` should land near the shipped v9 residual",
-        "(~5%) instead of `gender-lm-v16`'s 0.523 / 0.777. `c+` will print",
-        "*worse* than v9's and the ±1 collapse will sit near the logged pair",
-        "cos rather than −1; per #22 and this board that is expected under a",
-        "caption target and is not a regression. The listen is the gate.",
+        "Same card on gender-v4 (`--name gender-lm-v19`,",
+        "`prompts-gender-v4.yaml`). What to watch: energy should keep the",
+        "genre/BPM ride (`energy-lm-v18`) instead of the midpoint pull",
+        "(`energy-lm-v16`); gender `p%` / `n%` should land near the shipped",
+        "v9 residual (~5%) instead of `gender-lm-v16`'s 0.523 / 0.777. `c+`",
+        "will print *worse* than v9's and the ±1 collapse will sit near the",
+        "logged pair cos rather than −1; per #22 and this board that is",
+        "expected under a caption target and is not a regression. The listen",
+        "is the gate.",
         "",
         "This does not change the live default, which is still `--lm_target v9`",
         "/ `--pole_mode hidden`.",

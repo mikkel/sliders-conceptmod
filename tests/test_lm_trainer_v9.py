@@ -19,7 +19,10 @@ from conceptmod.textsliders.slider_targets import (
     lm_anchor_kappa,
     lm_anchor_targets,
     lm_axis_hold,
+    UNUSED_E_OVERLAP_MAX,
+    lm_e_is_unused,
     lm_faithful_sub_e,
+    lm_faithful_sub_e_if_unused,
     lm_hidden_targets,
     lm_hold_dir,
     lm_next_token_logits,
@@ -136,6 +139,10 @@ def test_v9_requires_symmetric_polarity():
         resolve_lm_recipe(lm_target="pair_odd_sub_e", symmetric=False)
     assert resolve_lm_recipe(lm_target="faithful_sub_e", symmetric=False) == "faithful_sub_e"
     assert resolve_lm_recipe(lm_target="faithful", symmetric=False) == "faithful"
+    assert (
+        resolve_lm_recipe(lm_target="faithful_sub_e_if_unused", symmetric=False)
+        == "faithful_sub_e_if_unused"
+    )
 
 
 def test_axis_is_declared_not_plus_minus_or_row_odd():
@@ -508,6 +515,72 @@ def test_faithful_sub_e_targets_are_e_cleaned_real_poles_not_h0_plus_a():
     assert held is not None
     odd = (plus - minus) / 2
     assert abs(float(odd @ lm_unit(held))) < 1e-6
+
+
+def test_faithful_sub_e_if_unused_is_wired_and_not_the_default():
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful_sub_e_if_unused"]
+    )
+    assert args.lm_target == "faithful_sub_e_if_unused"
+    assert args.pole_mode == "hidden"
+    assert resolve_lm_recipe(lm_target="faithful_sub_e_if_unused", symmetric=True) == (
+        "faithful_sub_e_if_unused"
+    )
+    hold, anchor = resolve_lm_loss_weights(
+        "faithful_sub_e_if_unused",
+        hold_weight=None,
+        anchor_weight=None,
+        leak_declared=True,
+    )
+    assert hold == 0.0
+    assert anchor == 0.0
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+
+
+def test_faithful_sub_e_if_unused_subtracts_only_when_leftover_is_unused():
+    pos, neg, neu = _ungated_pair()
+    leftover = torch.tensor([0.0, 1.0])
+    unused, overlap = lm_e_is_unused(pos, neg, leftover, slider_dir=E_SLIDER)
+    assert unused is True
+    assert float(overlap) < UNUSED_E_OVERLAP_MAX
+    plus, minus, _, _ = lm_train_targets(
+        pos,
+        neg,
+        neu,
+        recipe="faithful_sub_e_if_unused",
+        slider_dir=E_SLIDER,
+        leak_dir=leftover,
+    )
+    want = lm_faithful_sub_e(pos, neg, neu, leftover, slider_dir=E_SLIDER)
+    assert torch.allclose(plus, want[0])
+    assert torch.allclose(minus, want[1])
+    # ê restates the pair: a is mostly orthogonal to û, ê = a.
+    rest_neu = torch.zeros(2)
+    rest_a = torch.tensor([0.3, 1.0])
+    rest_c = torch.tensor([0.5, 0.0])
+    rest_pos = rest_neu + rest_a + rest_c
+    rest_neg = rest_neu - rest_a + rest_c
+    restates, rest_overlap = lm_e_is_unused(
+        rest_pos, rest_neg, rest_a, slider_dir=E_SLIDER
+    )
+    assert restates is False
+    assert float(rest_overlap) > UNUSED_E_OVERLAP_MAX
+    keep_plus, keep_minus, _, _ = lm_train_targets(
+        rest_pos,
+        rest_neg,
+        rest_neu,
+        recipe="faithful_sub_e_if_unused",
+        slider_dir=E_SLIDER,
+        leak_dir=rest_a,
+    )
+    assert torch.allclose(keep_plus, rest_pos)
+    assert torch.allclose(keep_minus, rest_neg)
+    clean_plus, clean_minus, _, _ = lm_train_targets(
+        pos, neg, neu, recipe="faithful_sub_e_if_unused"
+    )
+    assert torch.allclose(clean_plus, pos)
+    assert torch.allclose(clean_minus, neg)
 
 
 def test_faithful_sub_e_needs_leak_and_slider():

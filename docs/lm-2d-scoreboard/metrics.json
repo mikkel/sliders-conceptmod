@@ -115,6 +115,7 @@
       "id": "faithful_attrs",
       "label": "faithful + attributes / pin unused",
       "compiled": "works",
+      "exam_score": 0.9936708740009614,
       "cells": {
         "exam_divergent": true,
         "exam_close": true,
@@ -139,12 +140,12 @@
       "exam_near_gate": {},
       "exam_overlap": {
         "exam_divergent": 1.0,
-        "exam_close": 1.0,
+        "exam_close": 0.9947916666666666,
         "exam_unused_e": 1.0
       },
       "exam_swing": {
         "exam_divergent": 0.9999999900000002,
-        "exam_close": 0.9999999889017341,
+        "exam_close": 0.9936708740009614,
         "exam_unused_e": 0.9999999896774194
       },
       "exam_flags": {},
@@ -191,14 +192,108 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
+    },
+    {
+      "id": "faithful_sub_e_if_unused",
+      "label": "faithful_sub_e_if_unused (|\u00ea\u0302_\u22a5\u00b7\u00e2| leftover gate)",
+      "compiled": "works",
+      "exam_score": 0.9936708740009614,
+      "cells": {
+        "exam_divergent": true,
+        "exam_close": true,
+        "exam_unused_e": true,
+        "sheet_leftover": true,
+        "sheet_gender": true
       },
-      "exam_score": 0.9999999889017341
+      "cells_failed": [],
+      "cells_passed": [
+        "exam_divergent",
+        "exam_close",
+        "exam_unused_e",
+        "sheet_leftover",
+        "sheet_gender"
+      ],
+      "predicts": {},
+      "exam_reason": {
+        "exam_divergent": "on-continuation",
+        "exam_close": "on-continuation",
+        "exam_unused_e": "on-continuation"
+      },
+      "exam_near_gate": {},
+      "exam_overlap": {
+        "exam_divergent": 1.0,
+        "exam_close": 0.9947916666666666,
+        "exam_unused_e": 0.9791666666666666
+      },
+      "exam_swing": {
+        "exam_divergent": 0.9999999900000002,
+        "exam_close": 0.9936708740009614,
+        "exam_unused_e": 1.0215053657995146
+      },
+      "exam_flags": {},
+      "leftover_works": true,
+      "gender_works": true,
+      "leftover_leak": 0.0,
+      "gender_leak": 0.0,
+      "on_sheet": 0.8831964010993639,
+      "on_sheet_kept": 0.9390543100206413,
+      "off_sheet": 0.0007201432357533122,
+      "argmax_on_sheet": 1.0,
+      "swing_kept": 1.1069304067458896,
+      "pair_odd_cos": 0.6206794381141663,
+      "collapse": 0.10469532012939453,
+      "intended_cos": null,
+      "content_cos": null,
+      "trainer_c_plus": 0.6206794381141663,
+      "trainer_c_plus_distinct": null,
+      "polarity": 0.10469532012939453,
+      "polarity_distinct": null,
+      "perc": null,
+      "loss": null,
+      "rich_kept": null,
+      "strength": null,
+      "pole_cos": 0.9656001329421997,
+      "fixture": "sheet leftover (unused \u2192 sub_e) + sheet gender (no \u00ea \u2192 raw poles)",
+      "notes": "subtract \u00ea_\u22a5 only when leftover is unused: |\u00ea\u0302_\u22a5 \u00b7 \u00e2| < 0.50 (measured unused leftover 0.32\u20130.39; energy-v4 restates at 0.778). Otherwise keep the raw poles. One --lm_target, no human pick.",
+      "gates": {
+        "leak_lock": 0.2,
+        "sheet_lock": 0.9,
+        "garble_max": 0.05,
+        "argmax_lock": 1.0,
+        "swing_floor": 0.6,
+        "concept_cos": 0.9,
+        "strength_floor": 0.5,
+        "rich_kept_min": 0.7,
+        "exam_overlap": 0.85,
+        "exam_match_kept": 0.75,
+        "exam_off_caption": 0.05,
+        "exam_coherence": 0.9,
+        "exam_swing": 0.6,
+        "exam_leak_lock": 0.2,
+        "pair_odd_cos_scored": false,
+        "collapse_scored": false,
+        "pole_loss_scored": false,
+        "perc_scored": false,
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "faithful_raw",
       "label": "faithful / v6 raw poles",
       "compiled": "works-on-some-pairs",
+      "exam_score": 0.9936708740009614,
       "cells": {
         "exam_divergent": true,
         "exam_close": true,
@@ -224,12 +319,12 @@
       "exam_near_gate": {},
       "exam_overlap": {
         "exam_divergent": 1.0,
-        "exam_close": 1.0,
+        "exam_close": 0.9947916666666666,
         "exam_unused_e": 1.0
       },
       "exam_swing": {
         "exam_divergent": 0.9999999900000002,
-        "exam_close": 0.9999999889017341,
+        "exam_close": 0.9936708740009614,
         "exam_unused_e": 0.9999999896774194
       },
       "exam_flags": {},
@@ -276,14 +371,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": 0.9999999889017341
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "hidden_beta1",
       "label": "pair-odd \u03b2=1 / symmetric --common_beta 1",
       "compiled": "works-on-some-pairs",
+      "exam_score": 0.9936708740009614,
       "cells": {
         "exam_divergent": true,
         "exam_close": true,
@@ -309,12 +409,12 @@
       "exam_near_gate": {},
       "exam_overlap": {
         "exam_divergent": 1.0,
-        "exam_close": 1.0,
+        "exam_close": 0.9947916666666666,
         "exam_unused_e": 1.0
       },
       "exam_swing": {
         "exam_divergent": 0.9999999900000002,
-        "exam_close": 0.9999999889017341,
+        "exam_close": 0.9936708740009614,
         "exam_unused_e": 0.9999999896774194
       },
       "exam_flags": {},
@@ -361,260 +461,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": 0.9999999889017341
-    },
-    {
-      "id": "gender_like_no_e",
-      "label": "gender-like (no \u00ea, hold 0)",
-      "compiled": "works-on-some-pairs",
-      "cells": {
-        "exam_divergent": null,
-        "exam_close": true,
-        "exam_unused_e": null,
-        "sheet_leftover": null,
-        "sheet_gender": false
-      },
-      "cells_failed": [
-        "sheet_gender"
-      ],
-      "cells_passed": [
-        "exam_close"
-      ],
-      "predicts": {},
-      "exam_reason": {
-        "exam_close": "on-continuation"
-      },
-      "exam_near_gate": {},
-      "exam_overlap": {
-        "exam_close": 0.9739583333333334
-      },
-      "exam_swing": {
-        "exam_close": 0.9768786018751043
-      },
-      "exam_flags": {},
-      "leftover_works": null,
-      "gender_works": false,
-      "leftover_leak": null,
-      "gender_leak": 0.0,
-      "on_sheet": 0.5403952797253927,
-      "on_sheet_kept": 0.57462190355226,
-      "off_sheet": 0.41539776721037924,
-      "argmax_on_sheet": 0.0,
-      "swing_kept": 0.27039942179763815,
-      "pair_odd_cos": 1.0,
-      "collapse": -1.0,
-      "intended_cos": 0.9874406599998474,
-      "content_cos": null,
-      "trainer_c_plus": 0.9874406599998474,
-      "trainer_c_plus_distinct": null,
-      "polarity": null,
-      "polarity_distinct": null,
-      "perc": 0.15799049526453018,
-      "loss": 0.008985959496349095,
-      "rich_kept": null,
-      "strength": null,
-      "pole_cos": null,
-      "fixture": "sheet gender v9_hidden + high-D gender_like_no_e",
-      "notes": "clean pair, hold 0. Live gender-lm-v4 log. Midpoint still deletes c.",
-      "gates": {
-        "leak_lock": 0.2,
-        "sheet_lock": 0.9,
-        "garble_max": 0.05,
-        "argmax_lock": 1.0,
-        "swing_floor": 0.6,
-        "concept_cos": 0.9,
-        "strength_floor": 0.5,
-        "rich_kept_min": 0.7,
-        "exam_overlap": 0.85,
-        "exam_match_kept": 0.75,
-        "exam_off_caption": 0.05,
-        "exam_coherence": 0.9,
-        "exam_swing": 0.6,
-        "exam_leak_lock": 0.2,
-        "pair_odd_cos_scored": false,
-        "collapse_scored": false,
-        "pole_loss_scored": false,
-        "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": 0.9739583333333334
-    },
-    {
-      "id": "pair_odd_midpoint",
-      "label": "pair-odd / v9 hidden midpoint",
-      "compiled": "works-on-some-pairs",
-      "cells": {
-        "exam_divergent": false,
-        "exam_close": true,
-        "exam_unused_e": true,
-        "sheet_leftover": false,
-        "sheet_gender": false
-      },
-      "cells_failed": [
-        "exam_divergent",
-        "sheet_leftover",
-        "sheet_gender"
-      ],
-      "cells_passed": [
-        "exam_close",
-        "exam_unused_e"
-      ],
-      "predicts": {},
-      "exam_reason": {
-        "exam_divergent": "continuation drifts off the pole's own",
-        "exam_close": "on-continuation",
-        "exam_unused_e": "on-continuation"
-      },
-      "exam_near_gate": {
-        "exam_divergent": [
-          "same_words"
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
         ]
-      },
-      "exam_overlap": {
-        "exam_divergent": 0.984375,
-        "exam_close": 0.9739583333333334,
-        "exam_unused_e": 0.96875
-      },
-      "exam_swing": {
-        "exam_divergent": 0.9843749901562502,
-        "exam_close": 0.9768786018751043,
-        "exam_unused_e": 0.9623655814637532
-      },
-      "exam_flags": {},
-      "leftover_works": false,
-      "gender_works": false,
-      "leftover_leak": 0.22772487463789,
-      "gender_leak": 0.0,
-      "on_sheet": 0.3453361801803112,
-      "on_sheet_kept": 0.36717702653761364,
-      "off_sheet": 0.40621971554355696,
-      "argmax_on_sheet": 0.0,
-      "swing_kept": 0.26576046572588086,
-      "pair_odd_cos": 0.9999999403953552,
-      "collapse": -0.9999999403953552,
-      "intended_cos": null,
-      "content_cos": null,
-      "trainer_c_plus": 0.9999999403953552,
-      "trainer_c_plus_distinct": null,
-      "polarity": -0.9999999403953552,
-      "polarity_distinct": null,
-      "perc": null,
-      "loss": null,
-      "rich_kept": null,
-      "strength": null,
-      "pole_cos": 0.696419358253479,
-      "fixture": "sheet leftover + sheet gender",
-      "notes": "live --lm_target v9 teacher t\u00b1 = h0 \u00b1 a. Not a caption.",
-      "gates": {
-        "leak_lock": 0.2,
-        "sheet_lock": 0.9,
-        "garble_max": 0.05,
-        "argmax_lock": 1.0,
-        "swing_floor": 0.6,
-        "concept_cos": 0.9,
-        "strength_floor": 0.5,
-        "rich_kept_min": 0.7,
-        "exam_overlap": 0.85,
-        "exam_match_kept": 0.75,
-        "exam_off_caption": 0.05,
-        "exam_coherence": 0.9,
-        "exam_swing": 0.6,
-        "exam_leak_lock": 0.2,
-        "pair_odd_cos_scored": false,
-        "collapse_scored": false,
-        "pole_loss_scored": false,
-        "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": 0.9739583333333334
-    },
-    {
-      "id": "hold_e_perp_l8",
-      "label": "hold-\u00ea \u00ea_\u22a5\u00fb \u03bb=8 (live v9)",
-      "compiled": "works-on-some-pairs",
-      "cells": {
-        "exam_divergent": false,
-        "exam_close": null,
-        "exam_unused_e": true,
-        "sheet_leftover": false,
-        "sheet_gender": false
-      },
-      "cells_failed": [
-        "exam_divergent",
-        "sheet_leftover",
-        "sheet_gender"
-      ],
-      "cells_passed": [
-        "exam_unused_e"
-      ],
-      "predicts": {},
-      "exam_reason": {
-        "exam_divergent": "continuation drifts off the pole's own",
-        "exam_unused_e": "on-continuation"
-      },
-      "exam_near_gate": {},
-      "exam_overlap": {
-        "exam_divergent": 0.9739583333333334,
-        "exam_unused_e": 0.984375
-      },
-      "exam_swing": {
-        "exam_divergent": 0.9739583235937501,
-        "exam_unused_e": 0.9838709575858481
-      },
-      "exam_flags": {},
-      "leftover_works": false,
-      "gender_works": false,
-      "leftover_leak": 0.0056357785998873465,
-      "gender_leak": 0.0,
-      "on_sheet": 0.3202352064351241,
-      "on_sheet_kept": 0.34048853737281115,
-      "off_sheet": 0.41539000696502626,
-      "argmax_on_sheet": 0.0,
-      "swing_kept": 0.27175991128046184,
-      "pair_odd_cos": 0.9321620464324951,
-      "collapse": -1.0,
-      "intended_cos": 0.9883104562759399,
-      "content_cos": null,
-      "trainer_c_plus": 0.6959827244281769,
-      "trainer_c_plus_distinct": 0.6959827244281769,
-      "polarity": -1.0,
-      "polarity_distinct": null,
-      "perc": 0.7227900922298431,
-      "loss": 0.8518381416797638,
-      "rich_kept": null,
-      "strength": null,
-      "pole_cos": 0.6491756439208984,
-      "fixture": "sheet leftover hold-\u00ea + overlap \u00ea_\u22a5\u00fb \u03bb=8",
-      "notes": "current leftover-\u00ea default. Fixes unused-axis leak, not the sheet.",
-      "gates": {
-        "leak_lock": 0.2,
-        "sheet_lock": 0.9,
-        "garble_max": 0.05,
-        "argmax_lock": 1.0,
-        "swing_floor": 0.6,
-        "concept_cos": 0.9,
-        "strength_floor": 0.5,
-        "rich_kept_min": 0.7,
-        "exam_overlap": 0.85,
-        "exam_match_kept": 0.75,
-        "exam_off_caption": 0.05,
-        "exam_coherence": 0.9,
-        "exam_swing": 0.6,
-        "exam_leak_lock": 0.2,
-        "pair_odd_cos_scored": false,
-        "collapse_scored": false,
-        "pole_loss_scored": false,
-        "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": 0.9739583235937501
+      }
     },
     {
       "id": "pair_odd_sub_e",
       "label": "pair_odd_sub_e (#20, midpoint \u2212 \u00ea_\u22a5)",
       "compiled": "works-on-some-pairs",
+      "exam_score": 0.9843749901562502,
       "cells": {
         "exam_divergent": false,
         "exam_close": null,
@@ -637,12 +496,12 @@
       },
       "exam_near_gate": {},
       "exam_overlap": {
-        "exam_divergent": 0.9791666666666666,
-        "exam_unused_e": 0.9635416666666666
+        "exam_divergent": 0.984375,
+        "exam_unused_e": 0.9791666666666666
       },
       "exam_swing": {
-        "exam_divergent": 0.9635416570312503,
-        "exam_unused_e": 0.9623655814637532
+        "exam_divergent": 0.9843749901562502,
+        "exam_unused_e": 1.0161290217689907
       },
       "exam_flags": {},
       "leftover_works": false,
@@ -688,14 +547,287 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
+    },
+    {
+      "id": "gender_like_no_e",
+      "label": "gender-like (no \u00ea, hold 0)",
+      "compiled": "works-on-some-pairs",
+      "exam_score": 0.9746835324595416,
+      "cells": {
+        "exam_divergent": null,
+        "exam_close": true,
+        "exam_unused_e": null,
+        "sheet_leftover": null,
+        "sheet_gender": false
       },
-      "exam_score": 0.9635416570312503
+      "cells_failed": [
+        "sheet_gender"
+      ],
+      "cells_passed": [
+        "exam_close"
+      ],
+      "predicts": {},
+      "exam_reason": {
+        "exam_close": "on-continuation"
+      },
+      "exam_near_gate": {
+        "exam_close": [
+          "coherence"
+        ]
+      },
+      "exam_overlap": {
+        "exam_close": 1.0
+      },
+      "exam_swing": {
+        "exam_close": 0.9746835324595416
+      },
+      "exam_flags": {},
+      "leftover_works": null,
+      "gender_works": false,
+      "leftover_leak": null,
+      "gender_leak": 0.0,
+      "on_sheet": 0.5403952797253927,
+      "on_sheet_kept": 0.57462190355226,
+      "off_sheet": 0.41539776721037924,
+      "argmax_on_sheet": 0.0,
+      "swing_kept": 0.27039942179763815,
+      "pair_odd_cos": 1.0,
+      "collapse": -1.0,
+      "intended_cos": 0.9874406599998474,
+      "content_cos": null,
+      "trainer_c_plus": 0.9874406599998474,
+      "trainer_c_plus_distinct": null,
+      "polarity": null,
+      "polarity_distinct": null,
+      "perc": 0.15799049526453018,
+      "loss": 0.008985959496349095,
+      "rich_kept": null,
+      "strength": null,
+      "pole_cos": null,
+      "fixture": "sheet gender v9_hidden + high-D gender_like_no_e",
+      "notes": "clean pair, hold 0. Live gender-lm-v4 log. Midpoint still deletes c.",
+      "gates": {
+        "leak_lock": 0.2,
+        "sheet_lock": 0.9,
+        "garble_max": 0.05,
+        "argmax_lock": 1.0,
+        "swing_floor": 0.6,
+        "concept_cos": 0.9,
+        "strength_floor": 0.5,
+        "rich_kept_min": 0.7,
+        "exam_overlap": 0.85,
+        "exam_match_kept": 0.75,
+        "exam_off_caption": 0.05,
+        "exam_coherence": 0.9,
+        "exam_swing": 0.6,
+        "exam_leak_lock": 0.2,
+        "pair_odd_cos_scored": false,
+        "collapse_scored": false,
+        "pole_loss_scored": false,
+        "perc_scored": false,
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
+    },
+    {
+      "id": "pair_odd_midpoint",
+      "label": "pair-odd / v9 hidden midpoint",
+      "compiled": "works-on-some-pairs",
+      "exam_score": 0.9746835324595416,
+      "cells": {
+        "exam_divergent": false,
+        "exam_close": true,
+        "exam_unused_e": true,
+        "sheet_leftover": false,
+        "sheet_gender": false
+      },
+      "cells_failed": [
+        "exam_divergent",
+        "sheet_leftover",
+        "sheet_gender"
+      ],
+      "cells_passed": [
+        "exam_close",
+        "exam_unused_e"
+      ],
+      "predicts": {},
+      "exam_reason": {
+        "exam_divergent": "continuation drifts off the pole's own",
+        "exam_close": "on-continuation",
+        "exam_unused_e": "on-continuation"
+      },
+      "exam_near_gate": {
+        "exam_divergent": [
+          "same_words"
+        ],
+        "exam_close": [
+          "coherence"
+        ]
+      },
+      "exam_overlap": {
+        "exam_divergent": 0.9947916666666666,
+        "exam_close": 1.0,
+        "exam_unused_e": 0.984375
+      },
+      "exam_swing": {
+        "exam_divergent": 0.9947916567187503,
+        "exam_close": 0.9746835324595416,
+        "exam_unused_e": 1.005376333707943
+      },
+      "exam_flags": {},
+      "leftover_works": false,
+      "gender_works": false,
+      "leftover_leak": 0.22772487463789,
+      "gender_leak": 0.0,
+      "on_sheet": 0.3453361801803112,
+      "on_sheet_kept": 0.36717702653761364,
+      "off_sheet": 0.40621971554355696,
+      "argmax_on_sheet": 0.0,
+      "swing_kept": 0.26576046572588086,
+      "pair_odd_cos": 0.9999999403953552,
+      "collapse": -0.9999999403953552,
+      "intended_cos": null,
+      "content_cos": null,
+      "trainer_c_plus": 0.9999999403953552,
+      "trainer_c_plus_distinct": null,
+      "polarity": -0.9999999403953552,
+      "polarity_distinct": null,
+      "perc": null,
+      "loss": null,
+      "rich_kept": null,
+      "strength": null,
+      "pole_cos": 0.696419358253479,
+      "fixture": "sheet leftover + sheet gender",
+      "notes": "live --lm_target v9 teacher t\u00b1 = h0 \u00b1 a. Not a caption.",
+      "gates": {
+        "leak_lock": 0.2,
+        "sheet_lock": 0.9,
+        "garble_max": 0.05,
+        "argmax_lock": 1.0,
+        "swing_floor": 0.6,
+        "concept_cos": 0.9,
+        "strength_floor": 0.5,
+        "rich_kept_min": 0.7,
+        "exam_overlap": 0.85,
+        "exam_match_kept": 0.75,
+        "exam_off_caption": 0.05,
+        "exam_coherence": 0.9,
+        "exam_swing": 0.6,
+        "exam_leak_lock": 0.2,
+        "pair_odd_cos_scored": false,
+        "collapse_scored": false,
+        "pole_loss_scored": false,
+        "perc_scored": false,
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
+    },
+    {
+      "id": "hold_e_perp_l8",
+      "label": "hold-\u00ea \u00ea_\u22a5\u00fb \u03bb=8 (live v9)",
+      "compiled": "works-on-some-pairs",
+      "exam_score": 0.9739583235937502,
+      "cells": {
+        "exam_divergent": false,
+        "exam_close": null,
+        "exam_unused_e": true,
+        "sheet_leftover": false,
+        "sheet_gender": false
+      },
+      "cells_failed": [
+        "exam_divergent",
+        "sheet_leftover",
+        "sheet_gender"
+      ],
+      "cells_passed": [
+        "exam_unused_e"
+      ],
+      "predicts": {},
+      "exam_reason": {
+        "exam_divergent": "continuation drifts off the pole's own",
+        "exam_unused_e": "on-continuation"
+      },
+      "exam_near_gate": {},
+      "exam_overlap": {
+        "exam_divergent": 0.9739583333333334,
+        "exam_unused_e": 0.9791666666666666
+      },
+      "exam_swing": {
+        "exam_divergent": 0.9739583235937502,
+        "exam_unused_e": 1.0161290217689907
+      },
+      "exam_flags": {},
+      "leftover_works": false,
+      "gender_works": false,
+      "leftover_leak": 0.0056357785998873465,
+      "gender_leak": 0.0,
+      "on_sheet": 0.3202352064351241,
+      "on_sheet_kept": 0.34048853737281115,
+      "off_sheet": 0.41539000696502626,
+      "argmax_on_sheet": 0.0,
+      "swing_kept": 0.27175991128046184,
+      "pair_odd_cos": 0.9321620464324951,
+      "collapse": -1.0,
+      "intended_cos": 0.9883104562759399,
+      "content_cos": null,
+      "trainer_c_plus": 0.6959827244281769,
+      "trainer_c_plus_distinct": 0.6959827244281769,
+      "polarity": -1.0,
+      "polarity_distinct": null,
+      "perc": 0.7227900922298431,
+      "loss": 0.8518381416797638,
+      "rich_kept": null,
+      "strength": null,
+      "pole_cos": 0.6491756439208984,
+      "fixture": "sheet leftover hold-\u00ea + overlap \u00ea_\u22a5\u00fb \u03bb=8",
+      "notes": "current leftover-\u00ea default. Fixes unused-axis leak, not the sheet.",
+      "gates": {
+        "leak_lock": 0.2,
+        "sheet_lock": 0.9,
+        "garble_max": 0.05,
+        "argmax_lock": 1.0,
+        "swing_floor": 0.6,
+        "concept_cos": 0.9,
+        "strength_floor": 0.5,
+        "rich_kept_min": 0.7,
+        "exam_overlap": 0.85,
+        "exam_match_kept": 0.75,
+        "exam_off_caption": 0.05,
+        "exam_coherence": 0.9,
+        "exam_swing": 0.6,
+        "exam_leak_lock": 0.2,
+        "pair_odd_cos_scored": false,
+        "collapse_scored": false,
+        "pole_loss_scored": false,
+        "perc_scored": false,
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "faithful_sub_e",
       "label": "faithful_sub_e (\u00ea-cleaned real poles, hidden MSE)",
       "compiled": "works-on-some-pairs",
+      "exam_score": 0.7916666587500001,
       "cells": {
         "exam_divergent": false,
         "exam_close": null,
@@ -712,21 +844,22 @@
       ],
       "predicts": {},
       "exam_reason": {
-        "exam_divergent": "continuation drifts off the pole's own; because blend teacher + axis eaten by \u00ea",
+        "exam_divergent": "alternates between the two songs; because blend teacher + axis eaten by \u00ea",
         "exam_unused_e": "on-continuation"
       },
       "exam_near_gate": {
         "exam_divergent": [
+          "continuation",
           "coherence"
         ]
       },
       "exam_overlap": {
-        "exam_divergent": 0.9166666666666666,
-        "exam_unused_e": 0.9739583333333334
+        "exam_divergent": 0.8958333333333334,
+        "exam_unused_e": 0.9791666666666666
       },
       "exam_swing": {
-        "exam_divergent": 0.833333325,
-        "exam_unused_e": 0.9946236456468958
+        "exam_divergent": 0.7916666587500001,
+        "exam_unused_e": 1.0215053657995146
       },
       "exam_flags": {},
       "leftover_works": true,
@@ -772,110 +905,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": 0.833333325
-    },
-    {
-      "id": "semantic_kl_midpoint",
-      "label": "semantic_kl onto midpoint",
-      "compiled": "works-on-some-pairs",
-      "cells": {
-        "exam_divergent": false,
-        "exam_close": false,
-        "exam_unused_e": true,
-        "sheet_leftover": false,
-        "sheet_gender": false
-      },
-      "cells_failed": [
-        "exam_divergent",
-        "exam_close",
-        "sheet_leftover",
-        "sheet_gender"
-      ],
-      "cells_passed": [
-        "exam_unused_e"
-      ],
-      "predicts": {},
-      "exam_reason": {
-        "exam_divergent": "continuation drifts off the pole's own; because KL-small / hidden-far",
-        "exam_close": "no audible swing; because KL-small / hidden-far",
-        "exam_unused_e": "on-continuation (despite KL-small / hidden-far)"
-      },
-      "exam_near_gate": {
-        "exam_divergent": [
-          "same_words"
-        ],
-        "exam_close": [
-          "continuation"
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
         ]
-      },
-      "exam_overlap": {
-        "exam_divergent": 0.9427083333333334,
-        "exam_close": 0.8489583333333334,
-        "exam_unused_e": 0.9895833333333334
-      },
-      "exam_swing": {
-        "exam_divergent": 0.94270832390625,
-        "exam_close": 0.410404619722677,
-        "exam_unused_e": 0.9354838613111343
-      },
-      "exam_flags": {
-        "exam_divergent": "KL-small / hidden-far",
-        "exam_close": "KL-small / hidden-far",
-        "exam_unused_e": "KL-small / hidden-far"
-      },
-      "leftover_works": false,
-      "gender_works": false,
-      "leftover_leak": 0.22650119598199292,
-      "gender_leak": 0.0,
-      "on_sheet": 0.36645811051130295,
-      "on_sheet_kept": 0.38963481700028335,
-      "off_sheet": 0.40579242500825785,
-      "argmax_on_sheet": 0.3333333333333333,
-      "swing_kept": 0.2619682423516771,
-      "pair_odd_cos": 0.9007635712623596,
-      "collapse": -0.9602118134498596,
-      "intended_cos": null,
-      "content_cos": null,
-      "trainer_c_plus": 0.9007635712623596,
-      "trainer_c_plus_distinct": null,
-      "polarity": -0.9602118134498596,
-      "polarity_distinct": null,
-      "perc": null,
-      "loss": null,
-      "rich_kept": null,
-      "strength": null,
-      "pole_cos": 0.6246025562286377,
-      "fixture": "sheet leftover + sheet gender",
-      "notes": "KL is not the fix. The target point is.",
-      "gates": {
-        "leak_lock": 0.2,
-        "sheet_lock": 0.9,
-        "garble_max": 0.05,
-        "argmax_lock": 1.0,
-        "swing_floor": 0.6,
-        "concept_cos": 0.9,
-        "strength_floor": 0.5,
-        "rich_kept_min": 0.7,
-        "exam_overlap": 0.85,
-        "exam_match_kept": 0.75,
-        "exam_off_caption": 0.05,
-        "exam_coherence": 0.9,
-        "exam_swing": 0.6,
-        "exam_leak_lock": 0.2,
-        "pair_odd_cos_scored": false,
-        "collapse_scored": false,
-        "pole_loss_scored": false,
-        "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": 0.410404619722677
+      }
     },
     {
       "id": "semantic_kl_poles",
       "label": "semantic_kl onto real poles",
       "compiled": "works-on-some-pairs",
+      "exam_score": 0.2721518954270149,
       "cells": {
         "exam_divergent": true,
         "exam_close": false,
@@ -901,16 +943,20 @@
         "exam_close": "no audible swing; because KL-small / hidden-far",
         "exam_unused_e": "on-continuation (despite KL-small / hidden-far)"
       },
-      "exam_near_gate": {},
+      "exam_near_gate": {
+        "exam_close": [
+          "coherence"
+        ]
+      },
       "exam_overlap": {
         "exam_divergent": 1.0,
-        "exam_close": 0.90625,
-        "exam_unused_e": 1.0
+        "exam_close": 0.96875,
+        "exam_unused_e": 0.9947916666666666
       },
       "exam_swing": {
         "exam_divergent": 0.9999999900000002,
-        "exam_close": 0.3872832326960473,
-        "exam_unused_e": 0.897849453097468
+        "exam_close": 0.2721518954270149,
+        "exam_unused_e": 0.9946236456468958
       },
       "exam_flags": {
         "exam_divergent": "KL-small / hidden-far",
@@ -960,14 +1006,120 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
+    },
+    {
+      "id": "semantic_kl_midpoint",
+      "label": "semantic_kl onto midpoint",
+      "compiled": "works-on-some-pairs",
+      "exam_score": 0.15822784617849706,
+      "cells": {
+        "exam_divergent": true,
+        "exam_close": false,
+        "exam_unused_e": true,
+        "sheet_leftover": false,
+        "sheet_gender": false
       },
-      "exam_score": 0.3872832326960473
+      "cells_failed": [
+        "exam_close",
+        "sheet_leftover",
+        "sheet_gender"
+      ],
+      "cells_passed": [
+        "exam_divergent",
+        "exam_unused_e"
+      ],
+      "predicts": {},
+      "exam_reason": {
+        "exam_divergent": "on-continuation (despite KL-small / hidden-far)",
+        "exam_close": "alternates between the two songs; no audible swing; because KL-small / hidden-far",
+        "exam_unused_e": "on-continuation (despite KL-small / hidden-far)"
+      },
+      "exam_near_gate": {
+        "exam_divergent": [
+          "same_words"
+        ],
+        "exam_close": [
+          "coherence"
+        ]
+      },
+      "exam_overlap": {
+        "exam_divergent": 0.9947916666666666,
+        "exam_close": 0.90625,
+        "exam_unused_e": 0.96875
+      },
+      "exam_swing": {
+        "exam_divergent": 0.9947916567187503,
+        "exam_close": 0.15822784617849706,
+        "exam_unused_e": 0.9677419254942768
+      },
+      "exam_flags": {
+        "exam_divergent": "KL-small / hidden-far",
+        "exam_close": "KL-small / hidden-far",
+        "exam_unused_e": "KL-small / hidden-far"
+      },
+      "leftover_works": false,
+      "gender_works": false,
+      "leftover_leak": 0.22650119598199292,
+      "gender_leak": 0.0,
+      "on_sheet": 0.36645811051130295,
+      "on_sheet_kept": 0.38963481700028335,
+      "off_sheet": 0.40579242500825785,
+      "argmax_on_sheet": 0.3333333333333333,
+      "swing_kept": 0.2619682423516771,
+      "pair_odd_cos": 0.9007635712623596,
+      "collapse": -0.9602118134498596,
+      "intended_cos": null,
+      "content_cos": null,
+      "trainer_c_plus": 0.9007635712623596,
+      "trainer_c_plus_distinct": null,
+      "polarity": -0.9602118134498596,
+      "polarity_distinct": null,
+      "perc": null,
+      "loss": null,
+      "rich_kept": null,
+      "strength": null,
+      "pole_cos": 0.6246025562286377,
+      "fixture": "sheet leftover + sheet gender",
+      "notes": "KL is not the fix. The target point is.",
+      "gates": {
+        "leak_lock": 0.2,
+        "sheet_lock": 0.9,
+        "garble_max": 0.05,
+        "argmax_lock": 1.0,
+        "swing_floor": 0.6,
+        "concept_cos": 0.9,
+        "strength_floor": 0.5,
+        "rich_kept_min": 0.7,
+        "exam_overlap": 0.85,
+        "exam_match_kept": 0.75,
+        "exam_off_caption": 0.05,
+        "exam_coherence": 0.9,
+        "exam_swing": 0.6,
+        "exam_leak_lock": 0.2,
+        "pair_odd_cos_scored": false,
+        "collapse_scored": false,
+        "pole_loss_scored": false,
+        "perc_scored": false,
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "semantic_kl_sub_e",
       "label": "semantic_kl onto \u00ea-cleaned poles",
       "compiled": "works-on-some-pairs",
+      "exam_score": 0.11458333218750003,
       "cells": {
         "exam_divergent": false,
         "exam_close": null,
@@ -989,14 +1141,18 @@
         "exam_divergent": "alternates between the two songs; no audible swing; because blend teacher + axis eaten by \u00ea + KL-small / hidden-far",
         "exam_unused_e": "on-continuation (despite KL-small / hidden-far)"
       },
-      "exam_near_gate": {},
+      "exam_near_gate": {
+        "exam_divergent": [
+          "coherence"
+        ]
+      },
       "exam_overlap": {
-        "exam_divergent": 0.5520833333333334,
-        "exam_unused_e": 0.9895833333333334
+        "exam_divergent": 0.5572916666666666,
+        "exam_unused_e": 0.9739583333333334
       },
       "exam_swing": {
-        "exam_divergent": 0.104166665625,
-        "exam_unused_e": 0.9946236456468956
+        "exam_divergent": 0.11458333218750003,
+        "exam_unused_e": 0.9999999896774194
       },
       "exam_flags": {
         "exam_divergent": "KL-small / hidden-far",
@@ -1045,14 +1201,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": 0.104166665625
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "hold_e_perp_l1",
       "label": "hold-\u00ea \u00ea_\u22a5\u00fb \u03bb=1",
       "compiled": "fails",
+      "exam_score": null,
       "cells": {
         "exam_divergent": null,
         "exam_close": null,
@@ -1114,14 +1275,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": null
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "hold_e_raw_l1",
       "label": "hold-\u00ea raw \u03bb=1",
       "compiled": "fails",
+      "exam_score": null,
       "cells": {
         "exam_divergent": null,
         "exam_close": null,
@@ -1183,14 +1349,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": null
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "hold_e_raw_l8",
       "label": "hold-\u00ea raw \u03bb=8 (leftover \u00ea)",
       "compiled": "fails",
+      "exam_score": null,
       "cells": {
         "exam_divergent": null,
         "exam_close": null,
@@ -1252,14 +1423,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": null
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "hold_e_raw_synonym_l8",
       "label": "hold-\u00ea raw \u03bb=8 (synonym \u00ea)",
       "compiled": "fails",
+      "exam_score": null,
       "cells": {
         "exam_divergent": null,
         "exam_close": null,
@@ -1321,14 +1497,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": null
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "hub",
       "label": "hub (published floor + anchor)",
       "compiled": "fails",
+      "exam_score": null,
       "cells": {
         "exam_divergent": null,
         "exam_close": null,
@@ -1390,14 +1571,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": null
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "leftover_hold_l1",
       "label": "energy-like leftover hold-\u00ea \u03bb=1 (high-D)",
       "compiled": "fails",
+      "exam_score": null,
       "cells": {
         "exam_divergent": null,
         "exam_close": null,
@@ -1458,14 +1644,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": null
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "leftover_hold_l8",
       "label": "energy-like leftover hold-\u00ea \u03bb=8 (high-D)",
       "compiled": "fails",
+      "exam_score": null,
       "cells": {
         "exam_divergent": null,
         "exam_close": null,
@@ -1526,14 +1717,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": null
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "project_rich_u",
       "label": "project rich \u00fb (oracle intended span)",
       "compiled": "fails",
+      "exam_score": null,
       "cells": {
         "exam_divergent": null,
         "exam_close": null,
@@ -1594,14 +1790,19 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": null
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     },
     {
       "id": "project_short_u",
       "label": "project short \u00fb",
       "compiled": "fails",
+      "exam_score": null,
       "cells": {
         "exam_divergent": null,
         "exam_close": null,
@@ -1663,9 +1864,13 @@
         "collapse_scored": false,
         "pole_loss_scored": false,
         "perc_scored": false,
-        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble."
-      },
-      "exam_score": null
+        "prose": "A recipe WORKS only if **every pair it has a reading on** passes. On a pair-exam cell that means the student's own continuation stays on the pole caption's words (overlap \u2265 0.85, position-wise agreement \u2265 0.75 of the pole's own self-agreement), sings nothing off-caption (\u2264 0.05), never alternates between the two songs (\u2265 0.9), keeps the pole pair's audible swing (\u2265 0.6). Unused-attribute leak is scored on the #22 sheet cells (\u2264 0.2), which read one token and can see an attribute tilt the pair-exam rollout averages away. On a #22 sheet cell it means leftover leak \u2264 0.2, on-sheet kept \u2265 0.9, off-sheet mass \u2264 0.05, argmax-on-sheet = 1 and concept swing kept \u2265 0.6. Pair-odd cos, \u00b11 collapse, the pole loss and p%/n% are logged and never scored. The sortable number is exam_score = min(overlap, swing) over the live exam pairs that row is read on (divergent / close). unused_e and the sheet cells are other questions and are not folded in. A pair with no reading is skipped; a recipe with no live-pair reading is null and sorts last. works-on-some-pairs means the recipe passes on at least one pair and fails on another \u2014 the verdict the 2026-08-25 live exam forces, because the same recipe is the energy win and the gender garble.",
+        "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
+        "exam_score_pairs": [
+          "exam_divergent",
+          "exam_close"
+        ]
+      }
     }
   ],
   "live_default_unchanged": true

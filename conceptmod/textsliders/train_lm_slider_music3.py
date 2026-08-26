@@ -67,7 +67,11 @@ from conceptmod.textsliders.slider_targets import (
     lm_anchor_kappa,
     lm_anchor_targets,
     lm_axis_hold,
+    UNUSED_E_OVERLAP_MAX,
+    lm_e_overlap_a,
+    lm_e_unused_decision,
     lm_faithful_sub_e,
+    lm_faithful_sub_e_if_unused,
     lm_hold_dir,
     lm_hidden_targets,
     lm_next_token_logits,
@@ -90,11 +94,13 @@ LM_RECIPES = (
     "symmetric",
     "faithful",
     "faithful_sub_e",
+    "faithful_sub_e_if_unused",
 )
 POLE_MODES = ("hidden", "semantic_kl")
 PROJECT_RECIPES = frozenset({"v9_project", "v9_always"})
 V9_RECIPES = frozenset({"v9", "v9_project", "v9_always"})
 SUB_E_RECIPES = frozenset({"pair_odd_sub_e", "faithful_sub_e"})
+GATED_SUB_E_RECIPES = frozenset({"faithful_sub_e_if_unused"})
 PAIR_ODD_RECIPES = frozenset({"pair_odd_sub_e"})
 TARGET_REPLACE = ["Qwen3Attention"]
 
@@ -115,7 +121,9 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     ``v9_project`` / ``v9_always`` / ``hub`` / ``symmetric``. It is not a
     second loss. ``pair_odd_sub_e`` is the leaky-axis teacher (pair-odd
     minus ê_⊥); gender stays ``v9``. ``faithful_sub_e`` is ê-cleaned
-    real poles (not a polarity step).
+    real poles (not a polarity step). ``faithful_sub_e_if_unused``
+    subtracts leftover ê only when ``|ê̂_⊥ · â|`` is below the unused
+    floor; otherwise it keeps the raw poles.
     """
     recipe = str(lm_target).strip().lower()
     if recipe not in LM_RECIPES:
@@ -244,6 +252,7 @@ def lm_train_targets(
     anchor_autocal: bool = True,
     project_align_min: float | None = None,
     should_project: bool | None = None,
+    e_unused: bool | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
     """Pole targets for the live LM trainer. Delegates to ``slider_targets``.
 
@@ -285,6 +294,17 @@ def lm_train_targets(
             )
         plus, minus = lm_faithful_sub_e(
             pos, neg, neu, leak_dir, slider_dir=slider_dir, target_scale=target_scale
+        )
+        return plus, minus, None, None
+    if recipe == "faithful_sub_e_if_unused":
+        plus, minus = lm_faithful_sub_e_if_unused(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=slider_dir,
+            target_scale=target_scale,
+            unused=e_unused,
         )
         return plus, minus, None, None
     if recipe in PROJECT_RECIPES:
@@ -645,6 +665,14 @@ def train(args: argparse.Namespace) -> Path:
                 "--slider_positive / --slider_negative, or YAML slider_positive "
                 "/ slider_negative."
             )
+    if recipe in GATED_SUB_E_RECIPES and leak_captions is not None and axis_captions is None:
+        raise ValueError(
+            f"lm_target={recipe} needs a declared slider axis so it can "
+            "measure |ê̂_⊥ · â| and subtract ê_⊥ = ê−(ê·û)û, not raw ê: "
+            "--slider_positive / --slider_negative, or YAML slider_positive "
+            "/ slider_negative. Omit leak_* on a clean pair; the gate is then "
+            "a no-op and the teacher is the raw poles."
+        )
     if recipe == "v9" and hold_w > 0.0 and leak_captions is None and axis_captions is None:
         raise ValueError(
             "hold_weight>0 on --lm_target v9 needs a declared leak axis: "
@@ -706,6 +734,8 @@ def train(args: argparse.Namespace) -> Path:
             hold_note = "teacher=pair_odd − ê_⊥, ê_⊥=ê−(ê·û)û; hold 0"
         elif recipe == "faithful_sub_e":
             hold_note = "teacher=real poles − odd ê_⊥, midpoint ½(h++h−); hold 0"
+        elif recipe == "faithful_sub_e_if_unused":
+            hold_note = "teacher=raw poles or ê-cleaned poles if |ê̂_⊥·â| < unused floor"
         else:
             hold_note = "hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd"
         print(
@@ -747,6 +777,19 @@ def train(args: argparse.Namespace) -> Path:
         )
 
     aligns = [row["align"] if row["align"] is not None else 0.0 for row in encoded_rows]
+    e_unused = None
+    if recipe in GATED_SUB_E_RECIPES and leak_dir is not None:
+        e_overlaps = [
+            float(lm_e_overlap_a(row["pos_tgt"], row["neg_tgt"], leak_dir, slider_dir=slider_dir))
+            for row in encoded_rows
+        ]
+        e_unused = lm_e_unused_decision(e_overlaps)
+        mean_e = sum(e_overlaps) / len(e_overlaps)
+        print(
+            f"leftover gate: mean |ê̂_⊥·â|={mean_e:.3f} floor={UNUSED_E_OVERLAP_MAX:g} "
+            f"rows={[round(o, 3) for o in e_overlaps]} "
+            f"{'unused → subtract ê_⊥' if e_unused else 'ê restates the pair → raw poles'}"
+        )
     if recipe in PROJECT_RECIPES and slider_dir is not None:
         decisions = lm_project_decisions(aligns, align_min, align_scope)
         mean_align = sum(aligns) / len(aligns)
@@ -774,6 +817,16 @@ def train(args: argparse.Namespace) -> Path:
                 "faithful_sub_e: teacher=real poles − odd ê_⊥, hold_ê=0 "
                 "(midpoint stays ½(h++h−); not t± = h0 ± a)"
             )
+        elif recipe == "faithful_sub_e_if_unused":
+            print(
+                "faithful_sub_e_if_unused: subtract leftover ê only when "
+                "|ê̂_⊥ · â| is below the unused floor; else raw poles"
+            )
+        elif recipe == "faithful_sub_e_if_unused":
+            print(
+                "faithful_sub_e_if_unused: subtract leftover ê only when "
+                "|ê̂_⊥ · â| is below the unused floor; else raw poles"
+            )
     if pole_mode == "semantic_kl":
         print("pole_mode=semantic_kl: next-token KL on the semantic band of lm_head")
     else:
@@ -792,7 +845,7 @@ def train(args: argparse.Namespace) -> Path:
         row_slider_dir = slider_dir
         row_leak_dir = leak_dir
         row_hold = hold_w if (recipe not in {"v9"} | SUB_E_RECIPES or leak_dir is not None) else 0.0
-        if recipe in SUB_E_RECIPES:
+        if recipe in SUB_E_RECIPES | GATED_SUB_E_RECIPES:
             row_hold = 0.0
         if recipe == "v9":
             dropped = " teacher=odd"
@@ -808,6 +861,14 @@ def train(args: argparse.Namespace) -> Path:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
         elif recipe == "faithful_sub_e":
             dropped = " teacher=faithful_sub_e hold_ê=0"
+            if encoded["align"] is not None:
+                dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
+        elif recipe == "faithful_sub_e_if_unused":
+            dropped = (
+                " teacher=faithful_sub_e hold_ê=0"
+                if e_unused
+                else " teacher=faithful (ê restates pair or no leftover) hold_ê=0"
+            )
             if encoded["align"] is not None:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
         elif encoded["align"] is not None:
@@ -841,6 +902,7 @@ def train(args: argparse.Namespace) -> Path:
             leakage_floor=args.leakage_floor,
             anchor_autocal=args.anchor_autocal,
             should_project=should_project if recipe in PROJECT_RECIPES else None,
+            e_unused=e_unused,
         )
         row_data.append(
             {
@@ -1153,7 +1215,11 @@ def parse_args(argv=None):
         "v9_always: old always-project. hub: published leakage_floor "
         "blend-back (still leaks). symmetric / faithful: old poles. "
         "faithful_sub_e: real poles with leftover ê subtracted from the "
-        "odd part only (midpoint stays ½(h++h−); needs leak_*). Not the default",
+        "odd part only (midpoint stays ½(h++h−); needs leak_*). "
+        "faithful_sub_e_if_unused: subtract leftover ê only when "
+        "|ê̂_⊥ · â| < 0.50 (measured unused leftover ≤ 0.39, energy-v4 "
+        "restates at 0.78); otherwise raw poles. Leak_* optional — a clean "
+        "pair is the raw poles. Not the default",
     )
     p.add_argument(
         "--pole_mode",
@@ -1200,8 +1266,8 @@ def parse_args(argv=None):
         type=float,
         default=None,
         help="v9: weight on ((h(±1)−h0)·ê)² (default 8 when ê is declared, else 0). "
-        "pair_odd_sub_e / faithful_sub_e: default 0 (ê_⊥ is already out of "
-        "the teacher). "
+        "pair_odd_sub_e / faithful_sub_e / faithful_sub_e_if_unused: default 0 "
+        "(ê_⊥ is already out of the teacher, or the gate kept raw poles). "
         "v9_project / v9_always: weight on ||(h(±1)−h0)_⊥û||² (default 1.0). "
         "Do not scale λ by D; prefer leftover ê in the teacher",
     )
