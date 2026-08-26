@@ -340,8 +340,10 @@ def test_the_live_default_is_still_v9_on_hidden_mse():
     assert "v9" in LM_RECIPES
     assert "semantic_kl" in POLE_MODES
     assert "faithful_sub_e_if_unused" in LM_RECIPES
+    assert "faithful_guard_e" in LM_RECIPES
     assert "semantic_kl_null" in POLE_MODES
     assert "hidden_kl" in POLE_MODES
+    assert "dual_band" in POLE_MODES
     assert "unrolled_kl" not in POLE_MODES
     assert resolve_pole_mode("hidden") == "hidden"
 
@@ -375,8 +377,11 @@ def test_combined_race_recipes_are_on_the_board_next_to_baselines():
     for name in RACE_RECIPES:
         assert name in ids, name
         assert ids[name]["exam_score"] is not None
-        assert ids[name]["cells"]["exam_divergent"] is True
-        assert ids[name]["cells"]["exam_close"] is True
+        assert ids[name]["cells"]["exam_divergent"] is not None
+        assert ids[name]["cells"]["exam_close"] is not None
+    for name in RACE_RECIPES - {"dual_band_midpoint"}:
+        assert ids[name]["cells"]["exam_divergent"] is True, name
+        assert ids[name]["cells"]["exam_close"] is True, name
     for baseline in (
         "faithful_attrs",
         "faithful_raw",
@@ -451,3 +456,39 @@ def test_unrolled_kl_has_a_real_exam_reading_and_is_not_live():
     assert row["cells"]["exam_divergent"] is True
     assert row["cells"]["exam_close"] is True
     assert "unrolled_kl" not in POLE_MODES
+
+
+def test_faithful_guard_e_has_a_real_pair_exam_reading():
+    row = by_id()["faithful_guard_e"]
+    raw = by_id()["faithful_raw"]
+    assert row["exam_score"] is not None
+    assert row["exam_score"] >= 0.99
+    assert row["exam_score"] == pytest.approx(raw["exam_score"], abs=1e-3)
+    assert row["cells"]["exam_divergent"] is True
+    assert row["cells"]["exam_close"] is True
+    assert row["cells"]["sheet_leftover"] is True
+    assert row["cells"]["sheet_gender"] is True
+    assert row["id"] != "faithful_sub_e_if_unused"
+
+
+def test_dual_band_rows_have_real_pair_exam_readings():
+    dual = by_id()["dual_band_poles"]
+    guarded = by_id()["dual_band_guard_e"]
+    poles = by_id()["semantic_kl_poles"]
+    assert dual["exam_score"] is not None
+    assert guarded["exam_score"] is not None
+    assert dual["exam_score"] >= 0.95
+    assert guarded["exam_score"] >= 0.95
+    assert dual["cells"]["exam_divergent"] is True
+    assert dual["cells"]["exam_close"] is True
+    assert guarded["cells"]["exam_divergent"] is True
+    assert guarded["cells"]["exam_close"] is True
+    assert dual["exam_score"] > poles["exam_score"]
+    assert guarded["exam_score"] > poles["exam_score"]
+
+
+def test_dual_band_midpoint_fails_the_divergent_pair():
+    control = by_id()["dual_band_midpoint"]
+    assert control["exam_score"] is not None
+    assert control["cells"]["exam_divergent"] is False
+    assert control["exam_score"] < by_id()["dual_band_poles"]["exam_score"]

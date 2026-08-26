@@ -89,7 +89,11 @@ import torch
 from analysis.slider2d.field import cosine
 from analysis.slider2d.sheet import nucleus
 from conceptmod.textsliders.slider_targets import (
+    DUAL_BAND_WEIGHT,
     lm_axis_hold,
+    lm_blind_projector,
+    lm_dual_band_pole_loss,
+    lm_faithful_guard_e,
     lm_faithful_sub_e,
     lm_faithful_sub_e_if_unused,
     lm_hidden_targets,
@@ -652,9 +656,23 @@ CELL_IS = {
 # -- teachers ------------------------------------------------------------
 
 
-TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e", "faithful_sub_e_if_unused")
+TEACHERS = (
+    "pair_odd",
+    "pair_odd_sub_e",
+    "faithful",
+    "faithful_sub_e",
+    "faithful_sub_e_if_unused",
+    "faithful_guard_e",
+)
 # Live race modes plus fixture-only ``unrolled_kl`` (no live --pole_mode).
-POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_null", "hidden_kl", "unrolled_kl")
+POLE_MODES = (
+    "hidden",
+    "semantic_kl",
+    "semantic_kl_null",
+    "hidden_kl",
+    "unrolled_kl",
+    "dual_band",
+)
 
 
 def hold_direction(field: PairField, leak_dir: torch.Tensor | None) -> torch.Tensor | None:
@@ -685,12 +703,16 @@ def teacher_points(
         return lm_faithful_sub_e_if_unused(
             pos, neg, neu, leak_dir, slider_dir=field.short_u()
         )
+    if mode == "faithful_guard_e" and leak_dir is None:
+        return pos, neg
     if leak_dir is None:
         raise ValueError(f"{mode} needs a declared ê")
     if mode == "pair_odd_sub_e":
         return lm_pair_odd_sub_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
     if mode == "faithful_sub_e":
         return lm_faithful_sub_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
+    if mode == "faithful_guard_e":
+        return lm_faithful_guard_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
     raise ValueError(f"teacher must be one of {TEACHERS}, got {teacher!r}")
 
 
@@ -1002,6 +1024,8 @@ def fit_exam(
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
     unroll_steps: int = 1,
+    blind_weight: float = DUAL_BAND_WEIGHT,
+    blind_cut: float = 0.0,
     steps: int = 400,
     lr: float = 0.08,
     seed: int = 0,
@@ -1016,6 +1040,11 @@ def fit_exam(
         raise ValueError(f"pole_mode must be one of {POLE_MODES}, got {pole_mode!r}")
     head = field.readout()
     null_basis = lm_readout_null_basis(head.weight) if mode == "semantic_kl_null" else None
+    blind = (
+        lm_blind_projector(head.weight, cut=float(blind_cut))
+        if mode == "dual_band"
+        else None
+    )
     held = hold_direction(field, leak_dir)
     lam = float(hold_weight) if held is not None else 0.0
     targets = [
@@ -1083,6 +1112,21 @@ def fit_exam(
                     hold=hold,
                     hold_weight=hold_w,
                 )
+            elif mode == "dual_band":
+                term = lm_dual_band_pole_loss(
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    pred_plus_logits=head.logits(pred_plus),
+                    pred_minus_logits=head.logits(pred_minus),
+                    tgt_plus_logits=head.logits(t_plus),
+                    tgt_minus_logits=head.logits(t_minus),
+                    blind_projector=blind,
+                    blind_weight=float(blind_weight),
+                    hold=hold,
+                    hold_weight=hold_w,
+                )
             else:
                 term = lm_semantic_pole_loss(
                     head.logits(pred_plus),
@@ -1118,6 +1162,8 @@ def score_exam(
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
     unroll_steps: int = 1,
+    blind_weight: float = DUAL_BAND_WEIGHT,
+    blind_cut: float = 0.0,
     steps: int = 400,
     seed: int = 0,
 ) -> dict:
@@ -1130,6 +1176,8 @@ def score_exam(
         hold_weight=hold_weight,
         common_beta=common_beta,
         unroll_steps=unroll_steps,
+        blind_weight=blind_weight,
+        blind_cut=blind_cut,
         steps=steps,
         seed=seed,
     )
@@ -1374,6 +1422,16 @@ def recipes(field: PairField) -> list[tuple[str, dict]]:
             "unrolled_kl",
             {"pole_mode": "unrolled_kl", "teacher": "faithful"},
         ),
+        (
+            "faithful_guard_e",
+            {"pole_mode": "hidden", "teacher": "faithful_guard_e", "leak_dir": e},
+        ),
+        ("dual_band_poles", {"pole_mode": "dual_band", "teacher": "faithful"}),
+        (
+            "dual_band_guard_e",
+            {"pole_mode": "dual_band", "teacher": "faithful_guard_e", "leak_dir": e},
+        ),
+        ("dual_band_midpoint", {"pole_mode": "dual_band", "teacher": "pair_odd"}),
     ]
     if e is not None:
         out += [

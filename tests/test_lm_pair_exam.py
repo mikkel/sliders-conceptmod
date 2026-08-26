@@ -46,6 +46,7 @@ from conceptmod.textsliders.slider_targets import (
     UNUSED_E_OVERLAP_MAX,
     lm_e_overlap_a,
     lm_faithful_sub_e,
+    lm_faithful_guard_e,
     lm_faithful_sub_e_if_unused,
     lm_unit,
 )
@@ -443,7 +444,7 @@ def test_unrolled_kl_tops_both_live_exam_pairs():
 def test_a_midpoint_teacher_still_fails_divergent_under_the_new_losses():
     """The target has to be a real caption. The new losses are not a cheat."""
     field = divergent_field()
-    for mode in ("semantic_kl_null", "unrolled_kl", "hidden_kl"):
+    for mode in ("semantic_kl_null", "unrolled_kl", "hidden_kl", "dual_band"):
         row = score_exam(
             f"{mode}_mid",
             field,
@@ -452,6 +453,42 @@ def test_a_midpoint_teacher_still_fails_divergent_under_the_new_losses():
             steps=STEPS,
         )
         assert row["pass"] is False, f"{mode} + midpoint passed: {row['reason']}"
+
+
+def test_faithful_guard_e_keeps_poles_when_e_restates_the_tracks():
+    divergent = divergent_field()
+    pos, neg, neu = divergent.poles(0)
+    guarded = lm_faithful_guard_e(
+        pos, neg, neu, divergent.declared_e(), slider_dir=divergent.short_u()
+    )
+    assert torch.allclose(guarded[0], pos)
+    assert torch.allclose(guarded[1], neg)
+    unused = unused_e_field()
+    u_pos, u_neg, u_neu = unused.poles(0)
+    cleaned = lm_faithful_guard_e(
+        u_pos, u_neg, u_neu, unused.declared_e(), slider_dir=unused.short_u()
+    )
+    want = lm_faithful_sub_e(
+        u_pos, u_neg, u_neu, unused.declared_e(), slider_dir=unused.short_u()
+    )
+    assert torch.allclose(cleaned[0], want[0])
+    assert torch.allclose(cleaned[1], want[1])
+    for name in ("divergent", "close"):
+        row = cell(name)["faithful_guard_e"]
+        assert row["pass"] is True, f"{name}: {row['reason']}"
+        assert row["teacher"] == "faithful_guard_e"
+
+
+def test_dual_band_poles_pass_both_live_pairs_and_midpoint_does_not():
+    for name in ("divergent", "close"):
+        row = cell(name)["dual_band_poles"]
+        assert row["pole_mode"] == "dual_band"
+        assert row["teacher"] == "faithful"
+        assert row["pass"] is True, f"{name}: {row['reason']}"
+    mid = cell("divergent")["dual_band_midpoint"]
+    assert mid["pass"] is False
+    assert mid["teacher"] == "pair_odd"
+    assert cell("divergent")["dual_band_guard_e"]["pass"] is True
 
 
 def test_subtracting_e_is_free_on_a_same_song_pair_and_not_on_two_tracks():

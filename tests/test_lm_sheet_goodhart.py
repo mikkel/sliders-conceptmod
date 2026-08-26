@@ -335,11 +335,21 @@ def test_kl_onto_the_midpoint_is_still_garbled():
 
 
 def test_the_passing_recipes_all_target_a_real_caption():
-    """Both survivors aim at a pole; one uses MSE and one uses KL."""
+    """Every leftover survivor aims at a pole, under every live loss.
+
+    ``faithful_guard_e`` / ``dual_band_guard_e`` reach the same ê-cleaned
+    target the other two do: on *this* field ê is a genuine leftover, so the
+    blend guard admits the subtraction.
+    """
     winners = {name for name, row in leaky().items() if row["pass"]}
-    assert winners == {"faithful_sub_e", "v16_semantic_kl_sub_e"}
+    assert winners == {
+        "faithful_sub_e",
+        "v16_semantic_kl_sub_e",
+        "faithful_guard_e",
+        "dual_band_guard_e",
+    }
     modes = {leaky()[name]["pole_mode"] for name in winners}
-    assert modes == {"hidden", "semantic_kl"}
+    assert modes == {"hidden", "semantic_kl", "dual_band"}
     for name in winners:
         assert leaky()[name]["teacher"].startswith("faithful")
 
@@ -524,8 +534,10 @@ def test_the_live_default_is_still_hidden_mse_onto_the_midpoint():
     assert "v9" in LM_RECIPES and "pair_odd_sub_e" in LM_RECIPES
     assert "faithful_sub_e" in LM_RECIPES
     assert "faithful_sub_e_if_unused" in LM_RECIPES
+    assert "faithful_guard_e" in LM_RECIPES
     assert "faithful_sub_e" not in V9_RECIPES
     assert "faithful_sub_e_if_unused" not in V9_RECIPES
+    assert "faithful_guard_e" not in V9_RECIPES
 
 
 def test_the_recommended_live_ladder_is_reachable_today():

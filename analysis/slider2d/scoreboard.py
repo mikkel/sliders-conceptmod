@@ -130,6 +130,10 @@ SHEET_LEFTOVER = {
     "pair_odd_sub_e": "v15_pair_odd_sub_e",
     "faithful_sub_e": "faithful_sub_e",
     "faithful_sub_e_if_unused": "faithful_sub_e",
+    "faithful_guard_e": "faithful_guard_e",
+    "dual_band_poles": "dual_band_poles",
+    "dual_band_guard_e": "dual_band_guard_e",
+    "dual_band_midpoint": "dual_band_midpoint",
     "semantic_kl_midpoint": "kl_on_midpoint",
     "semantic_kl_poles": "v16_semantic_kl",
     "semantic_kl_null": "v16_semantic_kl",
@@ -141,6 +145,10 @@ SHEET_GENDER = {
     "faithful_raw": "v6_faithful",
     "faithful_attrs": "v6_faithful",
     "faithful_sub_e_if_unused": "v6_faithful",
+    "faithful_guard_e": "faithful_guard_e",
+    "dual_band_poles": "dual_band_poles",
+    "dual_band_guard_e": "dual_band_guard_e",
+    "dual_band_midpoint": "dual_band_midpoint",
     "pair_odd_midpoint": "v9_hidden",
     "hub": "v9_hidden",
     "hold_e_raw_l1": "v9_hidden",
@@ -166,6 +174,10 @@ RACE_RECIPES = frozenset(
         "semantic_kl_null",
         "hidden_kl_poles",
         "unrolled_kl",
+        "faithful_guard_e",
+        "dual_band_poles",
+        "dual_band_guard_e",
+        "dual_band_midpoint",
     }
 )
 
@@ -931,6 +943,62 @@ def collect_scoreboard(
                 "subtract ê_⊥ only when leftover is unused: |ê̂_⊥ · â| < 0.50 "
                 "(measured unused leftover 0.32–0.39; energy-v4 restates at 0.778). "
                 "Otherwise keep the raw poles. One --lm_target, no human pick."
+            ),
+        ),
+        _row(
+            "faithful_guard_e",
+            "blend-guarded ê on real poles",
+            exam=exam,
+            leftover=sheet_left("faithful_guard_e"),
+            gender=sheet_gen("faithful_guard_e"),
+            leftover_leak=sheet_left("faithful_guard_e").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "subtract the declared ê_⊥ only while the result is still "
+                "nearer the pole caption than the pair midpoint "
+                "(lm_blend_guard). Refuses on energy-v4, where ê restates "
+                "the axis; accepts on a real leftover. No data fix."
+            ),
+        ),
+        _row(
+            "dual_band_guard_e",
+            "dual-band loss + blend-guarded ê",
+            exam=exam,
+            leftover=sheet_left("dual_band_guard_e"),
+            gender=sheet_gen("dual_band_guard_e"),
+            leftover_leak=sheet_left("dual_band_guard_e").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "semantic KL where the head reads, hidden MSE on the band "
+                "it is blind to, aimed at guarded real poles."
+            ),
+        ),
+        _row(
+            "dual_band_poles",
+            "dual-band loss on real poles",
+            exam=exam,
+            leftover=sheet_left("dual_band_poles"),
+            gender=sheet_gen("dual_band_poles"),
+            leftover_leak=sheet_left("dual_band_poles").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "lm_dual_band_pole_loss: KL keeps the readable band, MSE "
+                "pins the band the KL has no gradient on. Distinct from "
+                "semantic_kl_null (centered SVD projector, not uncentered "
+                "ker(W) coefficients)."
+            ),
+        ),
+        _row(
+            "dual_band_midpoint",
+            "dual-band loss on the v9 midpoint (control)",
+            exam=exam,
+            leftover=sheet_left("dual_band_midpoint"),
+            gender=sheet_gen("dual_band_midpoint"),
+            leftover_leak=sheet_left("dual_band_midpoint").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "ablation: the new loss with the old target. Pins the blind "
+                "band and still walks off the divergent pair's continuation."
             ),
         ),
         _row(

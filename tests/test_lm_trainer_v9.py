@@ -15,12 +15,18 @@ import yaml
 from analysis.slider2d.field import E_SLIDER, Field2D
 from analysis.slider2d.mismatch import LIVE_GENDER_V1_ALIGN, MismatchField2D
 from conceptmod.textsliders.slider_targets import (
+    DUAL_BAND_WEIGHT,
     LEAK_HOLD_WEIGHT,
     UNUSED_E_OVERLAP_MAX,
     lm_anchor_kappa,
     lm_anchor_targets,
     lm_axis_hold,
+    lm_blend_guard,
+    lm_blind_projector,
+    lm_blind_residual,
+    lm_dual_band_pole_loss,
     lm_e_is_unused,
+    lm_faithful_guard_e,
     lm_faithful_sub_e,
     lm_hidden_targets,
     lm_hold_dir,
@@ -584,6 +590,213 @@ def test_faithful_sub_e_if_unused_subtracts_only_when_leftover_is_unused():
     )
     assert torch.allclose(clean_plus, pos)
     assert torch.allclose(clean_minus, neg)
+
+
+def _divergent_pair():
+    """Two tracks: ê restates the pole difference."""
+    u, p, q, s = (torch.eye(4)[i] for i in range(4))
+    neu = 1.1 * s
+    a = u + 0.8 * (p - q)
+    c = 0.7 * s
+    e = (p - q) + 0.3 * u
+    return neu + a + c, neu - a + c, neu, u, e
+
+
+def _leftover_pair():
+    """One song, plus an attribute inside ``a`` the captions never pin."""
+    u, g, s, d = (torch.eye(4)[i] for i in range(4))
+    neu = 1.2 * s
+    a = u + 0.45 * g + 0.35 * d
+    c = 0.9 * s
+    return neu + a + c, neu - a + c, neu, u, g
+
+
+def test_the_blend_guard_refuses_e_exactly_where_e_restates_the_axis():
+    pos, neg, neu, u, e = _divergent_pair()
+    sub = lm_faithful_sub_e(pos, neg, neu, e, slider_dir=u)
+    guard = lm_blend_guard(*sub, pos, neg)
+    assert guard["admissible"] is False
+    assert guard["to_pole"] > guard["to_mid"]
+    guarded = lm_faithful_guard_e(pos, neg, neu, e, slider_dir=u)
+    assert torch.allclose(guarded[0], pos)
+    assert torch.allclose(guarded[1], neg)
+
+    pos2, neg2, neu2, u2, e2 = _leftover_pair()
+    sub2 = lm_faithful_sub_e(pos2, neg2, neu2, e2, slider_dir=u2)
+    guard2 = lm_blend_guard(*sub2, pos2, neg2)
+    assert guard2["admissible"] is True
+    assert guard2["to_pole"] < guard2["to_mid"]
+    guarded2 = lm_faithful_guard_e(pos2, neg2, neu2, e2, slider_dir=u2)
+    assert torch.allclose(guarded2[0], sub2[0])
+    assert torch.allclose(guarded2[1], sub2[1])
+    held = lm_hold_dir(e2, slider_dir=u2, mode="slider")
+    odd = (guarded2[0] - guarded2[1]) / 2
+    assert abs(float(odd @ lm_unit(held))) < 1e-6
+
+
+def test_the_guard_never_rejects_the_caption_itself():
+    """``to_pole = 0`` and ``to_mid = ‖a‖``, so a raw pole is always admissible."""
+    for pos, neg, _neu, _u, _e in (_divergent_pair(), _leftover_pair()):
+        guard = lm_blend_guard(pos, neg, pos, neg)
+        assert guard["admissible"] is True
+        assert guard["to_pole"] == pytest.approx(0.0)
+        assert guard["to_mid"] == pytest.approx(float(((pos - neg) / 2).norm()))
+
+
+def test_faithful_guard_e_is_wired_and_needs_no_leak_axis():
+    pos, neg, neu, u, e = _divergent_pair()
+    plus, minus, anc_p, anc_m = lm_train_targets(
+        pos, neg, neu, recipe="faithful_guard_e", slider_dir=u, leak_dir=e
+    )
+    assert anc_p is None and anc_m is None
+    assert torch.allclose(plus, pos) and torch.allclose(minus, neg)
+    bare_plus, bare_minus, _, _ = lm_train_targets(
+        pos, neg, neu, recipe="faithful_guard_e", slider_dir=u, leak_dir=None
+    )
+    assert torch.allclose(bare_plus, pos) and torch.allclose(bare_minus, neg)
+    with pytest.raises(ValueError, match="declared slider_dir"):
+        lm_train_targets(pos, neg, neu, recipe="faithful_guard_e", leak_dir=e)
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful_guard_e"]
+    )
+    assert resolve_lm_recipe(lm_target=args.lm_target, symmetric=args.symmetric) == (
+        "faithful_guard_e"
+    )
+    hold, anchor = resolve_lm_loss_weights(
+        "faithful_guard_e", hold_weight=None, anchor_weight=None, leak_declared=True
+    )
+    assert hold == 0.0 and anchor == 0.0
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+    assert bare.pole_mode == "hidden"
+
+
+def test_the_blind_band_is_what_a_next_token_kl_cannot_see():
+    readout = torch.tensor(
+        [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float32
+    )
+    blind = lm_blind_projector(readout)
+    assert blind is not None
+    assert float(blind.trace()) == pytest.approx(1.0)
+    unread = torch.tensor([0.0, 0.0, 1.0])
+    assert torch.allclose(lm_blind_residual(unread, blind), unread, atol=1e-6)
+    for seen in (torch.tensor([1.0, 0.0, 0.0]), torch.tensor([0.0, 1.0, 0.0])):
+        assert float(lm_blind_residual(seen, blind).norm()) < 1e-6
+    base = torch.tensor([0.3, -0.2, 0.0])
+    moved = base + 2.0 * unread
+    assert torch.allclose(
+        lm_next_token_logits(base, readout), lm_next_token_logits(moved, readout)
+    )
+    uniform = lm_blind_projector(torch.eye(3))
+    assert uniform is not None
+    assert float(uniform.trace()) == pytest.approx(1.0)
+    ones = torch.ones(3) / 3.0**0.5
+    assert torch.allclose(lm_blind_residual(ones, uniform), ones, atol=1e-6)
+    filled = torch.tensor(
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0]],
+        dtype=torch.float32,
+    )
+    assert lm_blind_projector(filled, cut=0.0) is None
+    assert lm_blind_projector(filled, cut=1.0) is not None
+
+
+def test_dual_band_is_the_kl_plus_an_mse_the_kl_cannot_supply():
+    pos, neg, neu = _ungated_pair()
+    tgt_plus, tgt_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful")
+    pred_plus = neu + torch.tensor([0.8, 0.4])
+    pred_minus = neu + torch.tensor([-0.7, -0.3])
+    readout = torch.tensor([[1.0, 0.0], [-1.0, 0.0], [0.5, 0.0]], dtype=torch.float32)
+    blind = lm_blind_projector(readout)
+    assert blind is not None
+    kl_only = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        pole_mode="semantic_kl",
+        readout=readout,
+    )
+    dual = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        neu=neu,
+        pole_mode="dual_band",
+        readout=readout,
+        blind_projector=blind,
+    )
+    expected = lm_dual_band_pole_loss(
+        pred_plus,
+        pred_minus,
+        tgt_plus,
+        tgt_minus,
+        pred_plus_logits=lm_next_token_logits(pred_plus, readout),
+        pred_minus_logits=lm_next_token_logits(pred_minus, readout),
+        tgt_plus_logits=lm_next_token_logits(tgt_plus, readout),
+        tgt_minus_logits=lm_next_token_logits(tgt_minus, readout),
+        blind_projector=blind,
+    )
+    assert float(dual) == pytest.approx(float(expected), abs=1e-6)
+    assert float(dual) > float(kl_only)
+    assert float(
+        lm_train_loss(
+            pred_plus,
+            pred_minus,
+            tgt_plus,
+            tgt_minus,
+            neu=neu,
+            pole_mode="dual_band",
+            readout=readout,
+            blind_projector=None,
+        )
+    ) == pytest.approx(float(kl_only), abs=1e-6)
+    with pytest.raises(ValueError, match="semantic readout"):
+        lm_train_loss(
+            pred_plus, pred_minus, tgt_plus, tgt_minus, pole_mode="dual_band"
+        )
+
+
+def test_only_dual_band_has_a_gradient_on_the_blind_band():
+    pos, neg, neu = _ungated_pair()
+    tgt_plus, tgt_minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful")
+    readout = torch.tensor([[1.0, 0.0], [-1.0, 0.0], [0.5, 0.0]], dtype=torch.float32)
+    blind = lm_blind_projector(readout)
+    grads = {}
+    for mode in ("semantic_kl", "dual_band"):
+        delta = torch.zeros(2, requires_grad=True)
+        loss = lm_train_loss(
+            neu + delta,
+            neu - delta,
+            tgt_plus,
+            tgt_minus,
+            neu=neu,
+            pole_mode=mode,
+            readout=readout,
+            blind_projector=blind,
+        )
+        loss.backward()
+        grads[mode] = delta.grad.detach().clone()
+    assert float(grads["semantic_kl"][1].abs()) < 1e-8
+    assert float(grads["dual_band"][1].abs()) > 1e-3
+    assert float(grads["dual_band"][0]) == pytest.approx(
+        float(grads["semantic_kl"][0]), abs=1e-6
+    )
+
+
+def test_dual_band_flags_are_off_by_default():
+    args = parse_args(["--prompts_file", "prompts.yaml"])
+    assert args.pole_mode == "hidden"
+    assert args.lm_target == "v9"
+    assert args.blind_weight == pytest.approx(DUAL_BAND_WEIGHT)
+    assert args.blind_cut == pytest.approx(0.0)
+    opt_in = parse_args(
+        ["--prompts_file", "prompts.yaml", "--pole_mode", "dual_band"]
+    )
+    assert resolve_pole_mode(opt_in.pole_mode) == "dual_band"
+    with pytest.raises(ValueError, match="pole_mode must be one of"):
+        resolve_pole_mode("blind")
 
 
 def test_faithful_sub_e_needs_leak_and_slider():
