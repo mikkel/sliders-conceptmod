@@ -163,6 +163,7 @@ or −1 off-caption above the 0.05 suggestion.
 
 - [lm-plus-exam.md](lm-plus-exam.md) — plus-only cover / off-caption.
 - [lm-lyric-recall.md](lm-lyric-recall.md) — existing-metric OOD + `faithful_plus_neu` bug hunt.
+- [lm-roles.md](lm-roles.md) — role-split UNI (lyrics → neu, Vocal Details → pos).
 - [lm-lyric-hold.md](lm-lyric-hold.md) — grit lyrics vs gender_move scoreboard.
 - [lm-pair-exam.md](lm-pair-exam.md) — bipolar continuation gates.
 - [lm-even-leftover.md](lm-even-leftover.md) — leftover-sheet `leak_frac`.

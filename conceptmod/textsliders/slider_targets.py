@@ -43,8 +43,11 @@ Formulas are copied from:
   prefix (not encode(pos) prefix), scale 0 → ``h0``. That pins Vocal
   Details too. ``--lm_target faithful_plus_neu_lyric`` is UNI plus a
   lyric-token hold: +1 lyric hiddens → encode(neu) yaml ``lyrics``
-  span only. Vocal Details / metadata stay free. No minus teacher.
-  Opt-in; default stays ``v9``.
+  span only. Vocal Details / metadata stay free. ``--lm_target
+  faithful_plus_neu_roles`` is UNI plus a role split: yaml lyric tokens
+  → encode(neu), Vocal Details / caption tokens → encode(pos) (so
+  woman can move on a neu listen), last → raw ``h+``, scale 0 →
+  ``h0``. No minus teacher. Opt-in; default stays ``v9``.
   ``--pole_mode dual_band`` is KL on the
   semantic band plus hidden MSE on the centered-readout blind band
   (``P_blind`` from SVD). Neither is the default.
@@ -685,6 +688,32 @@ def lm_faithful_plus_neu_lyric(
     )
 
 
+def lm_faithful_plus_neu_roles(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+) -> torch.Tensor:
+    """UNI role-split last-token teacher: still raw ``h+``.
+
+    ``--lm_target faithful_plus_neu_roles`` keeps the same last-token
+    + teacher as ``faithful_plus_neu``. Lyrics → encode(neu) and
+    Vocal Details → encode(pos) are sequence losses, not a different
+    last-hidden point. ``leak_dir`` / leftover-gate never apply.
+    """
+    return lm_faithful_plus_neu(
+        pos,
+        neg,
+        neu,
+        leak_dir,
+        slider_dir=slider_dir,
+        target_scale=target_scale,
+    )
+
+
 def lm_blend_guard(
     tgt_plus: torch.Tensor,
     tgt_minus: torch.Tensor,
@@ -1217,6 +1246,144 @@ def lm_plus_neu_lyric_loss(
     """
     last = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
     return last + float(lyric_weight) * F.mse_loss(pred_plus_lyric, tgt_neu_lyric)
+
+
+class RoleSpanError(ValueError):
+    """Required lyric or concept span is missing. Fail closed."""
+
+
+def lm_find_subsequence(haystack: Sequence[int], needle: Sequence[int]) -> int | None:
+    """First index of ``needle`` in ``haystack``, or None."""
+    ids = [int(x) for x in haystack]
+    pat = [int(x) for x in needle]
+    if not pat or len(pat) > len(ids):
+        return None
+    last = len(ids) - len(pat)
+    for start in range(last + 1):
+        if ids[start : start + len(pat)] == pat:
+            return start
+    return None
+
+
+def lm_role_span_bounds(
+    token_ids: Sequence[int],
+    *,
+    lyrics_start_id: int | None,
+    lyrics_end_id: int | None,
+    caption_start_id: int | None,
+    caption_end_id: int | None,
+    vocal_details_ids: Sequence[int] | None = None,
+    arrangement_ids: Sequence[int] | None = None,
+) -> dict[str, tuple[int, int] | str]:
+    """Lyric and concept ``[start, end)`` the tokenizer can actually locate.
+
+    Lyrics are the exclusive span between ``<|lyrics_start|>`` and
+    ``<|lyrics_end|>``. Concept prefers Vocal Details (after the heading,
+    until Arrangement or ``<|caption_end|>``) because woman lives there
+    on gender-v4. If that heading is not a unique token run, concept is
+    the exclusive caption span between ``<|caption_start|>`` and
+    ``<|caption_end|>``. Fail closed when a required span is empty.
+    """
+    ids = [int(x) for x in token_ids]
+    if lyrics_start_id is None or lyrics_end_id is None:
+        raise RoleSpanError("lyrics special tokens are required")
+    if caption_start_id is None or caption_end_id is None:
+        raise RoleSpanError("caption special tokens are required")
+    try:
+        lyric_lo = ids.index(int(lyrics_start_id)) + 1
+        lyric_hi = ids.index(int(lyrics_end_id))
+    except ValueError as exc:
+        raise RoleSpanError("lyrics span markers are missing") from exc
+    if lyric_hi < lyric_lo:
+        raise RoleSpanError("lyrics end precedes lyrics start")
+    if lyric_hi <= lyric_lo:
+        raise RoleSpanError("lyrics span is empty")
+    try:
+        cap_lo = ids.index(int(caption_start_id)) + 1
+        cap_hi = ids.index(int(caption_end_id))
+    except ValueError as exc:
+        raise RoleSpanError("caption span markers are missing") from exc
+    if cap_hi <= cap_lo:
+        raise RoleSpanError("caption span is empty")
+
+    concept_lo, concept_hi = cap_lo, cap_hi
+    source = "caption"
+    heading = list(vocal_details_ids or ())
+    if heading:
+        found = lm_find_subsequence(ids[cap_lo:cap_hi], heading)
+        if found is not None:
+            concept_lo = cap_lo + found + len(heading)
+            stop = cap_hi
+            arr = list(arrangement_ids or ())
+            if arr:
+                arr_at = lm_find_subsequence(ids[concept_lo:cap_hi], arr)
+                if arr_at is not None:
+                    stop = concept_lo + arr_at
+            if stop > concept_lo:
+                concept_hi = stop
+                source = "vocal_details"
+
+    if concept_hi <= concept_lo:
+        raise RoleSpanError("concept span is empty")
+    return {
+        "lyric": (int(lyric_lo), int(lyric_hi)),
+        "concept": (int(concept_lo), int(concept_hi)),
+        "source": source,
+    }
+
+
+def lm_gather_span(hidden: torch.Tensor, start: int, end: int) -> torch.Tensor:
+    """Slice ``[start, end)`` from a ``[T, H]`` or ``[B, T, H]`` hidden."""
+    lo, hi = int(start), int(end)
+    if hi <= lo:
+        raise RoleSpanError("span is empty")
+    if hidden.dim() == 2:
+        return hidden[lo:hi]
+    if hidden.dim() == 3:
+        return hidden[:, lo:hi]
+    raise RoleSpanError(f"hidden must be [T, H] or [B, T, H], got {tuple(hidden.shape)}")
+
+
+def lm_span_mse(pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+    """Token-wise MSE when lengths match; pooled MSE when they do not.
+
+    Pos Vocal Details is longer than neu on gender-v4 (woman is extra
+    text). Lyrics stay token-wise: same yaml line, same length.
+    """
+    pred_flat = pred.reshape(-1, pred.shape[-1])
+    tgt_flat = tgt.reshape(-1, tgt.shape[-1])
+    if pred_flat.shape[0] == 0 or tgt_flat.shape[0] == 0:
+        raise RoleSpanError("span MSE got an empty role span")
+    if pred_flat.shape[0] == tgt_flat.shape[0]:
+        return F.mse_loss(pred_flat, tgt_flat)
+    return F.mse_loss(pred_flat.mean(0), tgt_flat.mean(0))
+
+
+def lm_plus_neu_roles_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    pred_zero: torch.Tensor,
+    tgt_zero: torch.Tensor,
+    pred_lyric: torch.Tensor,
+    tgt_neu_lyric: torch.Tensor,
+    pred_concept: torch.Tensor,
+    tgt_pos_concept: torch.Tensor,
+    *,
+    lyric_weight: float = 1.0,
+    concept_weight: float = 1.0,
+) -> torch.Tensor:
+    """UNI + role split: lyrics → encode(neu), concept → encode(pos).
+
+    ``--lm_target faithful_plus_neu_roles``: ``MSE(last + → h+) +
+    MSE(last 0 → h0) + MSE(lyric + → encode(neu) lyrics) +
+    MSE(concept + → encode(pos) same role)``. No minus, no leftover-gate.
+    Last token stays raw ``h+``. Concept teacher is encode(pos) Vocal
+    Details (or the whole caption if that heading cannot be located).
+    """
+    last = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+    lyric = lm_span_mse(pred_lyric, tgt_neu_lyric)
+    concept = lm_span_mse(pred_concept, tgt_pos_concept)
+    return last + float(lyric_weight) * lyric + float(concept_weight) * concept
 
 
 def lm_project_last_delta_off_lyric(

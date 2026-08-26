@@ -175,7 +175,11 @@ hold (`--lm_target faithful_plus_neu_prefix`) is the grit / distortion /
 joy medicine — it also pins Vocal Details to the ungendered neu caption.
 Lyric-token hold (`--lm_target faithful_plus_neu_lyric`) holds only the
 yaml `lyrics` span so gender can still move. Those three sit on
-[docs/lm-lyric-hold.md](docs/lm-lyric-hold.md). Existing-metric OOD
+[docs/lm-lyric-hold.md](docs/lm-lyric-hold.md). Role-split UNI
+(`--lm_target faithful_plus_neu_roles`) pins yaml lyrics to encode(neu)
+and teaches Vocal Details / caption toward encode(pos) so woman can
+move on a neu listen; it is ranked on
+[docs/lm-roles.md](docs/lm-roles.md). Existing-metric OOD
 (sheet `lyric_mass` / continuation vs the lyric sheet) lives on
 [docs/lm-lyric-recall.md](docs/lm-lyric-recall.md). Default stays
 `--lm_target v9` / `--pole_mode hidden`.

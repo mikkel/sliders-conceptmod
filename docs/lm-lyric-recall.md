@@ -131,6 +131,7 @@ on [lm-lyric-hold.md](lm-lyric-hold.md). Default stays
 - [lm-plus-exam.md](lm-plus-exam.md) — plus-only cover / off-caption.
 - [lm-pair-exam.md](lm-pair-exam.md) — bipolar continuation / same_words / off_corpus / coherence.
 - [lm-sheet-goodhart.md](lm-sheet-goodhart.md) — sheet on-sheet / garble / lyric_mass.
+- [lm-roles.md](lm-roles.md) — role-split UNI (lyrics → neu, Vocal Details → pos).
 - [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — compiled bipolar board (not updated).
 
 ## How to run
