@@ -340,7 +340,8 @@ def exam_score(
     count. ``unused_e`` / the #22 sheet cells are other questions. A pair
     the recipe has no reading on is skipped, not a free 1.0. No live-pair
     reading at all is ``None`` (sort last). Pair-odd cos, ±1 collapse,
-    pole loss and ``p%`` / ``n%`` are not inputs.
+    pole loss, ``p%`` / ``n%``, and off-caption / same_words / coherence
+    are not inputs.
     """
     scores: list[float] = []
     for cell in EXAM_SCORE_PAIRS:
