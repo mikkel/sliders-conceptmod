@@ -163,6 +163,11 @@ board and the next card (`gender-lm-v19`: `--lm_target faithful
 `leak_frac` +0.105; the even leftover search
 ([docs/lm-even-leftover.md](docs/lm-even-leftover.md)) is
 `--lm_target faithful_even_blend` (opt-in, default untouched).
+Plus-only (`--lm_target faithful_plus`) trains leftover-gated `h+` and
+drops minus MSE; it lives on a separate scale
+([docs/lm-plus-exam.md](docs/lm-plus-exam.md)) and is not folded into
+`exam_score`, `leak_frac`, or the compiled bipolar board. Default stays
+`--lm_target v9` / `--pole_mode hidden`.
 
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.

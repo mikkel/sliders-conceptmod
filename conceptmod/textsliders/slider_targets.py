@@ -29,10 +29,14 @@ Formulas are copied from:
   ``--lm_target faithful_guard_e`` is the threshold-free sibling:
   subtract leftover ê only while the cleaned target stays nearer its
   own caption than the pair midpoint (``lm_blend_guard``). No
-  ``leak_*`` → raw poles. ``--lm_target faithful_even_blend`` leftover-
+  ``leak_*`` → raw poles.   ``--lm_target faithful_even_blend`` leftover-
   gates the odd part and subtracts ``EVEN_BLEND_SCALE`` of leak-pair
-  even leftover (opt-in; default stays ``v9``). ``--pole_mode dual_band``
-  is KL on the
+  even leftover (opt-in; default stays ``v9``). ``--lm_target
+  faithful_plus`` trains the + pole only: teacher is leftover-gated
+  ``h+`` (raw pos when leftover ê is unused or undeclared). No pair-odd,
+  no ``h0 ± a``, no minus MSE. Inference may still expose a −1 fader;
+  that fader is unconstrained. Opt-in; default stays ``v9``.
+  ``--pole_mode dual_band`` is KL on the
   semantic band plus hidden MSE on the centered-readout blind band
   (``P_blind`` from SVD). Neither is the default.
   ``--lm_target v9_project`` is the old slider-level project+hold
@@ -562,6 +566,38 @@ def lm_faithful_sub_e_if_unused(
     )
 
 
+def lm_faithful_plus(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+    unused: bool | None = None,
+    floor: float = UNUSED_E_OVERLAP_MAX,
+) -> torch.Tensor:
+    """Plus-only teacher: leftover-gated ``h+``. Never a minus target.
+
+    Teacher is the + caption when no leftover ê is unused. When ``leak_*``
+    exists and leftover ê is unused, the + teacher is the + half of
+    ``lm_faithful_sub_e`` — leftover-gate on the + side only. Pair
+    geometry may still read ``neg`` to decide the gate; the minus caption
+    is not a teacher. No pair-odd, no ``h0 ± a``, no minus MSE.
+    """
+    plus, _minus = lm_faithful_sub_e_if_unused(
+        pos,
+        neg,
+        neu,
+        leak_dir,
+        slider_dir=slider_dir,
+        target_scale=target_scale,
+        unused=unused,
+        floor=floor,
+    )
+    return plus
+
+
 def lm_blend_guard(
     tgt_plus: torch.Tensor,
     tgt_minus: torch.Tensor,
@@ -1020,6 +1056,25 @@ def leftover_bipolar(d_plus: torch.Tensor, d_minus: torch.Tensor) -> dict[str, f
     }
 
 
+def lm_plus_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    *,
+    hold: torch.Tensor | None = None,
+    hold_weight: float = 0.0,
+) -> torch.Tensor:
+    """Plus-only hidden MSE. No minus term, no pair-odd, no ``h0 ± a``.
+
+    ``--lm_target faithful_plus``: student +1 fits leftover-gated ``h+``.
+    Inference may still expose a −1 fader; this loss does not teach it.
+    """
+    pole = F.mse_loss(pred_plus, tgt_plus)
+    hold_w = float(hold_weight)
+    if hold_w > 0.0 and hold is not None:
+        pole = pole + hold_w * hold
+    return pole
+
+
 def lm_slider_loss(
     pred_plus: torch.Tensor,
     pred_minus: torch.Tensor,
@@ -1031,13 +1086,17 @@ def lm_slider_loss(
     anchor_weight: float = 0.0,
     hold: torch.Tensor | None = None,
     hold_weight: float = 0.0,
+    plus_only: bool = False,
 ) -> torch.Tensor:
     """Pole MSE plus optional v9 anchor MSE and orthogonal hold.
 
     Endreg / planreg / collapse_weight are AR-only and are not expressed on
     the CPU field. Semantic-KL poles are ``lm_semantic_pole_loss``; they
     need a readout, which ``analysis/slider2d/sheet.py`` supplies.
+    ``plus_only`` drops the minus MSE (``faithful_plus``).
     """
+    if plus_only:
+        return lm_plus_loss(pred_plus, tgt_plus, hold=hold, hold_weight=hold_weight)
     pole = F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_minus, tgt_minus)
     weight = float(anchor_weight)
     if weight > 0.0 and anchor_plus is not None and anchor_minus is not None:
