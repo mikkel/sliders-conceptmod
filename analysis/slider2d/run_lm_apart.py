@@ -223,7 +223,7 @@ def write_md(
         )
     lines += [
         "",
-        "![leak_frac and exam_divergent vs weight](sweep.png)",
+        "![leak_frac and exam_divergent vs weight](lm-student-apart/sweep.png)",
         "",
         "## What each kind does",
         "",
