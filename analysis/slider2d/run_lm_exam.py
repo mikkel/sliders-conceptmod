@@ -18,6 +18,7 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from analysis.slider2d.exam import (
+    BLIND_CUT,
     CELL_IS,
     CELLS,
     EXAM_COHERENCE,
@@ -30,6 +31,7 @@ from analysis.slider2d.exam import (
     LIVE_EXAM,
     LIVE_PAIR_COS,
     LIVE_ROW,
+    blind_band_sweep,
     divergence_sweep,
     exam_table,
     factorial_table,
@@ -200,6 +202,7 @@ def _new_technique_lines(blob: dict) -> list[str]:
     guard = blob["guard"]
     factorial = blob["factorial"]
     spread = blob["seed_spread"]
+    blind = blob["blind_band_sweep"]
     by_arm = {(r["target"], r["pole_mode"]): r for r in factorial}
     divergent = next(r for r in guard if r["cell"] == "divergent")
     leftover = next(r for r in guard if r["cell"] == "unused_e")
@@ -322,6 +325,55 @@ def _new_technique_lines(blob: dict) -> list[str]:
         "That is the hypothesis this cell was pointed at, and both halves of it",
         "survive: real caption poles **and** the dimensions one scored token",
         "cannot see. Neither alone tops both pairs.",
+        "",
+        "### When the blind band is faint rather than absent",
+        "",
+        "Everywhere else in this cell the delivery block is a zero column, so",
+        "the readout has a true null space and `--blind_cut 0` finds it. A live",
+        "`lm_head` band is not that tidy: it reads almost every direction a",
+        "little. `blind_seen` walks from the caricature to that case, giving the",
+        "axis adjectives a small weight on the delivery block.",
+        "",
+        "| blind_seen | smallest rel. singular value | exact null space | "
+        f"blind dims at cut 0 | at cut {BLIND_CUT} | KL swing | "
+        f"dual swing, cut 0 | dual swing, cut {BLIND_CUT} |",
+        "|---:|---:|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in blind:
+        lines.append(
+            f"| {row['blind_seen']:.2f} | {row['smallest_rel_sv']:.4f} | "
+            f"{'yes' if row['exact_null_space'] else 'no'} | "
+            f"{row['blind_dims_cut0']} | {row['blind_dims_cut']} | "
+            f"{row['kl_swing']:+.3f} | {row['dual_cut0_swing']:+.3f} | "
+            f"{row['dual_cut_swing']:+.3f} |"
+        )
+    faint = next((r for r in blind if not r["exact_null_space"]), None)
+    lines += [
+        "",
+        "The load-bearing column is *dual swing at cut 0*. The moment the",
+        "column stops being exactly zero there is no exact null space,",
+        "`lm_blind_projector` returns `None`, and the loss is **exactly**",
+        "`semantic_kl` — same number, same failure. The flag is not magic.",
+    ]
+    if faint is not None:
+        lines += [
+            f"At `blind_seen = {faint['blind_seen']:.2f}` the direction's own",
+            f"relative singular value is {faint['smallest_rel_sv']:.4f}: plain KL",
+            f"gets partway there ({faint['kl_swing']:+.3f} swing,",
+            f"{_f(faint['kl_invisible_kept'], '.2f')} of the blind content) and",
+            "still fails, `--blind_cut 0` gets exactly the same",
+            f"{faint['dual_cut0_swing']:+.3f}, and a cut above that singular value",
+            f"recovers the whole block ({faint['dual_cut_swing']:+.3f} swing,",
+            f"{_f(faint['dual_cut_invisible_kept'], '.2f')}).",
+        ]
+    lines += [
+        "",
+        "So the live instruction is not \"turn on `dual_band`\". It is: read the",
+        "blind-band width the run prints, and if it is 0 raise `--blind_cut`",
+        "until it is not — a 0 there means the mode is plain `semantic_kl` and",
+        "nothing was added. This is also the cell's sharpest caveat: which",
+        "cut a real semantic band needs is a property of that band, and this",
+        "fixture cannot tell you the number.",
         "",
         "### How sharp is a 1.000",
         "",
@@ -752,6 +804,7 @@ def main(argv: list[str] | None = None) -> int:
         "guard": guard_table(),
         "guard_uniform": guard_is_uniform(),
         "factorial": factorial_table(steps=args.steps, seed=args.seed),
+        "blind_band_sweep": blind_band_sweep(steps=args.steps, seed=args.seed),
         "seed_spread": seed_spread(steps=args.steps),
         "live_default_unchanged": True,
     }

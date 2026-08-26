@@ -197,8 +197,8 @@ Every recipe passes here, and the leak column is why the cell is
 still on the board. The rows that aim at a raw pole carry the
 unpinned attribute with them —
 `pair_odd_midpoint` +0.227, `faithful_raw` +0.228, `semantic_kl_midpoint` +0.227, `semantic_kl_poles` +0.227, `dual_band_poles` +0.227, `dual_band_midpoint` +0.227 —
-and the rows that take the declared ê out (including the guarded
-ones, because on *this* pair the guard admits it) carry
+and the rows that subtract or hold the declared ê (including the
+guarded ones, because on *this* pair the guard admits it) carry
 `faithful_guard_e` +0.000, `dual_band_guard_e` -0.000, `hold_e_perp_l8` +0.005, `pair_odd_sub_e` +0.000, `faithful_sub_e` +0.000, `semantic_kl_sub_e` +0.000.
 Those are the same numbers the #22 sheet cell reports, from a
 different readout. Leak is logged here and **scored there**:
@@ -380,6 +380,41 @@ MSE).
 That is the hypothesis this cell was pointed at, and both halves of it
 survive: real caption poles **and** the dimensions one scored token
 cannot see. Neither alone tops both pairs.
+
+### When the blind band is faint rather than absent
+
+Everywhere else in this cell the delivery block is a zero column, so
+the readout has a true null space and `--blind_cut 0` finds it. A live
+`lm_head` band is not that tidy: it reads almost every direction a
+little. `blind_seen` walks from the caricature to that case, giving the
+axis adjectives a small weight on the delivery block.
+
+| blind_seen | smallest rel. singular value | exact null space | blind dims at cut 0 | at cut 0.15 | KL swing | dual swing, cut 0 | dual swing, cut 0.15 |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 0.00 | 0.0000 | yes | 1 | 1 | +0.387 | +0.994 | +0.994 |
+| 0.02 | 0.0071 | no | 0 | 1 | +0.624 | +0.624 | +0.994 |
+| 0.05 | 0.0179 | no | 0 | 1 | +0.615 | +0.615 | +0.994 |
+| 0.10 | 0.0357 | no | 0 | 1 | +0.780 | +0.780 | +1.036 |
+
+The load-bearing column is *dual swing at cut 0*. The moment the
+column stops being exactly zero there is no exact null space,
+`lm_blind_projector` returns `None`, and the loss is **exactly**
+`semantic_kl` — same number, same failure. The flag is not magic.
+At `blind_seen = 0.02` the direction's own
+relative singular value is 0.0071: plain KL
+gets partway there (+0.624 swing,
+0.11 of the blind content) and
+still fails, `--blind_cut 0` gets exactly the same
++0.624, and a cut above that singular value
+recovers the whole block (+0.994 swing,
+1.00).
+
+So the live instruction is not "turn on `dual_band`". It is: read the
+blind-band width the run prints, and if it is 0 raise `--blind_cut`
+until it is not — a 0 there means the mode is plain `semantic_kl` and
+nothing was added. This is also the cell's sharpest caveat: which
+cut a real semantic band needs is a property of that band, and this
+fixture cannot tell you the number.
 
 ### How sharp is a 1.000
 

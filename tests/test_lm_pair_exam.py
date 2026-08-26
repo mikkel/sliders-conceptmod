@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from analysis.slider2d.exam import (
+    BLIND_CUT,
     CELLS,
     EXAM_COHERENCE,
     EXAM_MATCH_KEPT,
@@ -21,6 +22,7 @@ from analysis.slider2d.exam import (
     LIVE_EXAM,
     LIVE_PAIR_COS,
     LIVE_ROW,
+    blind_band_sweep,
     close_field,
     divergence_sweep,
     divergent_field,
@@ -479,6 +481,27 @@ def test_the_factorial_shows_both_halves_are_necessary():
     assert caption_mse["both"] is True
     assert caption_dual["exam_score"] > caption_kl["exam_score"]
     assert caption_dual["exam_score"] > midpoint_dual["exam_score"]
+
+
+def test_dual_band_is_not_magic_when_the_blind_band_is_only_faint():
+    """The live caveat: with no exact null space, cut 0 *is* plain KL."""
+    sweep = blind_band_sweep(steps=200)
+    caricature, *faint = sweep
+    assert caricature["exact_null_space"] is True
+    assert caricature["blind_dims_cut0"] == 1
+    assert caricature["dual_cut0_pass"] is True
+    for row in faint:
+        # No exact null space, so cut 0 finds nothing and the loss is the KL
+        # itself — same swing to three places, not merely a similar one.
+        assert row["exact_null_space"] is False
+        assert row["blind_dims_cut0"] == 0
+        assert row["dual_cut0_swing"] == pytest.approx(row["kl_swing"], abs=1e-6)
+        # A cut above the direction's own relative singular value recovers it.
+        assert row["smallest_rel_sv"] < BLIND_CUT
+        assert row["blind_dims_cut"] == 1
+        assert row["dual_cut_pass"] is True
+        assert row["dual_cut_swing"] > row["dual_cut0_swing"]
+        assert row["dual_cut_invisible_kept"] == pytest.approx(1.0, abs=0.05)
 
 
 def test_the_exam_readout_really_has_a_band_the_kl_cannot_see():

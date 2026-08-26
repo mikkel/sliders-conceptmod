@@ -364,6 +364,14 @@ class PairField:
     row_scales: tuple[float, ...] = (1.0, 0.92, 1.08)
     gain: float = 2.5
     sheet_p: float = 0.90
+    # How much of the delivery block the vocabulary reads *at this position*.
+    # 0 is the caricature: an exact zero column, so the readout has a true
+    # null space. A live ``lm_head`` band is not that tidy — it reads almost
+    # every direction a little, and "invisible to a next-token KL" is really
+    # "read so weakly the gradient is useless". A small non-zero value is
+    # that case, and it is what ``lm_blind_projector``'s spectral ``cut``
+    # exists for.
+    blind_seen: float = 0.00
     # Rollout: how much of the emitted token rides forward, how much of the
     # delivery block becomes readable per step, and how long we listen.
     carry: float = 0.60
@@ -547,6 +555,14 @@ class PairField:
         weight[7, 0], weight[7, 3] = -1.30, -1.50  # garble_lo
         for r in range(int(self.rows)):
             weight[8 + r, 6 + r] = 1.20
+        faint = float(self.blind_seen)
+        if faint != 0.0:
+            # The delivery block is read, faintly and asymmetrically, so the
+            # column is no longer exactly zero and the head has no exact null
+            # space. The axis adjectives are what pick it up, the way a vocal
+            # detail nudges the first semantic code without deciding it.
+            weight[0, 4] = faint
+            weight[1, 4] = -faint
         return Readout(tuple(tokens), weight, gain=float(self.gain))
 
     def transition(self) -> torch.Tensor:
@@ -1745,6 +1761,75 @@ def factorial_table(*, steps: int = 400, seed: int = 0) -> list[dict]:
         row["exam_score"] = worst
         row["both"] = bool(row["divergent_pass"] and row["close_pass"])
         out.append(row)
+    return out
+
+
+BLIND_SEEN_GRID = (0.0, 0.02, 0.05, 0.10)
+BLIND_CUT = 0.15
+
+
+def blind_band_sweep(
+    grid: tuple[float, ...] = BLIND_SEEN_GRID,
+    *,
+    cut: float = BLIND_CUT,
+    steps: int = 400,
+    seed: int = 0,
+) -> list[dict]:
+    """Does ``dual_band`` survive a readout with no exact null space?
+
+    The rest of this cell gives the delivery block a zero column, so the
+    head has a true null space and ``cut = 0`` finds it. A live ``lm_head``
+    band is not that tidy: it reads almost every direction a little, and
+    "invisible to a next-token KL" really means "read so weakly that the
+    gradient is useless". ``blind_seen`` walks from the caricature to that
+    case.
+
+    The column that matters is ``dual_cut0``: as soon as the column is not
+    exactly zero, ``lm_blind_projector(cut=0)`` returns ``None`` and the
+    loss is *exactly* ``semantic_kl`` — the flag is not magic, and the
+    trainer warns instead of pretending. A cut above the direction's own
+    relative singular value recovers it.
+    """
+    out = []
+    for seen in grid:
+        field = close_field(blind_seen=float(seen), seed=seed)
+        head = field.readout()
+        weight = head.weight
+        centered = weight - weight.mean(dim=0, keepdim=True)
+        sing = torch.linalg.svdvals(centered)
+        smallest = float((sing / sing.max()).min())
+        zero_cut = lm_blind_projector(weight, cut=0.0)
+        wide_cut = lm_blind_projector(weight, cut=float(cut))
+
+        def scored(**kwargs) -> dict:
+            return score_exam(
+                "sweep", field, teacher="faithful", steps=steps, seed=seed, **kwargs
+            )
+
+        kl = scored(pole_mode="semantic_kl")
+        zero = scored(pole_mode="dual_band", blind_cut=0.0)
+        wide = scored(pole_mode="dual_band", blind_cut=float(cut))
+        out.append(
+            {
+                "blind_seen": float(seen),
+                "smallest_rel_sv": smallest,
+                "exact_null_space": bool(head.null_dims()),
+                "blind_dims_cut0": 0 if zero_cut is None else int(
+                    round(float(zero_cut.trace()))
+                ),
+                "blind_dims_cut": 0 if wide_cut is None else int(
+                    round(float(wide_cut.trace()))
+                ),
+                "kl_swing": kl["roll_swing_kept"],
+                "kl_invisible_kept": kl["invisible_kept"],
+                "kl_pass": kl["pass"],
+                "dual_cut0_swing": zero["roll_swing_kept"],
+                "dual_cut0_pass": zero["pass"],
+                "dual_cut_swing": wide["roll_swing_kept"],
+                "dual_cut_invisible_kept": wide["invisible_kept"],
+                "dual_cut_pass": wide["pass"],
+            }
+        )
     return out
 
 

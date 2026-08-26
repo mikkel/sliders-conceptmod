@@ -2867,6 +2867,68 @@
       "both": false
     }
   ],
+  "blind_band_sweep": [
+    {
+      "blind_seen": 0.0,
+      "smallest_rel_sv": 5.330243357803965e-09,
+      "exact_null_space": true,
+      "blind_dims_cut0": 1,
+      "blind_dims_cut": 1,
+      "kl_swing": 0.3872832326960473,
+      "kl_invisible_kept": 0.0,
+      "kl_pass": false,
+      "dual_cut0_swing": 0.9942196421450766,
+      "dual_cut0_pass": true,
+      "dual_cut_swing": 0.9942196421450766,
+      "dual_cut_invisible_kept": 1.0000003576278687,
+      "dual_cut_pass": true
+    },
+    {
+      "blind_seen": 0.02,
+      "smallest_rel_sv": 0.007146760355681181,
+      "exact_null_space": false,
+      "blind_dims_cut0": 0,
+      "blind_dims_cut": 1,
+      "kl_swing": 0.6242774497190017,
+      "kl_invisible_kept": 0.11242464929819107,
+      "kl_pass": false,
+      "dual_cut0_swing": 0.6242774497190017,
+      "dual_cut0_pass": false,
+      "dual_cut_swing": 0.9942196421450766,
+      "dual_cut_invisible_kept": 1.0000003576278687,
+      "dual_cut_pass": true
+    },
+    {
+      "blind_seen": 0.05,
+      "smallest_rel_sv": 0.01786431483924389,
+      "exact_null_space": false,
+      "blind_dims_cut0": 0,
+      "blind_dims_cut": 1,
+      "kl_swing": 0.6149425219500595,
+      "kl_invisible_kept": 0.1937747746706009,
+      "kl_pass": false,
+      "dual_cut0_swing": 0.6149425219500595,
+      "dual_cut0_pass": false,
+      "dual_cut_swing": 0.9942528625921522,
+      "dual_cut_invisible_kept": 1.0000003576278687,
+      "dual_cut_pass": true
+    },
+    {
+      "blind_seen": 0.1,
+      "smallest_rel_sv": 0.035710159689188004,
+      "exact_null_space": false,
+      "blind_dims_cut0": 0,
+      "blind_dims_cut": 1,
+      "kl_swing": 0.7797618958503403,
+      "kl_invisible_kept": 0.20982031524181366,
+      "kl_pass": true,
+      "dual_cut0_swing": 0.7797618958503403,
+      "dual_cut0_pass": true,
+      "dual_cut_swing": 1.035714273877551,
+      "dual_cut_invisible_kept": 1.0000004768371582,
+      "dual_cut_pass": true
+    }
+  ],
   "seed_spread": [
     {
       "recipe": "faithful_raw",
