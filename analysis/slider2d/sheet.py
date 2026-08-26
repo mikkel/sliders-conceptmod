@@ -78,6 +78,7 @@ from conceptmod.textsliders.slider_targets import (
     leftover_bipolar,
     lm_axis_hold,
     lm_blind_projector,
+    lm_caption_odd_margin,
     lm_dual_band_pole_loss,
     lm_faithful_guard_e,
     lm_faithful_sub_e_if_unused,
@@ -607,6 +608,7 @@ TEACHERS = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "caption_odd_margin",
 )
 POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_null", "dual_band")
 
@@ -663,6 +665,10 @@ def teacher_points(
         if leak_dir is None:
             return pos, neg
         return lm_faithful_guard_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
+    if mode == "caption_odd_margin":
+        return lm_caption_odd_margin(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u()
+        )
     raise ValueError(f"teacher must be one of {TEACHERS}, got {teacher!r}")
 
 
@@ -973,6 +979,14 @@ def gender_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             seed=seed,
         ),
         score_sheet(
+            "caption_odd_margin",
+            field,
+            pole_mode="hidden",
+            teacher="caption_odd_margin",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
             "dual_band_poles",
             field,
             pole_mode="dual_band",
@@ -1079,6 +1093,15 @@ def leaky_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             field,
             pole_mode="hidden",
             teacher="faithful_guard_e",
+            leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "caption_odd_margin",
+            field,
+            pole_mode="hidden",
+            teacher="caption_odd_margin",
             leak_dir=e,
             steps=steps,
             seed=seed,

@@ -352,6 +352,7 @@ def test_the_live_default_is_still_v9_on_hidden_mse():
     assert "semantic_kl" in POLE_MODES
     assert "faithful_sub_e_if_unused" in LM_RECIPES
     assert "faithful_guard_e" in LM_RECIPES
+    assert "caption_odd_margin" in LM_RECIPES
     assert "semantic_kl_null" in POLE_MODES
     assert "hidden_kl" in POLE_MODES
     assert "dual_band" in POLE_MODES
@@ -480,6 +481,17 @@ def test_faithful_guard_e_has_a_real_pair_exam_reading():
     assert row["cells"]["sheet_leftover"] is True
     assert row["cells"]["sheet_gender"] is True
     assert row["id"] != "faithful_sub_e_if_unused"
+
+
+def test_caption_odd_margin_is_the_negative_leak_train_hit():
+    row = by_id()["caption_odd_margin"]
+    assert row["cells"]["exam_divergent"] is True
+    assert row["cells"]["exam_close"] is True
+    assert row["leftover_leak"] == pytest.approx(0.0, abs=0.01)
+    assert row["leak_frac"] < 0.0
+    assert row["compiled"] == WORKS
+    assert by_id()["faithful_sub_e_if_unused"]["leak_frac"] > 0.0
+    assert by_id()["faithful_guard_e"]["leak_frac"] > 0.0
 
 
 def test_dual_band_rows_have_real_pair_exam_readings():

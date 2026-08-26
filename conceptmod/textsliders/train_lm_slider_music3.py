@@ -18,7 +18,10 @@ pair-odd minus ``ê_⊥ = ê−(ê·û)û`` (the λ→∞ hold limit, no stiffne
 poles (midpoint stays ½(h++h−)); ``--lm_target faithful_sub_e_if_unused``
 subtracts leftover ê only when unused. ``--lm_target faithful_guard_e``
 subtracts leftover ê only while the cleaned target stays nearer its
-own caption than the pair midpoint. ``--pole_mode semantic_kl`` is
+own caption than the pair midpoint. ``--lm_target caption_odd_margin``
+also uses the unused/restated and blend guards, keeps divergent poles as
+captions, and caps close/unused common motion at 0.9× odd motion.
+``--pole_mode semantic_kl`` is
 next-token KL on the semantic band. ``--pole_mode semantic_kl_null``
 (aliases ``semantic_kl_plus_hidden``, ``semantic_kl_pin``) adds hidden
 MSE on ``ker(lm_head)``. ``--pole_mode hidden_kl`` is full hidden MSE
@@ -79,6 +82,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_axis_hold,
     lm_blend_guard,
     lm_blind_projector,
+    lm_caption_odd_margin,
     lm_dual_band_pole_loss,
     lm_e_overlap_a,
     lm_e_unused_decision,
@@ -111,6 +115,7 @@ LM_RECIPES = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "caption_odd_margin",
 )
 # Canonical live pole modes. ``semantic_kl_plus_hidden`` (#32) and
 # ``semantic_kl_pin`` (#29) are aliases of ``semantic_kl_null`` (#33) —
@@ -134,7 +139,10 @@ NEEDS_READOUT = frozenset(
 )
 PROJECT_RECIPES = frozenset({"v9_project", "v9_always"})
 V9_RECIPES = frozenset({"v9", "v9_project", "v9_always"})
-SUB_E_RECIPES = frozenset({"pair_odd_sub_e", "faithful_sub_e", "faithful_guard_e"})
+SUB_E_RECIPES = frozenset(
+    {"pair_odd_sub_e", "faithful_sub_e", "faithful_guard_e", "caption_odd_margin"}
+)
+OPTIONAL_E_RECIPES = frozenset({"faithful_guard_e", "caption_odd_margin"})
 GATED_SUB_E_RECIPES = frozenset({"faithful_sub_e_if_unused"})
 PAIR_ODD_RECIPES = frozenset({"pair_odd_sub_e"})
 TARGET_REPLACE = ["Qwen3Attention"]
@@ -160,7 +168,10 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     subtracts leftover ê only when ``|ê̂_⊥ · â|`` is below the unused
     floor; otherwise it keeps the raw poles. ``faithful_guard_e``
     subtracts leftover ê only while the cleaned target stays nearer
-    its own caption than the pair midpoint.
+    its own caption than the pair midpoint. ``caption_odd_margin`` keeps
+    restated-track pairs on the raw captions and gives close/unused pairs
+    an explicit negative bipolar margin without dropping their common
+    caption component.
     """
     recipe = str(lm_target).strip().lower()
     if recipe not in LM_RECIPES:
@@ -366,6 +377,16 @@ def lm_train_targets(
             )
         plus, minus = lm_faithful_guard_e(
             pos, neg, neu, leak_dir, slider_dir=slider_dir, target_scale=target_scale
+        )
+        return plus, minus, None, None
+    if recipe == "caption_odd_margin":
+        plus, minus = lm_caption_odd_margin(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=slider_dir,
+            target_scale=target_scale,
         )
         return plus, minus, None, None
     if recipe in PROJECT_RECIPES:
@@ -773,7 +794,7 @@ def train(args: argparse.Namespace) -> Path:
             "the unused-attribute leak."
         )
     if recipe in SUB_E_RECIPES:
-        if leak_captions is None and recipe != "faithful_guard_e":
+        if leak_captions is None and recipe not in OPTIONAL_E_RECIPES:
             raise ValueError(
                 f"lm_target={recipe} needs a declared leftover leak axis: "
                 "--leak_positive / --leak_negative, or YAML leak_positive / "
@@ -781,12 +802,9 @@ def train(args: argparse.Namespace) -> Path:
                 "not a slider synonym."
             )
         if leak_captions is None:
-            # ``faithful_guard_e`` is one recipe for both pair types: a yaml
-            # with no leak_* is a guard with nothing to decide, and the
-            # teacher is the caption. gender-v4 runs here unchanged.
             print(
-                "lm_target=faithful_guard_e: no leak_* declared, so nothing to "
-                "subtract and the teacher is the raw poles"
+                f"lm_target={recipe}: no leak_* declared; using close-pair "
+                "caption geometry"
             )
         if axis_captions is None and leak_captions is not None:
             raise ValueError(
@@ -880,6 +898,11 @@ def train(args: argparse.Namespace) -> Path:
             hold_note = "teacher=raw poles or ê-cleaned poles if |ê̂_⊥·â| < unused floor"
         elif recipe == "faithful_guard_e":
             hold_note = "teacher=ê-cleaned poles if blend guard admits, else raw poles"
+        elif recipe == "caption_odd_margin":
+            hold_note = (
+                "teacher=raw poles when ê restates; otherwise cleaned caption-side "
+                "targets with ||common||≤0.9||odd||"
+            )
         else:
             hold_note = "hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd"
         print(
@@ -970,6 +993,12 @@ def train(args: argparse.Namespace) -> Path:
             print(
                 "faithful_guard_e: subtract leftover ê only while the cleaned "
                 "target stays nearer its caption than ½(h++h−); else raw poles"
+            )
+        elif recipe == "caption_odd_margin":
+            print(
+                "caption_odd_margin: raw caption when ê restates; otherwise "
+                "blend-guarded target with ||common||≤0.9||odd|| "
+                "(the retained common component is explicit, not a midpoint)"
             )
     if pole_mode == "semantic_kl":
         print("pole_mode=semantic_kl: next-token KL on the semantic band of lm_head")
@@ -1064,6 +1093,27 @@ def train(args: argparse.Namespace) -> Path:
                     )
             if encoded["align"] is not None:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
+        elif recipe == "caption_odd_margin":
+            tgt_plus, tgt_minus = lm_caption_odd_margin(
+                pos_tgt,
+                neg_tgt,
+                neu_ref,
+                row_leak_dir,
+                slider_dir=row_slider_dir,
+                target_scale=float(args.target_scale),
+            )
+            guard = lm_blend_guard(tgt_plus, tgt_minus, pos_tgt, neg_tgt)
+            exact = torch.allclose(tgt_plus, pos_tgt) and torch.allclose(tgt_minus, neg_tgt)
+            dropped = (
+                f" teacher=caption_odd_margin hold_ê=0 "
+                f"{'caption' if exact else 'odd-margin'} "
+                f"to_pole={guard['to_pole']:.3f} to_mid={guard['to_mid']:.3f}"
+            )
+            if row_leak_dir is not None:
+                overlap = lm_e_overlap_a(
+                    pos_tgt, neg_tgt, row_leak_dir, slider_dir=row_slider_dir
+                )
+                dropped += f" |ê̂_⊥·â|={float(overlap):.3f}"
         elif encoded["align"] is not None:
             dropped = f" odd·û/||odd||={encoded['align']:.3f}"
             if recipe in PROJECT_RECIPES and not should_project:
@@ -1427,7 +1477,11 @@ def parse_args(argv=None):
         "target must stay nearer the pole caption than ½(h++h−), which "
         "refuses on energy-v4 where ê restates the axis and keeps the "
         "caption instead. Safe with no leak_* declared (then it is "
-        "faithful). Not the default",
+        "faithful). caption_odd_margin: the same pre-step leftover/restated "
+        "and blend guards, then cap ||common|| at 0.9||odd|| on close/unused "
+        "pairs; divergent restated-track pairs remain exact captions. The "
+        "common caption component remains explicit (not a hidden midpoint). "
+        "Not the default",
     )
     p.add_argument(
         "--pole_mode",

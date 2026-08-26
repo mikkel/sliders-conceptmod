@@ -462,6 +462,41 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
             "`semantic_kl_poles` is the row the live exam is about: the "
             "energy win and the gender garble.",
         ]
+    criterion_ids = (
+        "caption_odd_margin",
+        "faithful_sub_e_if_unused",
+        "faithful_guard_e",
+        "faithful_raw",
+        "pair_odd_midpoint",
+        "hub",
+        "project_short_u",
+    )
+    criterion = {row["id"]: row for row in rows}
+    lines += [
+        "",
+        "## TRAIN search: divergent pass with negative leak_frac",
+        "",
+        "| recipe | exam_divergent | exam_close | leak_frac | leftover leak |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for recipe_id in criterion_ids:
+        row = criterion[recipe_id]
+        lines.append(
+            f"| `{recipe_id}` | {CELL_MARK[row['cells'].get('exam_divergent')]} | "
+            f"{CELL_MARK[row['cells'].get('exam_close')]} | "
+            f"{_fmt(row.get('leak_frac'), '+.3f')} | "
+            f"{_fmt(row.get('leftover_leak'), '+.3f')} |"
+        )
+    lines += [
+        "",
+        "`caption_odd_margin` is the hit. Before training, `|ê̂_⊥·â|` labels",
+        "the declared ê as leftover versus restated track, and `lm_blend_guard`",
+        "rejects any cleaned target nearer the pair midpoint than its caption.",
+        "A rejected divergent pair stays on the raw caption exactly. An admitted",
+        "close/unused pair keeps its odd component and an explicit common caption",
+        "component capped at `0.9||odd||`; it is a disclosed contraction toward",
+        "`h0±a`, not a midpoint renamed as a caption.",
+    ]
     lines += [
         "",
         f"**Fails:** {len(fails)} recipes — hub, hold-ê raw, short-û and rich-û "
@@ -536,6 +571,14 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "from that hybrid (centered SVD projector, not uncentered `ker(W)`).",
         "",
         "```bash",
+        "# scored hit: one target recipe for divergent and close/unused pairs",
+        "python conceptmod/textsliders/train_lm_slider_music3.py \\",
+        "  --name energy-lm-caption-odd-margin \\",
+        "  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \\",
+        "  --lm_target caption_odd_margin --pole_mode hidden \\",
+        "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
+        "  --no-early_stop --endreg_weight 1.0",
+        "",
         "# leftover gate: subtract ê only when unused",
         "python conceptmod/textsliders/train_lm_slider_music3.py \\",
         "  --name energy-lm-v19 \\",

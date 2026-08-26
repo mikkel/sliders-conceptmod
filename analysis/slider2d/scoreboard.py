@@ -135,6 +135,7 @@ SHEET_LEFTOVER = {
     "faithful_sub_e": "faithful_sub_e",
     "faithful_sub_e_if_unused": "faithful_sub_e",
     "faithful_guard_e": "faithful_guard_e",
+    "caption_odd_margin": "caption_odd_margin",
     "dual_band_poles": "dual_band_poles",
     "dual_band_guard_e": "dual_band_guard_e",
     "dual_band_midpoint": "dual_band_midpoint",
@@ -150,6 +151,7 @@ SHEET_GENDER = {
     "faithful_attrs": "v6_faithful",
     "faithful_sub_e_if_unused": "v6_faithful",
     "faithful_guard_e": "faithful_guard_e",
+    "caption_odd_margin": "caption_odd_margin",
     "dual_band_poles": "dual_band_poles",
     "dual_band_guard_e": "dual_band_guard_e",
     "dual_band_midpoint": "dual_band_midpoint",
@@ -179,6 +181,7 @@ RACE_RECIPES = frozenset(
         "hidden_kl_poles",
         "unrolled_kl",
         "faithful_guard_e",
+        "caption_odd_margin",
         "dual_band_poles",
         "dual_band_guard_e",
         "dual_band_midpoint",
@@ -1005,6 +1008,22 @@ def collect_scoreboard(
                 "nearer the pole caption than the pair midpoint "
                 "(lm_blend_guard). Refuses on energy-v4, where ê restates "
                 "the axis; accepts on a real leftover. No data fix."
+            ),
+        ),
+        _row(
+            "caption_odd_margin",
+            "caption-side odd margin",
+            exam=exam,
+            leftover=sheet_left("caption_odd_margin"),
+            gender=sheet_gen("caption_odd_margin"),
+            leftover_leak=sheet_left("caption_odd_margin").get("leak_tok"),
+            fixture="pair exam + sheet leftover/gender",
+            notes=(
+                "One hidden-MSE teacher. |ê̂_⊥·â| and the blend guard keep "
+                "energy-v4 on the raw caption poles when ê restates the track. "
+                "On close/unused pairs, remove admitted leftover ê and cap the "
+                "retained common caption component at 0.9||odd||. This is an "
+                "explicit contraction toward neu±a, not a renamed midpoint."
             ),
         ),
         _row(
