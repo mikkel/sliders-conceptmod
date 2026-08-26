@@ -1383,6 +1383,7 @@ def train(args: argparse.Namespace) -> Path:
         "seed": int(args.seed),
         "rows": len(row_data),
         "lm_target": recipe,
+        "even_blend_scale": float(args.even_blend_scale),
         "pole_mode": pole_mode,
         "symmetric": bool(args.symmetric),
         "hold_weight": hold_w,

@@ -615,6 +615,9 @@ def test_faithful_even_blend_is_wired_and_not_the_default():
     assert bare.lm_target == "v9"
     assert bare.pole_mode == "hidden"
     assert bare.even_blend_scale == EVEN_BLEND_SCALE
+    src = Path("conceptmod/textsliders/train_lm_slider_music3.py").read_text()
+    assert '"lm_target": recipe' in src
+    assert '"even_blend_scale": float(args.even_blend_scale)' in src
     pos, neg, neu = _ungated_pair()
     plus, minus, _, _ = lm_train_targets(
         pos, neg, neu, recipe="faithful_even_blend"
