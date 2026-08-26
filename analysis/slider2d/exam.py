@@ -90,8 +90,10 @@ from analysis.slider2d.field import cosine
 from analysis.slider2d.sheet import nucleus
 from conceptmod.textsliders.slider_targets import (
     DUAL_BAND_WEIGHT,
+    leftover_bipolar,
     lm_axis_hold,
     lm_blind_projector,
+    lm_caption_odd_margin,
     lm_dual_band_pole_loss,
     lm_faithful_guard_e,
     lm_faithful_sub_e,
@@ -663,6 +665,7 @@ TEACHERS = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "caption_odd_margin",
 )
 # Live race modes plus fixture-only ``unrolled_kl`` (no live --pole_mode).
 POLE_MODES = (
@@ -705,6 +708,10 @@ def teacher_points(
         )
     if mode == "faithful_guard_e" and leak_dir is None:
         return pos, neg
+    if mode == "caption_odd_margin":
+        return lm_caption_odd_margin(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u()
+        )
     if leak_dir is None:
         raise ValueError(f"{mode} needs a declared ê")
     if mode == "pair_odd_sub_e":
@@ -752,7 +759,7 @@ def target_geometry(
         "off_caption": to_pole,
         "to_mid": to_mid,
         "blend_teacher": bool(to_mid < to_pole),
-        "is_caption": str(teacher).strip().lower() == "faithful" or float(common_beta) == 1.0,
+        "is_caption": bool(torch.allclose(t_plus, pos) and torch.allclose(t_minus, neg)),
     }
 
 
@@ -1268,6 +1275,7 @@ def score_exam(
             # Live log columns. Logged, never gated.
             "pair_odd_cos": cosine(d_plus, a),
             "collapse": cosine(d_plus, d_minus),
+            **leftover_bipolar(d_plus, d_minus),
             "pole_cos": cosine(d_plus, pos - neu),
             "pperc": pperc,
             "nperc": nperc,
@@ -1425,6 +1433,10 @@ def recipes(field: PairField) -> list[tuple[str, dict]]:
         (
             "faithful_guard_e",
             {"pole_mode": "hidden", "teacher": "faithful_guard_e", "leak_dir": e},
+        ),
+        (
+            "caption_odd_margin",
+            {"pole_mode": "hidden", "teacher": "caption_odd_margin", "leak_dir": e},
         ),
         ("dual_band_poles", {"pole_mode": "dual_band", "teacher": "faithful"}),
         (

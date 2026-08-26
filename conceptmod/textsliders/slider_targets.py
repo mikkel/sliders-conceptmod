@@ -61,6 +61,14 @@ SLIDER_ALIGN_MIN = 0.50
 # those clusters (unused ~0.87, divergent ~0.78) and is not the gate.
 UNUSED_E_OVERLAP_MAX = 0.50
 
+# Caption-side odd margin.  After an unused ê is removed (or when no ê is
+# declared), cap the target's common displacement at 90% of its odd
+# displacement.  A perfect fit then has
+# cos(d+, d−) <= (0.90² - 1) / (0.90² + 1) = -0.105.  This is not the v9
+# midpoint: the common caption component remains, and the blend guard below
+# requires each target to stay nearer its own pole than the pair midpoint.
+CAPTION_ODD_COMMON_RATIO = 0.90
+
 # Weight on the blind-band term of ``lm_dual_band_pole_loss``. The pair-exam
 # cell is flat in this over 0.5 … 32 (six doublings), because the term's job
 # is to supply a gradient where the KL has none at all, not to outweigh it.
@@ -622,6 +630,82 @@ def lm_faithful_guard_e(
     if float(target_scale) != 1.0:
         raise ValueError("--target_scale is defined for symmetric targets only")
     return pos, neg
+
+
+def lm_caption_odd_margin(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+    common_ratio: float = CAPTION_ODD_COMMON_RATIO,
+    unused_floor: float = UNUSED_E_OVERLAP_MAX,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Caption-side teacher with an explicit negative bipolar margin.
+
+    The decision uses only the four declared captions before training:
+
+    1. If ê is declared, ``|ê̂_⊥·â|`` must identify it as leftover *and*
+       subtracting it must pass :func:`lm_blend_guard`. Otherwise ê restates
+       the track and the raw caption poles are returned unchanged.
+    2. On a close pair (no ê), or after a real leftover is removed, retain
+       the cleaned odd part ``a`` and cap the common caption displacement
+       ``c`` at ``common_ratio * ||a||``.
+    3. The final point must still be nearer its own caption than the pair
+       midpoint. If not, return the raw caption poles.
+
+    Thus the divergent energy-v4 pair stays *exactly* on its captions, while
+    close and unused-ê pairs become more odd than raw poles. The contraction
+    toward ``neu ± a`` is explicit; this is not a midpoint under another
+    name, and ``common_ratio > 0`` preserves caption-common content.
+    """
+    ratio = float(common_ratio)
+    if not 0.0 < ratio < 1.0:
+        raise ValueError(f"common_ratio must be in (0, 1), got {common_ratio!r}")
+
+    plus, minus = pos, neg
+    if leak_dir is not None:
+        if slider_dir is None:
+            raise ValueError(
+                "caption_odd_margin subtracts ê_⊥ = ê−(ê·û)û; "
+                "needs a declared slider_dir (do not subtract raw ê)"
+            )
+        unused, _overlap = lm_e_is_unused(
+            pos,
+            neg,
+            leak_dir,
+            slider_dir=slider_dir,
+            floor=unused_floor,
+        )
+        cleaned = lm_faithful_sub_e(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=slider_dir,
+            target_scale=target_scale,
+        )
+        if not unused or not lm_blend_guard(*cleaned, pos, neg)["admissible"]:
+            if float(target_scale) != 1.0:
+                raise ValueError("--target_scale is defined for symmetric targets only")
+            return pos, neg
+        plus, minus = cleaned
+
+    odd = 0.5 * (plus - minus)
+    common = 0.5 * (plus + minus) - neu
+    common_norm = common.norm()
+    if float(common_norm) > 1e-8:
+        cap = ratio * float(odd.norm()) / float(common_norm)
+        common = common * min(1.0, cap)
+    target_plus = neu + common + odd
+    target_minus = neu + common - odd
+    if not lm_blend_guard(target_plus, target_minus, pos, neg)["admissible"]:
+        if float(target_scale) != 1.0:
+            raise ValueError("--target_scale is defined for symmetric targets only")
+        return pos, neg
+    return target_plus, target_minus
 
 
 def lm_project_odd_axis(

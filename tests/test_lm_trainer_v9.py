@@ -15,6 +15,7 @@ import yaml
 from analysis.slider2d.field import E_SLIDER, Field2D
 from analysis.slider2d.mismatch import LIVE_GENDER_V1_ALIGN, MismatchField2D
 from conceptmod.textsliders.slider_targets import (
+    CAPTION_ODD_COMMON_RATIO,
     DUAL_BAND_WEIGHT,
     LEAK_HOLD_WEIGHT,
     UNUSED_E_OVERLAP_MAX,
@@ -24,6 +25,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_blend_guard,
     lm_blind_projector,
     lm_blind_residual,
+    lm_caption_odd_margin,
     lm_dual_band_pole_loss,
     lm_e_is_unused,
     lm_faithful_guard_e,
@@ -669,6 +671,40 @@ def test_faithful_guard_e_is_wired_and_needs_no_leak_axis():
     bare = parse_args(["--prompts_file", "prompts.yaml"])
     assert bare.lm_target == "v9"
     assert bare.pole_mode == "hidden"
+
+
+def test_caption_odd_margin_is_one_pre_step_recipe_for_both_pair_types():
+    pos, neg, neu, u, e = _divergent_pair()
+    divergent = lm_caption_odd_margin(pos, neg, neu, e, slider_dir=u)
+    assert torch.allclose(divergent[0], pos)
+    assert torch.allclose(divergent[1], neg)
+
+    pos2, neg2, neu2, u2, e2 = _leftover_pair()
+    plus, minus = lm_caption_odd_margin(pos2, neg2, neu2, e2, slider_dir=u2)
+    guard = lm_blend_guard(plus, minus, pos2, neg2)
+    assert guard["admissible"] is True
+    odd = 0.5 * (plus - minus)
+    common = 0.5 * (plus + minus) - neu2
+    assert float(common.norm()) <= CAPTION_ODD_COMMON_RATIO * float(odd.norm()) + 1e-6
+    d_plus, d_minus = plus - neu2, minus - neu2
+    assert float(d_plus @ d_minus) / float(d_plus.norm() * d_minus.norm()) < 0.0
+    held = lm_hold_dir(e2, slider_dir=u2, mode="slider")
+    assert abs(float(odd @ lm_unit(held))) < 1e-6
+
+    wired = lm_train_targets(
+        pos2,
+        neg2,
+        neu2,
+        recipe="caption_odd_margin",
+        slider_dir=u2,
+        leak_dir=e2,
+    )
+    assert torch.allclose(wired[0], plus) and torch.allclose(wired[1], minus)
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "caption_odd_margin"]
+    )
+    assert args.lm_target == "caption_odd_margin"
+    assert args.pole_mode == "hidden"
 
 
 def test_the_blind_band_is_what_a_next_token_kl_cannot_see():

@@ -19,6 +19,7 @@ if str(_REPO) not in sys.path:
 
 from analysis.slider2d.exam import LIVE_EXAM
 from analysis.slider2d.scoreboard import (
+    BIPOLAR_MIRROR_FLOOR,
     CELL_LABEL,
     CELL_ORDER,
     FAILS,
@@ -74,10 +75,11 @@ def _pairs_md(row: dict) -> str:
 
 
 TABLE_HEADER = (
-    "| recipe | exam_score | leftover leak | on-sheet | kept | off-sheet | argmax | "
+    "| recipe | exam_score | leftover leak | leak_frac *(log)* | same_dir *(log)* | "
+    "on-sheet | kept | off-sheet | argmax | "
     "swing | pair-odd cos *(log)* | ±1 *(log)* | intended cos | "
     "c+ | perc | rich-kept | compiled |\n"
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
 )
 
 
@@ -85,6 +87,8 @@ def _table_md(row: dict) -> str:
     return (
         f"| `{row['id']}` | {_fmt(row.get('exam_score'), '.3f')} | "
         f"{_fmt(row['leftover_leak'], '+.3f')} | "
+        f"{_fmt(row.get('leak_frac'), '+.3f')} | "
+        f"{_fmt(row.get('same_dir'), '.3f')} | "
         f"{_fmt(row['on_sheet'], '.3f')} | {_fmt(row['on_sheet_kept'], '.3f')} | "
         f"{_fmt(row['off_sheet'], '.3f')} | {_fmt(row['argmax_on_sheet'], '.2f')} | "
         f"{_fmt(row['swing_kept'], '.2f')} | {_fmt(row['pair_odd_cos'], '+.3f')} | "
@@ -190,6 +194,125 @@ def plot_exam_score(rows: list[dict], path: Path) -> None:
     plt.close(fig)
 
 
+def _hatch_race(bar, row: dict) -> None:
+    if row["id"] not in RACE_RECIPES:
+        return
+    bar.set_hatch("///")
+    bar.set_linewidth(1.8)
+    bar.set_edgecolor("#1a252f")
+
+
+def plot_leak_frac(rows: list[dict], path: Path) -> None:
+    """Horizontal leak_frac bars. Same recipe order as exam-score; race hatched."""
+    plotted = [r for r in rows if r.get("leak_frac") is not None]
+    scored = [r for r in plotted if r.get("exam_score") is not None]
+    scored = sorted(scored, key=lambda r: float(r["exam_score"]))
+    nulls = sorted(
+        [r for r in plotted if r.get("exam_score") is None],
+        key=lambda r: float(r["leak_frac"]),
+    )
+    plotted = nulls + scored
+    if not plotted:
+        return
+    height = max(4.8, 0.42 * len(plotted) + 1.6)
+    fig, ax = plt.subplots(figsize=(8.8, height))
+    y = list(range(len(plotted)))
+    colors = [VERDICT_COLOR.get(r["compiled"], "#7f8c8d") for r in plotted]
+    widths = [float(r["leak_frac"]) for r in plotted]
+    bars = ax.barh(y, widths, color=colors, height=0.62, zorder=3)
+    for bar, row, value in zip(bars, plotted, widths):
+        _hatch_race(bar, row)
+        if row["id"] in RACE_RECIPES:
+            ax.plot(
+                -1.12,
+                bar.get_y() + bar.get_height() / 2.0,
+                marker=">",
+                color="#1a252f",
+                markersize=7,
+                clip_on=False,
+                zorder=4,
+            )
+        side = 1 if value >= 0 else -1
+        ax.text(
+            value + 0.035 * side,
+            bar.get_y() + bar.get_height() / 2.0,
+            f"{value:+.3f}",
+            va="center",
+            ha="left" if value >= 0 else "right",
+            fontsize=7.4,
+        )
+    ax.axvline(
+        BIPOLAR_MIRROR_FLOOR,
+        color="#1a252f",
+        ls="--",
+        lw=1.0,
+        zorder=2,
+        label=f"bipolar-mirror floor ({BIPOLAR_MIRROR_FLOOR:.2f})",
+    )
+    ax.axvline(0.0, color="#7f8c8d", ls=":", lw=1.0, zorder=2, label="same-dir starts (0)")
+    ax.set_yticks(y)
+    ax.set_yticklabels([r["id"] for r in plotted], fontsize=8)
+    ax.set_xlim(-1.22, 1.22)
+    ax.set_xlabel("leak_frac = cos(d+, d−)  (leftover_bipolar; logged, never scored)")
+    ax.set_title("caption-pole even motion (leftover leak ≠ leak_frac; race rows hatched)")
+    ax.grid(axis="x", alpha=0.25)
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=VERDICT_COLOR[WORKS], label=WORKS),
+        plt.Rectangle((0, 0), 1, 1, color=VERDICT_COLOR[WORKS_SOME], label=WORKS_SOME),
+        plt.Rectangle((0, 0), 1, 1, color=VERDICT_COLOR[FAILS], label=FAILS),
+        plt.Rectangle((0, 0), 1, 1, facecolor="#7f8c8d", hatch="///", edgecolor="#1a252f", label="2026-08-25 race"),
+        plt.Line2D([0], [0], color="#1a252f", ls="--", label=f"bipolar-mirror floor ({BIPOLAR_MIRROR_FLOOR:.2f})"),
+        plt.Line2D([0], [0], color="#7f8c8d", ls=":", label="same-dir starts (0)"),
+    ]
+    ax.legend(handles=handles, fontsize=7.4, loc="lower right")
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+
+
+def plot_leftover_vs_leak_frac(rows: list[dict], path: Path) -> None:
+    """Optional scatter: unused-ê leftover leak vs caption-pole leak_frac."""
+    pts = [
+        r
+        for r in rows
+        if r.get("leak_frac") is not None and r.get("leftover_leak") is not None
+    ]
+    if not pts:
+        return
+    fig, ax = plt.subplots(figsize=(6.4, 5.0))
+    for verdict, color in VERDICT_COLOR.items():
+        group = [r for r in pts if r["compiled"] == verdict]
+        if not group:
+            continue
+        ax.scatter(
+            [float(r["leftover_leak"]) for r in group],
+            [float(r["leak_frac"]) for r in group],
+            c=color,
+            s=42,
+            label=verdict,
+            zorder=3,
+        )
+        for row in group:
+            ax.annotate(
+                row["id"],
+                (float(row["leftover_leak"]), float(row["leak_frac"])),
+                fontsize=6.0,
+                xytext=(4, 3),
+                textcoords="offset points",
+            )
+    ax.axhline(BIPOLAR_MIRROR_FLOOR, color="#1a252f", ls="--", lw=0.9)
+    ax.axhline(0.0, color="#7f8c8d", ls=":", lw=0.9)
+    ax.axvline(0.20, color="#7f8c8d", ls=":", lw=0.9)
+    ax.set_xlabel("leftover leak  (unused ê)")
+    ax.set_ylabel("leak_frac = cos(d+, d−)")
+    ax.set_title("leftover leak ≠ leak_frac")
+    ax.grid(alpha=0.25)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+
+
 def write_report(rows: list[dict], blob: dict, path: Path) -> None:
     gates = blob["gates"]
     live = blob["live_exam"]
@@ -273,6 +396,8 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         f"- ±1 collapse scored: `{gates['collapse_scored']}`",
         f"- pole loss scored: `{gates['pole_loss_scored']}`",
         f"- p% / n% scored: `{gates['perc_scored']}`",
+        f"- leak_frac scored: `{gates['leak_frac_scored']}`",
+        f"- same_dir scored: `{gates['same_dir_scored']}`",
         "",
         "A missing cell is `—`, not a free pass. On the sheet cells a missing",
         "sheet column is not a free pass for a midpoint teacher either: those",
@@ -337,6 +462,41 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
             "`semantic_kl_poles` is the row the live exam is about: the "
             "energy win and the gender garble.",
         ]
+    criterion_ids = (
+        "caption_odd_margin",
+        "faithful_sub_e_if_unused",
+        "faithful_guard_e",
+        "faithful_raw",
+        "pair_odd_midpoint",
+        "hub",
+        "project_short_u",
+    )
+    criterion = {row["id"]: row for row in rows}
+    lines += [
+        "",
+        "## TRAIN search: divergent pass with negative leak_frac",
+        "",
+        "| recipe | exam_divergent | exam_close | leak_frac | leftover leak |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for recipe_id in criterion_ids:
+        row = criterion[recipe_id]
+        lines.append(
+            f"| `{recipe_id}` | {CELL_MARK[row['cells'].get('exam_divergent')]} | "
+            f"{CELL_MARK[row['cells'].get('exam_close')]} | "
+            f"{_fmt(row.get('leak_frac'), '+.3f')} | "
+            f"{_fmt(row.get('leftover_leak'), '+.3f')} |"
+        )
+    lines += [
+        "",
+        "`caption_odd_margin` is the hit. Before training, `|ê̂_⊥·â|` labels",
+        "the declared ê as leftover versus restated track, and `lm_blend_guard`",
+        "rejects any cleaned target nearer the pair midpoint than its caption.",
+        "A rejected divergent pair stays on the raw caption exactly. An admitted",
+        "close/unused pair keeps its odd component and an explicit common caption",
+        "component capped at `0.9||odd||`; it is a disclosed contraction toward",
+        "`h0±a`, not a midpoint renamed as a caption.",
+    ]
     lines += [
         "",
         f"**Fails:** {len(fails)} recipes — hub, hold-ê raw, short-û and rich-û "
@@ -347,7 +507,9 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "## The full joined table",
         "",
         "Every column the older cells contribute, in `exam_score` order.",
-        "Pair-odd cos and ±1 are **logged, never scored**.",
+        "Pair-odd cos, ±1, `leak_frac` and `same_dir` are **logged, never scored**.",
+        "`leftover leak` is unused ê. `leak_frac` is `cos(d+, d−)` of the",
+        "fitted ±1 student — caption-pole even motion, not leftover ê.",
         "",
         TABLE_HEADER,
     ]
@@ -359,6 +521,18 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "`exam_score` = min(overlap, swing) on `exam_divergent` + `exam_close` only.",
         "Hatched bars are the combined 2026-08-25 race recipes (leftover-gate,",
         "hybrid, hidden_kl, unrolled_kl, and the #35 Opus rows); #28 baselines stay solid.",
+        "",
+        "![leak_frac = cos(d+, d−)](lm-2d-scoreboard/leak-frac.png)",
+        "",
+        "`leak_frac` = `cos(d+, d−)` from `leftover_bipolar` on the fitted ±1",
+        "student. This is **not** leftover leak. Clean bipolar wants",
+        f"`leak_frac` ≤ {gates['bipolar_mirror_floor']:.2f}; caption-pole / leftover-gate",
+        "no-op recipes keep the common component and sit near 0. Leftover-gate",
+        "clears unused ê and does **not** clear this leak. Hatched the same",
+        "way as `exam-score.png`. Vertical lines: bipolar-mirror floor",
+        f"({gates['bipolar_mirror_floor']:.2f}) and same-dir starts (0).",
+        "",
+        "![leftover leak vs leak_frac](lm-2d-scoreboard/leftover-vs-leak-frac.png)",
         "",
         "![leak vs on-sheet kept](lm-2d-scoreboard/scoreboard.png)",
         "",
@@ -397,6 +571,14 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "from that hybrid (centered SVD projector, not uncentered `ker(W)`).",
         "",
         "```bash",
+        "# scored hit: one target recipe for divergent and close/unused pairs",
+        "python conceptmod/textsliders/train_lm_slider_music3.py \\",
+        "  --name energy-lm-caption-odd-margin \\",
+        "  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \\",
+        "  --lm_target caption_odd_margin --pole_mode hidden \\",
+        "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
+        "  --no-early_stop --endreg_weight 1.0",
+        "",
         "# leftover gate: subtract ê only when unused",
         "python conceptmod/textsliders/train_lm_slider_music3.py \\",
         "  --name energy-lm-v19 \\",
@@ -446,7 +628,15 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "is expected. The listen is the gate. This does not change the live",
         "default, which is still `--lm_target v9` / `--pole_mode hidden`.",
         "",
-        "## Why four columns are logged and never scored",
+        "## Why these columns are logged and never scored",
+        "",
+        "**leftover leak ≠ leak_frac.** leftover leak is unused ê on the #22",
+        "sheet (gated at 0.2). `leak_frac` = `cos(d+, d−)` is caption-pole",
+        "even motion from `leftover_bipolar` on the fitted ±1 student, the",
+        "same class as pair-odd cos and the ±1 collapse. A leftover-gate",
+        "recipe can clear unused ê and still sit at `leak_frac` around",
+        "−0.4 to +0.1. Neither `leak_frac` nor `same_dir` is an input to",
+        "`exam_score` or the compiled works/fails gate.",
         "",
         "**Pair-odd cos and the ±1 collapse** (#22). On the leftover sheet",
         "`v9_hidden` prints `cos(d+, a) = +1.000` and `cos(d+, d−) = −1.000`",
@@ -534,6 +724,8 @@ def main(argv: list[str] | None = None) -> int:
     (out / "metrics.json").write_text(json.dumps(blob, indent=2) + "\n", encoding="utf-8")
     plot_scoreboard(rows, out / "scoreboard.png")
     plot_exam_score(rows, out / "exam-score.png")
+    plot_leak_frac(rows, out / "leak-frac.png")
+    plot_leftover_vs_leak_frac(rows, out / "leftover-vs-leak-frac.png")
     write_report(rows, blob, out.parent / "lm-2d-scoreboard.md")
     for row in rows:
         cells = "".join(
@@ -544,6 +736,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{row['compiled']:20s} {row['id']:26s} "
             f"exam={_fmt(row.get('exam_score'), '.3f')} {cells} "
             f"leak={_fmt(row['leftover_leak'], '+.3f')} "
+            f"leak_frac={_fmt(row.get('leak_frac'), '+.3f')} "
             f"cos={_fmt(row['pair_odd_cos'], '+.3f')}"
         )
     for row in live:

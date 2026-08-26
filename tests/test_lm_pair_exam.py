@@ -416,6 +416,23 @@ def test_the_gated_leftover_recipe_passes_every_pair_type():
     assert cell("close")["faithful_sub_e_if_unused"]["teacher"] == "faithful_sub_e_if_unused"
 
 
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_caption_odd_margin_passes_both_exam_pairs_with_negative_close_leak(seed):
+    divergent = cell("divergent", seed)["caption_odd_margin"]
+    close = cell("close", seed)["caption_odd_margin"]
+    unused = cell("unused_e", seed)["caption_odd_margin"]
+    assert divergent["pass"] is True
+    assert close["pass"] is True
+    assert unused["pass"] is True
+    assert divergent["is_caption"] is True
+    assert divergent["off_caption"] == pytest.approx(0.0, abs=1e-6)
+    assert close["leak_frac"] < 0.0
+    assert unused["leak_frac"] < 0.0
+    assert close["leak_frac"] < cell("close", seed)["faithful_raw"]["leak_frac"]
+    assert unused["leak_frac"] < cell("unused_e", seed)["faithful_guard_e"]["leak_frac"]
+    assert divergent["blend_teacher"] is False
+
+
 def test_hidden_kl_real_poles_top_out_both_pair_types():
     """New recipe: caption poles plus a full-hidden lock and semantic check."""
     for name in ("divergent", "close"):

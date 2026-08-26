@@ -75,8 +75,10 @@ from analysis.slider2d.highd import BEND_GENDER
 from conceptmod.textsliders.slider_targets import (
     DUAL_BAND_WEIGHT,
     LEAK_HOLD_WEIGHT,
+    leftover_bipolar,
     lm_axis_hold,
     lm_blind_projector,
+    lm_caption_odd_margin,
     lm_dual_band_pole_loss,
     lm_faithful_guard_e,
     lm_faithful_sub_e_if_unused,
@@ -606,6 +608,7 @@ TEACHERS = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "caption_odd_margin",
 )
 POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_null", "dual_band")
 
@@ -662,6 +665,10 @@ def teacher_points(
         if leak_dir is None:
             return pos, neg
         return lm_faithful_guard_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
+    if mode == "caption_odd_margin":
+        return lm_caption_odd_margin(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u()
+        )
     raise ValueError(f"teacher must be one of {TEACHERS}, got {teacher!r}")
 
 
@@ -866,6 +873,7 @@ def score_sheet(
             # Live log columns. Logged, never gated.
             "pair_odd_cos": cosine(d_plus, a),
             "collapse": cosine(d_plus, d_minus),
+            **leftover_bipolar(d_plus, d_minus),
             # The honest hidden-space lock: cos to the real pole displacement.
             "pole_cos": cosine(d_plus, pos - neu),
             "sheet_dir_kept": float(d_plus @ field.sheet_dir())
@@ -967,6 +975,14 @@ def gender_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             field,
             pole_mode="hidden",
             teacher="faithful_guard_e",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "caption_odd_margin",
+            field,
+            pole_mode="hidden",
+            teacher="caption_odd_margin",
             steps=steps,
             seed=seed,
         ),
@@ -1077,6 +1093,15 @@ def leaky_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             field,
             pole_mode="hidden",
             teacher="faithful_guard_e",
+            leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "caption_odd_margin",
+            field,
+            pole_mode="hidden",
+            teacher="caption_odd_margin",
             leak_dir=e,
             steps=steps,
             seed=seed,

@@ -334,12 +334,13 @@ def test_kl_onto_the_midpoint_is_still_garbled():
         assert kl["pass"] is False
 
 
-def test_the_passing_recipes_all_target_a_real_caption():
-    """Every leftover survivor aims at a pole, under every live loss.
+def test_the_passing_recipes_stay_on_the_caption_side():
+    """Every leftover survivor is a pole or a blend-guarded near-pole.
 
     ``faithful_guard_e`` / ``dual_band_guard_e`` reach the same ê-cleaned
     target the other two do: on *this* field ê is a genuine leftover, so the
-    blend guard admits the subtraction.
+    blend guard admits the subtraction. ``caption_odd_margin`` then contracts
+    the common component explicitly, but remains nearer the pole than midpoint.
     """
     winners = {name for name, row in leaky().items() if row["pass"]}
     assert winners == {
@@ -347,11 +348,18 @@ def test_the_passing_recipes_all_target_a_real_caption():
         "v16_semantic_kl_sub_e",
         "faithful_guard_e",
         "dual_band_guard_e",
+        "caption_odd_margin",
     }
     modes = {leaky()[name]["pole_mode"] for name in winners}
     assert modes == {"hidden", "semantic_kl", "dual_band"}
+    field = leaky_field()
     for name in winners:
-        assert leaky()[name]["teacher"].startswith("faithful")
+        row = leaky()[name]
+        assert row["teacher"].startswith("faithful") or row["teacher"] == "caption_odd_margin"
+        target = teacher_sheet_row(
+            name, field, teacher=row["teacher"], leak_dir=field.leak_e()
+        )
+        assert target["off_caption"] < 1.0
 
 
 def test_a_caption_target_without_e_cleaning_still_leaks():
