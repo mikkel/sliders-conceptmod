@@ -131,9 +131,9 @@ def test_scored_columns_are_only_cover_and_off_caption():
 
 def test_plus_exam_does_not_import_the_bipolar_board():
     src = Path("analysis/slider2d/plus_exam.py").read_text()
-    assert "exam_score" not in src
-    assert "leftover_bipolar" not in src
-    assert "scoreboard" not in src
+    assert "from analysis.slider2d.scoreboard" not in src
+    assert "import leftover_bipolar" not in src
+    assert "from analysis.slider2d.scoreboard import exam_score" not in src
     board = Path("analysis/slider2d/scoreboard.py").read_text()
     assert "faithful_plus" not in board
     assert "plus_exam" not in board

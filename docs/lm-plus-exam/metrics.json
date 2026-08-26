@@ -1,0 +1,330 @@
+{
+  "scale": "plus-only",
+  "not_the_bipolar_board": true,
+  "scored": [
+    "cover",
+    "off_caption"
+  ],
+  "not_scored": [
+    "leak_frac",
+    "collapse",
+    "pair_odd_cos",
+    "minus_overlap",
+    "exam_score"
+  ],
+  "gates": {
+    "cover_min": 0.85,
+    "off_caption_max": 0.05
+  },
+  "recipes": [
+    "faithful_plus",
+    "leftover_gate_bipolar",
+    "faithful_even_blend",
+    "pair_odd_midpoint"
+  ],
+  "cells": [
+    "divergent",
+    "close",
+    "unused_e"
+  ],
+  "steps": 400,
+  "seed": 0,
+  "helps": {
+    "yes": true,
+    "plus_hits_required": [
+      true,
+      true
+    ],
+    "bipolar_hits": {
+      "leftover_gate_bipolar": [
+        true,
+        true
+      ],
+      "faithful_even_blend": [
+        false,
+        true
+      ],
+      "pair_odd_midpoint": [
+        false,
+        false
+      ]
+    },
+    "beats_leftover_gate": false,
+    "alleviates": [
+      "faithful_even_blend",
+      "pair_odd_midpoint"
+    ]
+  },
+  "rows": {
+    "divergent": [
+      {
+        "name": "faithful_plus",
+        "cell": "divergent",
+        "teacher": "faithful_plus",
+        "plus_only": true,
+        "even_scale": 1.0,
+        "cover": 0.9319808822467833,
+        "off_caption": 0.0,
+        "overlap_pos": 1.0,
+        "blend_toward_mid": 0.0680191177532167,
+        "hit": true,
+        "sings_plus": "punk punk punk punk punk punk punk punk | punk punk slam punk punk slam slam slam | punk punk punk punk punk punk punk punk",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 0.2916666666666667,
+          "minus_off_caption": 0.7083333333333334,
+          "minus_landed": "neu",
+          "minus_sings": "punk hush hush hush hush hush hush hush | female female hush punk hush punk female female | male male male male male male male male",
+          "dangerous": true
+        },
+        "pole_cos": 1.0000001192092896
+      },
+      {
+        "name": "leftover_gate_bipolar",
+        "cell": "divergent",
+        "teacher": "faithful_sub_e_if_unused",
+        "plus_only": false,
+        "even_scale": 1.0,
+        "cover": 0.931980895716657,
+        "off_caption": 0.0,
+        "overlap_pos": 1.0,
+        "blend_toward_mid": 0.06801910428334301,
+        "hit": true,
+        "sings_plus": "punk punk punk punk punk punk punk punk | punk punk slam punk punk slam slam slam | punk punk punk punk punk punk punk punk",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 1.0,
+          "minus_off_caption": 0.0,
+          "minus_landed": "neg",
+          "minus_sings": "lull lull hush lull hush hush hush hush | lull lull lull lull lull lull lull lull | lull lull lull hush lull hush hush hush",
+          "dangerous": false
+        },
+        "pole_cos": 1.0
+      },
+      {
+        "name": "faithful_even_blend",
+        "cell": "divergent",
+        "teacher": "faithful_gate_odd_sub_even_blend",
+        "plus_only": false,
+        "even_scale": 0.5,
+        "cover": 0.7312064785210954,
+        "off_caption": 0.0,
+        "overlap_pos": 1.0,
+        "blend_toward_mid": 0.2687935214789046,
+        "hit": false,
+        "sings_plus": "punk punk punk slam slam slam slam slam | punk slam slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 1.0,
+          "minus_off_caption": 0.0,
+          "minus_landed": "neg",
+          "minus_sings": "lull hush hush hush hush hush hush hush | lull lull lull lull lull lull lull hush | lull lull hush hush hush hush hush hush",
+          "dangerous": false
+        },
+        "pole_cos": 0.9656879305839539
+      },
+      {
+        "name": "pair_odd_midpoint",
+        "cell": "divergent",
+        "teacher": "pair_odd",
+        "plus_only": false,
+        "even_scale": 1.0,
+        "cover": 0.583963552952664,
+        "off_caption": 0.03125,
+        "overlap_pos": 0.96875,
+        "blend_toward_mid": 0.41603644704733594,
+        "hit": false,
+        "sings_plus": "punk slam slam slam slam slam slam slam | male slam slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 1.0,
+          "minus_off_caption": 0.0,
+          "minus_landed": "neu",
+          "minus_sings": "lull hush hush hush hush hush hush hush | lull hush hush hush hush hush hush hush | hush hush hush hush hush hush hush hush",
+          "dangerous": false
+        },
+        "pole_cos": 0.7017834186553955
+      }
+    ],
+    "close": [
+      {
+        "name": "faithful_plus",
+        "cell": "close",
+        "teacher": "faithful_plus",
+        "plus_only": true,
+        "even_scale": 1.0,
+        "cover": 0.9347083385325266,
+        "off_caption": 0.0,
+        "overlap_pos": 1.0,
+        "blend_toward_mid": 0.06529166146747346,
+        "hit": true,
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk punk slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 1.0,
+          "minus_off_caption": 0.0,
+          "minus_landed": "neu",
+          "minus_sings": "punk hush hush hush hush hush hush hush | female female hush punk hush punk female female | male male male male male male male male",
+          "dangerous": false
+        },
+        "pole_cos": 0.9999999403953552
+      },
+      {
+        "name": "leftover_gate_bipolar",
+        "cell": "close",
+        "teacher": "faithful_sub_e_if_unused",
+        "plus_only": false,
+        "even_scale": 1.0,
+        "cover": 0.9347083360666902,
+        "off_caption": 0.0,
+        "overlap_pos": 1.0,
+        "blend_toward_mid": 0.06529166393330975,
+        "hit": true,
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk punk slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 1.0,
+          "minus_off_caption": 0.0,
+          "minus_landed": "neg",
+          "minus_sings": "punk lull hush hush hush hush hush hush | female hush hush hush hush hush hush hush | male hush hush hush hush hush hush hush",
+          "dangerous": false
+        },
+        "pole_cos": 0.9999999403953552
+      },
+      {
+        "name": "faithful_even_blend",
+        "cell": "close",
+        "teacher": "faithful_gate_odd_sub_even_blend",
+        "plus_only": false,
+        "even_scale": 0.5,
+        "cover": 0.9347083360666902,
+        "off_caption": 0.0,
+        "overlap_pos": 1.0,
+        "blend_toward_mid": 0.06529166393330975,
+        "hit": true,
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk punk slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 1.0,
+          "minus_off_caption": 0.0,
+          "minus_landed": "neg",
+          "minus_sings": "punk lull hush hush hush hush hush hush | female hush hush hush hush hush hush hush | male hush hush hush hush hush hush hush",
+          "dangerous": false
+        },
+        "pole_cos": 0.9999999403953552
+      },
+      {
+        "name": "pair_odd_midpoint",
+        "cell": "close",
+        "teacher": "pair_odd",
+        "plus_only": false,
+        "even_scale": 1.0,
+        "cover": 0.5957589097524106,
+        "off_caption": 0.0,
+        "overlap_pos": 1.0,
+        "blend_toward_mid": 0.4042410902475894,
+        "hit": false,
+        "sings_plus": "slam slam slam slam slam slam slam slam | punk slam slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 1.0,
+          "minus_off_caption": 0.0,
+          "minus_landed": "neg",
+          "minus_sings": "punk punk hush hush hush hush hush hush | female hush hush hush hush hush hush hush | male hush hush hush hush hush hush hush",
+          "dangerous": false
+        },
+        "pole_cos": 0.7348468899726868
+      }
+    ],
+    "unused_e": [
+      {
+        "name": "faithful_plus",
+        "cell": "unused_e",
+        "teacher": "faithful_plus",
+        "plus_only": true,
+        "even_scale": 1.0,
+        "cover": 0.6973203295536162,
+        "off_caption": 0.041666666666666664,
+        "overlap_pos": 0.9583333333333334,
+        "blend_toward_mid": 0.30267967044638383,
+        "hit": false,
+        "sings_plus": "slam slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 0.375,
+          "minus_off_caption": 0.625,
+          "minus_landed": "neu",
+          "minus_sings": "punk hush hush hush hush hush hush hush | female female hush punk hush punk female female | male male male male male male male male",
+          "dangerous": true
+        },
+        "pole_cos": 0.9616293907165527
+      },
+      {
+        "name": "leftover_gate_bipolar",
+        "cell": "unused_e",
+        "teacher": "faithful_sub_e_if_unused",
+        "plus_only": false,
+        "even_scale": 1.0,
+        "cover": 0.6973203295536162,
+        "off_caption": 0.041666666666666664,
+        "overlap_pos": 0.9583333333333334,
+        "blend_toward_mid": 0.30267967044638383,
+        "hit": false,
+        "sings_plus": "slam slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 0.9895833333333334,
+          "minus_off_caption": 0.010416666666666666,
+          "minus_landed": "neg",
+          "minus_sings": "hush hush hush hush hush hush hush hush | hush hush hush hush hush hush hush hush | hush hush hush hush hush hush hush hush",
+          "dangerous": false
+        },
+        "pole_cos": 0.9616293907165527
+      },
+      {
+        "name": "faithful_even_blend",
+        "cell": "unused_e",
+        "teacher": "faithful_gate_odd_sub_even_blend",
+        "plus_only": false,
+        "even_scale": 0.5,
+        "cover": 0.6973203295536162,
+        "off_caption": 0.041666666666666664,
+        "overlap_pos": 0.9583333333333334,
+        "blend_toward_mid": 0.30267967044638383,
+        "hit": false,
+        "sings_plus": "slam slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 0.9895833333333334,
+          "minus_off_caption": 0.010416666666666666,
+          "minus_landed": "neg",
+          "minus_sings": "hush hush hush hush hush hush hush hush | hush hush hush hush hush hush hush hush | hush hush hush hush hush hush hush hush",
+          "dangerous": false
+        },
+        "pole_cos": 0.9616293907165527
+      },
+      {
+        "name": "pair_odd_midpoint",
+        "cell": "unused_e",
+        "teacher": "pair_odd",
+        "plus_only": false,
+        "even_scale": 1.0,
+        "cover": 0.5839635445380673,
+        "off_caption": 0.041666666666666664,
+        "overlap_pos": 0.9583333333333334,
+        "blend_toward_mid": 0.4160364554619327,
+        "hit": false,
+        "sings_plus": "slam slam slam slam slam slam slam slam | lull slam slam slam slam slam slam slam | slam slam slam slam slam slam slam slam",
+        "canary": {
+          "scored": false,
+          "minus_overlap_neg": 1.0,
+          "minus_off_caption": 0.0,
+          "minus_landed": "neu",
+          "minus_sings": "hush hush hush hush hush hush hush hush | hush hush hush hush hush hush hush hush | hush hush hush hush hush hush hush hush",
+          "dangerous": false
+        },
+        "pole_cos": 0.7017834186553955
+      }
+    ]
+  }
+}

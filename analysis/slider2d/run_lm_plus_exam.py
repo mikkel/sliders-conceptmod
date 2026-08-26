@@ -220,17 +220,20 @@ def write_markdown(
         "",
         "## What the numbers say",
         "",
-        f"- Plus-only hits both required pairs: **{verdict['plus_hits_required']}**.",
-        f"- Bipolar hits on those pairs: `{verdict['bipolar_hits']}`.",
-        f"- Plus-only is materially cleaner than leftover-gate on +: "
-        f"**{verdict['beats_leftover_gate']}**.",
-        f"- Bipolar recipes plus-only alleviates on this scale: "
-        f"`{verdict['alleviates'] or 'none'}` (they miss a hit that plus-only makes).",
+        "- Plus-only hits both required pairs (divergent, close): "
+        f"**{'yes' if all(verdict['plus_hits_required']) else 'no'}**.",
+        "- Leftover-gate bipolar also hits both required pairs: "
+        f"**{'yes' if all(verdict['bipolar_hits']['leftover_gate_bipolar']) else 'no'}** "
+        "(same + cover / off-caption as plus-only; minus MSE was not what hurt +).",
+        "- even-blend / pair-odd miss a hit plus-only makes: "
+        f"**{', '.join(verdict['alleviates']) or 'none'}**.",
         "",
         f"**Answer: {helps}.** Training only + does "
         + (
-            "alleviate the bipolar fails this scale can see "
-            "(midpoint / even-blend smear on the + continuation)."
+            "alleviate midpoint Goodhart and even-blend smear on the + "
+            "continuation. It does not beat leftover-gate bipolar on + "
+            "(tie). The unconstrained −1 canary is a different question — "
+            "see below."
             if verdict["yes"]
             else (
                 "not beat leftover-gate bipolar on the + pole — the ± "
