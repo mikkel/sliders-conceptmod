@@ -17,7 +17,7 @@ _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from analysis.slider2d.exam import LIVE_EXAM
+from analysis.slider2d.exam import EXAM_ROLL_OFF_MAX, LIVE_EXAM
 from analysis.slider2d.scoreboard import (
     CELL_LABEL,
     CELL_ORDER,
@@ -57,10 +57,18 @@ CELL_MARK = {True: "pass", False: "**fail**", None: "—"}
 
 
 PAIRS_HEADER = (
-    "| recipe | exam_score | " + " | ".join(c.replace("exam_", "") for c in CELL_ORDER)
+    "| recipe | exam_score | off-caption *(log)* | worst pair | "
+    + " | ".join(c.replace("exam_", "") for c in CELL_ORDER)
     + " | predicts live | compiled |\n"
-    "|---|---:|" + "---|" * len(CELL_ORDER) + "---|---|"
+    "|---|---:|---:|---|" + "---|" * len(CELL_ORDER) + "---|---|"
 )
+
+
+def _worst_pair_md(row: dict) -> str:
+    pair = row.get("off_caption_pair")
+    if not pair:
+        return "—"
+    return pair.replace("exam_", "")
 
 
 def _pairs_md(row: dict) -> str:
@@ -68,22 +76,24 @@ def _pairs_md(row: dict) -> str:
     runs = row.get("predicts") or {}
     named = ", ".join(f"`{run}` ({cell.replace('exam_', '')})" for cell, run in runs.items())
     return (
-        f"| `{row['id']}` | {_fmt(row.get('exam_score'), '.3f')} | {cells} | "
-        f"{named or '—'} | {_verdict_md(row['compiled'])} |"
+        f"| `{row['id']}` | {_fmt(row.get('exam_score'), '.3f')} | "
+        f"{_fmt(row.get('off_caption'), '.3f')} | {_worst_pair_md(row)} | "
+        f"{cells} | {named or '—'} | {_verdict_md(row['compiled'])} |"
     )
 
 
 TABLE_HEADER = (
-    "| recipe | exam_score | leftover leak | on-sheet | kept | off-sheet | argmax | "
-    "swing | pair-odd cos *(log)* | ±1 *(log)* | intended cos | "
-    "c+ | perc | rich-kept | compiled |\n"
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    "| recipe | exam_score | off-caption *(log)* | leftover leak | on-sheet | kept | "
+    "off-sheet | argmax | swing | pair-odd cos *(log)* | ±1 *(log)* | "
+    "intended cos | c+ | perc | rich-kept | compiled |\n"
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
 )
 
 
 def _table_md(row: dict) -> str:
     return (
         f"| `{row['id']}` | {_fmt(row.get('exam_score'), '.3f')} | "
+        f"{_fmt(row.get('off_caption'), '.3f')} | "
         f"{_fmt(row['leftover_leak'], '+.3f')} | "
         f"{_fmt(row['on_sheet'], '.3f')} | {_fmt(row['on_sheet_kept'], '.3f')} | "
         f"{_fmt(row['off_sheet'], '.3f')} | {_fmt(row['argmax_on_sheet'], '.2f')} | "
@@ -190,6 +200,92 @@ def plot_exam_score(rows: list[dict], path: Path) -> None:
     plt.close(fig)
 
 
+SMEAR_COLOR = {
+    "zero": "#1e8449",
+    "under": "#b9770e",
+    "over": "#c0392b",
+}
+
+
+def _smear_color(value: float) -> str:
+    if float(value) <= 1e-12:
+        return SMEAR_COLOR["zero"]
+    if float(value) <= EXAM_ROLL_OFF_MAX:
+        return SMEAR_COLOR["under"]
+    return SMEAR_COLOR["over"]
+
+
+def plot_off_caption(rows: list[dict], path: Path) -> None:
+    """Horizontal off-caption ranking. Nulls omitted; race rows hatched."""
+    scored = [r for r in rows if r.get("off_caption") is not None]
+    scored = sorted(scored, key=lambda r: float(r["off_caption"]))
+    if not scored:
+        return
+    height = max(4.8, 0.42 * len(scored) + 1.6)
+    fig, ax = plt.subplots(figsize=(8.8, height))
+    y = list(range(len(scored)))
+    colors = [_smear_color(float(r["off_caption"])) for r in scored]
+    widths = [float(r["off_caption"]) for r in scored]
+    bars = ax.barh(y, widths, color=colors, height=0.62, zorder=3)
+    for bar, row in zip(bars, scored):
+        if row["id"] in RACE_RECIPES:
+            bar.set_hatch("///")
+            bar.set_linewidth(1.8)
+            bar.set_edgecolor("#1a252f")
+            ax.plot(
+                -0.004,
+                bar.get_y() + bar.get_height() / 2.0,
+                marker=">",
+                color="#1a252f",
+                markersize=7,
+                clip_on=False,
+                zorder=4,
+            )
+        value = float(row["off_caption"])
+        pair = (row.get("off_caption_pair") or "").replace("exam_", "") or "?"
+        ax.text(
+            value + 0.004,
+            bar.get_y() + bar.get_height() / 2.0,
+            f"{value:.3f}  {pair}",
+            va="center",
+            ha="left",
+            fontsize=7.4,
+        )
+    ax.axvline(EXAM_ROLL_OFF_MAX, color="#7f8c8d", ls="--", lw=1.0, zorder=2)
+    ax.set_yticks(y)
+    ax.set_yticklabels([r["id"] for r in scored], fontsize=8)
+    xmax = max(EXAM_ROLL_OFF_MAX + 0.04, max(widths) + 0.04)
+    ax.set_xlim(0.0, xmax)
+    ax.set_xlabel(
+        "off_caption = max(roll_off_corpus) on exam_divergent + exam_close  "
+        "(logged, never scored)"
+    )
+    ax.set_title("pair-exam off-caption (worst live pair; race rows hatched)")
+    ax.grid(axis="x", alpha=0.25)
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=SMEAR_COLOR["zero"], label="0 (no smear)"),
+        plt.Rectangle(
+            (0, 0), 1, 1, color=SMEAR_COLOR["under"], label=f"under {EXAM_ROLL_OFF_MAX:g} cap"
+        ),
+        plt.Rectangle(
+            (0, 0), 1, 1, color=SMEAR_COLOR["over"], label=f"over {EXAM_ROLL_OFF_MAX:g} cap"
+        ),
+        plt.Rectangle(
+            (0, 0),
+            1,
+            1,
+            facecolor="#7f8c8d",
+            hatch="///",
+            edgecolor="#1a252f",
+            label="2026-08-25 race",
+        ),
+    ]
+    ax.legend(handles=handles, fontsize=8, loc="lower right")
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+
+
 def write_report(rows: list[dict], blob: dict, path: Path) -> None:
     gates = blob["gates"]
     live = blob["live_exam"]
@@ -273,6 +369,9 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         f"- ±1 collapse scored: `{gates['collapse_scored']}`",
         f"- pole loss scored: `{gates['pole_loss_scored']}`",
         f"- p% / n% scored: `{gates['perc_scored']}`",
+        f"- off-caption scored: `{gates['off_caption_scored']}`",
+        f"- same-words scored: `{gates['same_words_scored']}`",
+        f"- coherence scored: `{gates['coherence_scored']}`",
         "",
         "A missing cell is `—`, not a free pass. On the sheet cells a missing",
         "sheet column is not a free pass for a midpoint teacher either: those",
@@ -285,6 +384,8 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "`min(overlap, swing)` on `exam_divergent` (energy-v4) and",
         "`exam_close` (gender-v4) only — unused_e and the sheet cells are",
         "other questions. A pair with no reading is skipped, not a free 1.0.",
+        "`off-caption` is the worst live-pair smear (`max` of the two),",
+        "**logged, never scored** — not leftover ê and not `leak_frac`.",
         "The verdict stays a label; the number is what a human sorts by.",
         "",
         PAIRS_HEADER,
@@ -347,7 +448,7 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "## The full joined table",
         "",
         "Every column the older cells contribute, in `exam_score` order.",
-        "Pair-odd cos and ±1 are **logged, never scored**.",
+        "Pair-odd cos, ±1, and off-caption are **logged, never scored**.",
         "",
         TABLE_HEADER,
     ]
@@ -359,6 +460,10 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "`exam_score` = min(overlap, swing) on `exam_divergent` + `exam_close` only.",
         "Hatched bars are the combined 2026-08-25 race recipes (leftover-gate,",
         "hybrid, hidden_kl, unrolled_kl, and the #35 Opus rows); #28 baselines stay solid.",
+        "",
+        "![off-caption smear](lm-2d-scoreboard/off-caption.png)",
+        "",
+        "Off-caption is lyric smear — words neither pole sings — not leftover ê and not `leak_frac`.",
         "",
         "![leak vs on-sheet kept](lm-2d-scoreboard/scoreboard.png)",
         "",
@@ -402,6 +507,14 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "  --name energy-lm-v19 \\",
         "  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \\",
         "  --lm_target faithful_sub_e_if_unused --pole_mode hidden \\",
+        "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
+        "  --no-early_stop --endreg_weight 1.0",
+        "",
+        "# even leftover blend (live v21): leftover-gate odd + half leak-pair even",
+        "python conceptmod/textsliders/train_lm_slider_music3.py \\",
+        "  --name energy-lm-v21 \\",
+        "  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \\",
+        "  --lm_target faithful_even_blend --pole_mode hidden \\",
         "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
         "  --no-early_stop --endreg_weight 1.0",
         "",
@@ -534,6 +647,7 @@ def main(argv: list[str] | None = None) -> int:
     (out / "metrics.json").write_text(json.dumps(blob, indent=2) + "\n", encoding="utf-8")
     plot_scoreboard(rows, out / "scoreboard.png")
     plot_exam_score(rows, out / "exam-score.png")
+    plot_off_caption(rows, out / "off-caption.png")
     write_report(rows, blob, out.parent / "lm-2d-scoreboard.md")
     for row in rows:
         cells = "".join(

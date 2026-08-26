@@ -416,6 +416,18 @@ def test_the_gated_leftover_recipe_passes_every_pair_type():
     assert cell("close")["faithful_sub_e_if_unused"]["teacher"] == "faithful_sub_e_if_unused"
 
 
+def test_faithful_even_blend_is_on_the_pair_exam():
+    """Live v21: leftover-gate odd + half leak-pair even (α=0.5)."""
+    for name in CELLS:
+        row = cell(name)["faithful_even_blend"]
+        assert row["teacher"] == "faithful_gate_odd_sub_even_blend"
+        assert row["pass"] is True, f"{name}: {row['reason']}"
+        assert "off_caption" in row["axis"]
+    divergent = cell("divergent")["faithful_even_blend"]
+    assert divergent["blend_teacher"] is False
+    assert divergent["roll_off_corpus"] <= EXAM_ROLL_OFF_MAX
+
+
 def test_hidden_kl_real_poles_top_out_both_pair_types():
     """New recipe: caption poles plus a full-hidden lock and semantic check."""
     for name in ("divergent", "close"):

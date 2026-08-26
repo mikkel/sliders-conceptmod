@@ -31,6 +31,7 @@ from analysis.slider2d.scoreboard import (
     exam_cells_for,
     exam_score,
     failing_cells,
+    recipe_off_caption,
     leak_ok,
     live_exam_report,
     predicts_for,
@@ -162,6 +163,23 @@ def test_exam_score_is_min_overlap_and_swing_on_live_pairs_only():
         {"exam_divergent": 0.97},
         {"exam_divergent": 0.97},
     ) == 0.97
+
+
+def test_recipe_off_caption_is_max_on_live_pairs_and_not_a_free_zero():
+    """unused_e cannot hide smear; a missing pair is skipped, not 0.0."""
+    worst, pair = recipe_off_caption(
+        {"exam_divergent": 0.016, "exam_close": 0.0, "exam_unused_e": 0.90}
+    )
+    assert worst == pytest.approx(0.016)
+    assert pair == "exam_divergent"
+    close_only, close_pair = recipe_off_caption({"exam_close": 0.04})
+    assert close_only == pytest.approx(0.04)
+    assert close_pair == "exam_close"
+    assert recipe_off_caption({}) == (None, None)
+    assert recipe_off_caption({"exam_unused_e": 0.90}) == (None, None)
+    # A midpoint reading of 0.016 must not collapse to "clean".
+    mid, _ = recipe_off_caption({"exam_divergent": 0.016, "exam_close": 0.0})
+    assert mid > 0.0
 
 
 def test_sort_is_exam_score_descending_nulls_last():
@@ -340,6 +358,7 @@ def test_the_live_default_is_still_v9_on_hidden_mse():
     assert "v9" in LM_RECIPES
     assert "semantic_kl" in POLE_MODES
     assert "faithful_sub_e_if_unused" in LM_RECIPES
+    assert "faithful_even_blend" in LM_RECIPES
     assert "faithful_guard_e" in LM_RECIPES
     assert "semantic_kl_null" in POLE_MODES
     assert "hidden_kl" in POLE_MODES
@@ -385,6 +404,7 @@ def test_combined_race_recipes_are_on_the_board_next_to_baselines():
     for baseline in (
         "faithful_attrs",
         "faithful_raw",
+        "faithful_even_blend",
         "hidden_beta1",
         "gender_like_no_e",
         "pair_odd_midpoint",
@@ -493,3 +513,41 @@ def test_dual_band_midpoint_fails_the_divergent_pair():
     assert control["cells"]["exam_divergent"] is False
     assert control["cells"]["exam_close"] is not None
     assert by_id()["dual_band_poles"]["cells"]["exam_divergent"] is True
+
+
+def test_off_caption_is_logged_on_pair_exam_rows_and_midpoint_is_not_a_free_zero():
+    """Lyric smear is present on every pair-exam row; pair-odd is not 0."""
+    ids = by_id()
+    for name in (
+        "faithful_sub_e_if_unused",
+        "faithful_even_blend",
+        "faithful_raw",
+        "pair_odd_midpoint",
+        "dual_band_poles",
+        "dual_band_guard_e",
+        "dual_band_midpoint",
+        "hidden_beta1",
+    ):
+        row = ids[name]
+        assert row["exam_off_caption"], name
+        assert any(cell in row["exam_off_caption"] for cell in ("exam_divergent", "exam_close")), name
+        assert row["off_caption"] is not None, name
+        assert row["off_caption_pair"] in row["exam_off_caption"], name
+        assert row["exam_same_words"], name
+        assert row["exam_coherence"], name
+        # exam_score stays min(overlap, swing); smear is a sibling log.
+        assert row["exam_score"] == pytest.approx(
+            exam_score(row["exam_overlap"], row["exam_swing"]), abs=1e-9
+        )
+    mid = ids["pair_odd_midpoint"]
+    assert mid["off_caption"] > 0.0
+    assert mid["exam_off_caption"]["exam_divergent"] > 0.0
+    # A recipe the pair-exam cell cannot express is null, not a free 0.
+    assert ids["hub"]["off_caption"] is None
+    assert ids["hub"]["exam_off_caption"] == {}
+    assert ids["project_short_u"]["off_caption"] is None
+    # The compiled gate still ignores smear as an extra column.
+    failing = dict.fromkeys(CELL_ORDER, False)
+    assert compiled_verdict(cells=failing) == FAILS
+    assert ids["faithful_even_blend"]["cells"]["exam_divergent"] is not None
+    assert ids["faithful_even_blend"]["id"] != "gate_odd_even_blend_s50"
