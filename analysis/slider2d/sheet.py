@@ -73,13 +73,19 @@ import torch
 from analysis.slider2d.field import cosine
 from analysis.slider2d.highd import BEND_GENDER
 from conceptmod.textsliders.slider_targets import (
+    DUAL_BAND_WEIGHT,
     LEAK_HOLD_WEIGHT,
     lm_axis_hold,
+    lm_blind_projector,
+    lm_dual_band_pole_loss,
+    lm_faithful_guard_e,
+    lm_faithful_sub_e_if_unused,
     lm_hidden_targets,
     lm_hold_dir,
     lm_next_token_logits,
-    lm_faithful_sub_e_if_unused,
     lm_pair_odd_sub_e,
+    lm_readout_null_basis,
+    lm_semantic_null_pole_loss,
     lm_semantic_pole_loss,
     lm_slider_loss,
     lm_unit,
@@ -593,8 +599,15 @@ class SharedResidual:
         return SharedResidual(self.w.detach().clone(), self.kind, even, self.gate, self.bend)
 
 
-TEACHERS = ("pair_odd", "pair_odd_sub_e", "faithful", "faithful_sub_e", "faithful_sub_e_if_unused")
-POLE_MODES = ("hidden", "semantic_kl")
+TEACHERS = (
+    "pair_odd",
+    "pair_odd_sub_e",
+    "faithful",
+    "faithful_sub_e",
+    "faithful_sub_e_if_unused",
+    "faithful_guard_e",
+)
+POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_null", "dual_band")
 
 
 def _sub_e(h: torch.Tensor, neu: torch.Tensor, held: torch.Tensor | None) -> torch.Tensor:
@@ -645,6 +658,10 @@ def teacher_points(
         return lm_faithful_sub_e_if_unused(
             pos, neg, neu, leak_dir, slider_dir=field.short_u()
         )
+    if mode == "faithful_guard_e":
+        if leak_dir is None:
+            return pos, neg
+        return lm_faithful_guard_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
     raise ValueError(f"teacher must be one of {TEACHERS}, got {teacher!r}")
 
 
@@ -700,6 +717,7 @@ def fit_sheet(
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
     student: str = "odd_even",
+    blind_weight: float = DUAL_BAND_WEIGHT,
     steps: int = 400,
     lr: float = 0.08,
     seed: int = 0,
@@ -715,6 +733,8 @@ def fit_sheet(
     if mode not in POLE_MODES:
         raise ValueError(f"pole_mode must be one of {POLE_MODES}, got {pole_mode!r}")
     head = field.readout()
+    null_basis = lm_readout_null_basis(head.weight) if mode == "semantic_kl_null" else None
+    blind = lm_blind_projector(head.weight) if mode == "dual_band" else None
     held = hold_direction(field, leak_dir)
     lam = float(hold_weight) if held is not None else 0.0
     targets = [
@@ -743,6 +763,36 @@ def fit_sheet(
                     pred_minus,
                     t_plus,
                     t_minus,
+                    hold=hold,
+                    hold_weight=lam if hold is not None else 0.0,
+                )
+            elif mode == "semantic_kl_null":
+                term = lm_semantic_null_pole_loss(
+                    head.logits(pred_plus),
+                    head.logits(pred_minus),
+                    head.logits(t_plus),
+                    head.logits(t_minus),
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    head.weight,
+                    null_basis=null_basis,
+                    hold=hold,
+                    hold_weight=lam if hold is not None else 0.0,
+                )
+            elif mode == "dual_band":
+                term = lm_dual_band_pole_loss(
+                    pred_plus,
+                    pred_minus,
+                    t_plus,
+                    t_minus,
+                    pred_plus_logits=head.logits(pred_plus),
+                    pred_minus_logits=head.logits(pred_minus),
+                    tgt_plus_logits=head.logits(t_plus),
+                    tgt_minus_logits=head.logits(t_minus),
+                    blind_projector=blind,
+                    blind_weight=float(blind_weight),
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
                 )
@@ -912,6 +962,38 @@ def gender_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             steps=steps,
             seed=seed,
         ),
+        score_sheet(
+            "faithful_guard_e",
+            field,
+            pole_mode="hidden",
+            teacher="faithful_guard_e",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_poles",
+            field,
+            pole_mode="dual_band",
+            teacher="faithful",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_guard_e",
+            field,
+            pole_mode="dual_band",
+            teacher="faithful_guard_e",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_midpoint",
+            field,
+            pole_mode="dual_band",
+            teacher="pair_odd",
+            steps=steps,
+            seed=seed,
+        ),
     ]
     return rows
 
@@ -987,6 +1069,40 @@ def leaky_cell(*, steps: int = 400, seed: int = 0) -> list[dict]:
             pole_mode="semantic_kl",
             teacher="faithful_sub_e",
             leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "faithful_guard_e",
+            field,
+            pole_mode="hidden",
+            teacher="faithful_guard_e",
+            leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_poles",
+            field,
+            pole_mode="dual_band",
+            teacher="faithful",
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_guard_e",
+            field,
+            pole_mode="dual_band",
+            teacher="faithful_guard_e",
+            leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "dual_band_midpoint",
+            field,
+            pole_mode="dual_band",
+            teacher="pair_odd",
             steps=steps,
             seed=seed,
         ),
@@ -1188,6 +1304,14 @@ def null_space_table(*, steps: int = 200, seed: int = 0) -> list[dict]:
             pole_mode="semantic_kl",
             teacher="faithful_sub_e",
             leak_dir=e,
+            steps=steps,
+            seed=seed,
+        ),
+        score_sheet(
+            "kl_null_faithful",
+            field,
+            pole_mode="semantic_kl_null",
+            teacher="faithful",
             steps=steps,
             seed=seed,
         ),

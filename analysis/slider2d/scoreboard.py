@@ -130,14 +130,25 @@ SHEET_LEFTOVER = {
     "pair_odd_sub_e": "v15_pair_odd_sub_e",
     "faithful_sub_e": "faithful_sub_e",
     "faithful_sub_e_if_unused": "faithful_sub_e",
+    "faithful_guard_e": "faithful_guard_e",
+    "dual_band_poles": "dual_band_poles",
+    "dual_band_guard_e": "dual_band_guard_e",
+    "dual_band_midpoint": "dual_band_midpoint",
     "semantic_kl_midpoint": "kl_on_midpoint",
     "semantic_kl_poles": "v16_semantic_kl",
+    "semantic_kl_null": "v16_semantic_kl",
     "semantic_kl_sub_e": "v16_semantic_kl_sub_e",
+    "hidden_kl_poles": "v6_faithful",
+    "unrolled_kl": "v16_semantic_kl",
 }
 SHEET_GENDER = {
     "faithful_raw": "v6_faithful",
     "faithful_attrs": "v6_faithful",
     "faithful_sub_e_if_unused": "v6_faithful",
+    "faithful_guard_e": "faithful_guard_e",
+    "dual_band_poles": "dual_band_poles",
+    "dual_band_guard_e": "dual_band_guard_e",
+    "dual_band_midpoint": "dual_band_midpoint",
     "pair_odd_midpoint": "v9_hidden",
     "hub": "v9_hidden",
     "hold_e_raw_l1": "v9_hidden",
@@ -147,9 +158,28 @@ SHEET_GENDER = {
     "pair_odd_sub_e": "v9_hidden",
     "semantic_kl_midpoint": "kl_on_midpoint",
     "semantic_kl_poles": "v16_semantic_kl",
+    "semantic_kl_null": "v16_semantic_kl",
+    "hidden_kl_poles": "v6_faithful",
+    "unrolled_kl": "v16_semantic_kl",
     "gender_like_no_e": "v9_hidden",
     "hidden_beta1": "hidden_beta1",
 }
+
+# Combined 2026-08-25 race recipes on this board. One hybrid row
+# (``semantic_kl_null``); ``semantic_kl_plus_hidden`` / ``semantic_kl_pin``
+# are trainer aliases, not extra rows. ``unrolled_kl`` is fixture-only.
+RACE_RECIPES = frozenset(
+    {
+        "faithful_sub_e_if_unused",
+        "semantic_kl_null",
+        "hidden_kl_poles",
+        "unrolled_kl",
+        "faithful_guard_e",
+        "dual_band_poles",
+        "dual_band_guard_e",
+        "dual_band_midpoint",
+    }
+)
 
 
 def na(value: Any) -> Any:
@@ -716,6 +746,19 @@ def collect_scoreboard(
             notes="raw-pole MSE. Caption target; unused ê rides along.",
         ),
         _row(
+            "hidden_kl_poles",
+            "real poles / hidden MSE + 0.001× semantic KL",
+            exam=exam,
+            leftover=sheet_left("v6_faithful"),
+            gender=sheet_gen("v6_faithful"),
+            leftover_leak=sheet_left("v6_faithful").get("leak_tok"),
+            fixture="pair-exam divergent + close + unused-e + sheet leftover/gender",
+            notes=(
+                "full hidden MSE plus a tiny semantic-policy check. Close to "
+                "faithful_raw; included because it scored well on both exam pairs."
+            ),
+        ),
+        _row(
             "faithful_attrs",
             "faithful + attributes / pin unused",
             exam=exam,
@@ -903,6 +946,62 @@ def collect_scoreboard(
             ),
         ),
         _row(
+            "faithful_guard_e",
+            "blend-guarded ê on real poles",
+            exam=exam,
+            leftover=sheet_left("faithful_guard_e"),
+            gender=sheet_gen("faithful_guard_e"),
+            leftover_leak=sheet_left("faithful_guard_e").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "subtract the declared ê_⊥ only while the result is still "
+                "nearer the pole caption than the pair midpoint "
+                "(lm_blend_guard). Refuses on energy-v4, where ê restates "
+                "the axis; accepts on a real leftover. No data fix."
+            ),
+        ),
+        _row(
+            "dual_band_guard_e",
+            "dual-band loss + blend-guarded ê",
+            exam=exam,
+            leftover=sheet_left("dual_band_guard_e"),
+            gender=sheet_gen("dual_band_guard_e"),
+            leftover_leak=sheet_left("dual_band_guard_e").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "semantic KL where the head reads, hidden MSE on the band "
+                "it is blind to, aimed at guarded real poles."
+            ),
+        ),
+        _row(
+            "dual_band_poles",
+            "dual-band loss on real poles",
+            exam=exam,
+            leftover=sheet_left("dual_band_poles"),
+            gender=sheet_gen("dual_band_poles"),
+            leftover_leak=sheet_left("dual_band_poles").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "lm_dual_band_pole_loss: KL keeps the readable band, MSE "
+                "pins the band the KL has no gradient on. Distinct from "
+                "semantic_kl_null (centered SVD projector, not uncentered "
+                "ker(W) coefficients)."
+            ),
+        ),
+        _row(
+            "dual_band_midpoint",
+            "dual-band loss on the v9 midpoint (control)",
+            exam=exam,
+            leftover=sheet_left("dual_band_midpoint"),
+            gender=sheet_gen("dual_band_midpoint"),
+            leftover_leak=sheet_left("dual_band_midpoint").get("leak_tok"),
+            fixture="sheet leftover + sheet gender",
+            notes=(
+                "ablation: the new loss with the old target. Pins the blind "
+                "band and still walks off the divergent pair's continuation."
+            ),
+        ),
+        _row(
             "semantic_kl_midpoint",
             "semantic_kl onto midpoint",
             exam=exam,
@@ -921,6 +1020,33 @@ def collect_scoreboard(
             leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
             fixture="sheet leftover + sheet gender",
             notes="on-sheet, but unused gender still moves the leak token.",
+        ),
+        _row(
+            "semantic_kl_null",
+            "semantic_kl + null-space hidden pin",
+            exam=exam,
+            leftover=sheet_left("v16_semantic_kl"),
+            gender=sheet_gen("v16_semantic_kl"),
+            leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
+            fixture="pair-exam + sheet leftover + sheet gender",
+            notes=(
+                "canonical hybrid from #29/#32/#33: next-token KL on the semantic "
+                "band plus hidden MSE on ker(lm_head). Trainer aliases "
+                "semantic_kl_plus_hidden and semantic_kl_pin resolve here."
+            ),
+        ),
+        _row(
+            "unrolled_kl",
+            "unrolled semantic_kl onto real poles",
+            exam=exam,
+            leftover=sheet_left("v16_semantic_kl"),
+            gender=sheet_gen("v16_semantic_kl"),
+            leftover_leak=sheet_left("v16_semantic_kl").get("leak_tok"),
+            fixture="pair-exam transition + sheet leftover/gender (caption teacher)",
+            notes=(
+                "KL at token 0 and after the residual mix that carries delivery "
+                "into the scored band. Fixture-only (live trainer has no frozen mix)."
+            ),
         ),
         _row(
             "semantic_kl_sub_e",

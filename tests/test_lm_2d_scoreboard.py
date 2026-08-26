@@ -20,6 +20,7 @@ from analysis.slider2d.scoreboard import (
     COMPILED_SWING_FLOOR,
     EXAM_ALIAS,
     FAILS,
+    RACE_RECIPES,
     UNSCORED,
     WORKS,
     WORKS_SOME,
@@ -41,6 +42,7 @@ from conceptmod.textsliders.train_lm_slider_music3 import (
     LM_RECIPES,
     POLE_MODES,
     parse_args,
+    resolve_pole_mode,
 )
 
 
@@ -338,6 +340,67 @@ def test_the_live_default_is_still_v9_on_hidden_mse():
     assert "v9" in LM_RECIPES
     assert "semantic_kl" in POLE_MODES
     assert "faithful_sub_e_if_unused" in LM_RECIPES
+    assert "faithful_guard_e" in LM_RECIPES
+    assert "semantic_kl_null" in POLE_MODES
+    assert "hidden_kl" in POLE_MODES
+    assert "dual_band" in POLE_MODES
+    assert "unrolled_kl" not in POLE_MODES
+    assert resolve_pole_mode("hidden") == "hidden"
+
+
+def test_hybrid_pole_mode_aliases_resolve_to_semantic_kl_null():
+    """#29 / #32 / #33 are one hybrid. Old flags must not fork."""
+    assert resolve_pole_mode("semantic_kl_null") == "semantic_kl_null"
+    assert resolve_pole_mode("semantic_kl_plus_hidden") == "semantic_kl_null"
+    assert resolve_pole_mode("semantic_kl_pin") == "semantic_kl_null"
+    pin = parse_args(
+        ["--prompts", "x.yaml", "--lm_target", "faithful", "--pole_mode", "semantic_kl_pin"]
+    )
+    plus = parse_args(
+        [
+            "--prompts",
+            "x.yaml",
+            "--lm_target",
+            "faithful",
+            "--pole_mode",
+            "semantic_kl_plus_hidden",
+        ]
+    )
+    assert pin.pole_mode == "semantic_kl_pin"
+    assert plus.pole_mode == "semantic_kl_plus_hidden"
+    assert resolve_pole_mode(pin.pole_mode) == "semantic_kl_null"
+    assert resolve_pole_mode(plus.pole_mode) == "semantic_kl_null"
+
+
+def test_combined_race_recipes_are_on_the_board_next_to_baselines():
+    ids = by_id()
+    for name in RACE_RECIPES:
+        assert name in ids, name
+        assert ids[name]["exam_score"] is not None
+        assert ids[name]["cells"]["exam_divergent"] is not None
+        assert ids[name]["cells"]["exam_close"] is not None
+    for name in RACE_RECIPES - {"dual_band_midpoint"}:
+        assert ids[name]["cells"]["exam_divergent"] is True, name
+        assert ids[name]["cells"]["exam_close"] is True, name
+    for baseline in (
+        "faithful_attrs",
+        "faithful_raw",
+        "hidden_beta1",
+        "gender_like_no_e",
+        "pair_odd_midpoint",
+        "hold_e_perp_l8",
+        "pair_odd_sub_e",
+        "faithful_sub_e",
+        "semantic_kl_midpoint",
+        "semantic_kl_poles",
+        "semantic_kl_sub_e",
+        "hub",
+        "project_short_u",
+        "hold_e_raw_l1",
+    ):
+        assert baseline in ids
+    assert "semantic_kl_plus_hidden" not in ids
+    assert "semantic_kl_pin" not in ids
 
 
 def test_the_gated_leftover_row_hits_exam_score_one_on_both_live_pairs():
@@ -357,3 +420,76 @@ def test_the_gated_leftover_row_hits_exam_score_one_on_both_live_pairs():
     assert raw["cells"]["sheet_leftover"] is False
     assert row["id"] != "faithful_raw"
     assert row["exam_score"] > by_id()["faithful_sub_e"]["exam_score"]
+
+
+def test_semantic_kl_null_tops_both_exam_pairs():
+    """KL + null-space pin: caption poles, delivery arrives, both pair types."""
+    row = by_id()["semantic_kl_null"]
+    assert row["exam_score"] is not None
+    assert row["exam_score"] >= 0.99
+    assert row["cells"]["exam_divergent"] is True
+    assert row["cells"]["exam_close"] is True
+    poles = by_id()["semantic_kl_poles"]
+    assert row["exam_score"] > poles["exam_score"]
+    assert poles["cells"]["exam_close"] is False
+
+
+def test_new_hidden_kl_recipe_scores_one_on_close_and_divergent_pairs():
+    row = by_id()["hidden_kl_poles"]
+    raw = by_id()["faithful_raw"]
+    assert row["exam_score"] is not None
+    assert row["exam_score"] >= 0.99
+    assert row["exam_score"] == pytest.approx(raw["exam_score"], abs=1e-3)
+    assert row["cells"]["exam_divergent"] is True
+    assert row["cells"]["exam_close"] is True
+    assert row["exam_overlap"]["exam_divergent"] >= 0.99
+    assert row["exam_overlap"]["exam_close"] >= 0.99
+    assert row["exam_swing"]["exam_divergent"] >= 0.99
+    assert row["exam_swing"]["exam_close"] >= 0.99
+    assert row["id"] not in EXAM_ALIAS
+
+
+def test_unrolled_kl_has_a_real_exam_reading_and_is_not_live():
+    row = by_id()["unrolled_kl"]
+    assert row["exam_score"] is not None
+    assert row["exam_score"] >= 0.95
+    assert row["cells"]["exam_divergent"] is True
+    assert row["cells"]["exam_close"] is True
+    assert "unrolled_kl" not in POLE_MODES
+
+
+def test_faithful_guard_e_has_a_real_pair_exam_reading():
+    row = by_id()["faithful_guard_e"]
+    raw = by_id()["faithful_raw"]
+    assert row["exam_score"] is not None
+    assert row["exam_score"] >= 0.99
+    assert row["exam_score"] == pytest.approx(raw["exam_score"], abs=1e-3)
+    assert row["cells"]["exam_divergent"] is True
+    assert row["cells"]["exam_close"] is True
+    assert row["cells"]["sheet_leftover"] is True
+    assert row["cells"]["sheet_gender"] is True
+    assert row["id"] != "faithful_sub_e_if_unused"
+
+
+def test_dual_band_rows_have_real_pair_exam_readings():
+    dual = by_id()["dual_band_poles"]
+    guarded = by_id()["dual_band_guard_e"]
+    poles = by_id()["semantic_kl_poles"]
+    assert dual["exam_score"] is not None
+    assert guarded["exam_score"] is not None
+    assert dual["exam_score"] >= 0.95
+    assert guarded["exam_score"] >= 0.95
+    assert dual["cells"]["exam_divergent"] is True
+    assert dual["cells"]["exam_close"] is True
+    assert guarded["cells"]["exam_divergent"] is True
+    assert guarded["cells"]["exam_close"] is True
+    assert dual["exam_score"] > poles["exam_score"]
+    assert guarded["exam_score"] > poles["exam_score"]
+
+
+def test_dual_band_midpoint_fails_the_divergent_pair():
+    control = by_id()["dual_band_midpoint"]
+    assert control["exam_score"] is not None
+    assert control["cells"]["exam_divergent"] is False
+    assert control["cells"]["exam_close"] is not None
+    assert by_id()["dual_band_poles"]["cells"]["exam_divergent"] is True
