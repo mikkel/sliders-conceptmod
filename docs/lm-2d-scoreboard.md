@@ -180,13 +180,18 @@ hybrid, hidden_kl, unrolled_kl, and the #35 Opus rows); #28 baselines stay solid
 
 ![leak_frac = cos(d+, d−)](lm-2d-scoreboard/leak-frac.png)
 
-`leak_frac` = `cos(d+, d−)` from `leftover_bipolar` on the fitted ±1
-student. This is **not** leftover leak. Clean bipolar wants
-`leak_frac` ≤ -0.80; caption-pole / leftover-gate
-no-op recipes keep the common component and sit near 0. Leftover-gate
-clears unused ê and does **not** clear this leak. Hatched the same
-way as `exam-score.png`. Vertical lines: bipolar-mirror floor
-(-0.80) and same-dir starts (0).
+Sorted by `leak_frac` (same-dir / least bipolar at the top, clean
+bipolar at the bottom) so the −0.80 and 0 lines split clusters.
+Race rows stay hatched; high-leak cousins (`hub`, hold-ê raw,
+project û, leftover_hold, pair-odd / `_sub_e` / midpoint) stay on
+the same chart. Color is the leak band, not the compiled verdict.
+Each bar is annotated `leak_frac` and leftover leak (`ê=…`) so a
+leftover-gate row can show unused ê gone and `leak_frac` still
+caption-pole. The right panel is leftover leak on the energy-like
+sheet — unused gender / leftover mix-BPM sitting inside `a`, the
+fixture pairing this chart already has. Close vs divergent is the
+pair-exam; this figure is the ±1 student on that leftover field.
+Neither column is scored.
 
 ![leftover leak vs leak_frac](lm-2d-scoreboard/leftover-vs-leak-frac.png)
 
