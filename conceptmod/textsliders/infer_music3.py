@@ -157,6 +157,7 @@ def infer(args: argparse.Namespace) -> list[Path]:
     if meta.get("plus_neu") or str(meta.get("lm_target") or "") in {
         "faithful_plus_neu",
         "faithful_plus_neu_prefix",
+        "faithful_plus_neu_lyric",
     }:
         print(
             "plus+neu adapter: slider clips use the yaml neutral caption + LoRA. "

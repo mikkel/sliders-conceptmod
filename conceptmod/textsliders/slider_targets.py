@@ -654,6 +654,36 @@ def lm_faithful_plus_neu_prefix(
     )
 
 
+def lm_faithful_plus_neu_lyric(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+) -> torch.Tensor:
+    """UNI lyric-span-hold last-token teacher: still raw ``h+``.
+
+    ``--lm_target faithful_plus_neu_lyric`` keeps the same last-token
+    + teacher as ``faithful_plus_neu`` and ``faithful_plus_neu_prefix``.
+    What changes is which prefix positions are pinned: the yaml lyric
+    span only (``lm_lyric_span_mask`` / ``lm_plus_neu_span_loss``),
+    never the caption span. A close pair states the moved attribute in
+    the caption (``One female lead singer. A woman is singing…``), and
+    the listen path is the neutral caption plus the LoRA, so pinning
+    that span to encode(neu) is pinning the concept away.
+    """
+    return lm_faithful_plus_neu(
+        pos,
+        neg,
+        neu,
+        leak_dir,
+        slider_dir=slider_dir,
+        target_scale=target_scale,
+    )
+
+
 def lm_blend_guard(
     tgt_plus: torch.Tensor,
     tgt_minus: torch.Tensor,
@@ -1165,6 +1195,94 @@ def lm_plus_neu_prefix_loss(
     """
     last = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
     return last + float(prefix_weight) * F.mse_loss(pred_plus_prefix, tgt_neu_prefix)
+
+
+def lm_masked_hidden_mse(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    mask: torch.Tensor,
+) -> torch.Tensor:
+    """Hidden MSE over the positions ``mask`` selects. ``mask`` is ``[B, T]``.
+
+    Averaged over selected positions and hidden width, so a hold over a
+    four-token lyric span and a hold over a ninety-token prefix are on
+    the same scale and one weight means the same thing for both.
+    """
+    valid = mask.unsqueeze(-1).to(dtype=pred.dtype)
+    denom = valid.sum().clamp_min(1.0) * float(pred.shape[-1])
+    return ((pred - tgt).pow(2) * valid).sum() / denom
+
+
+def lm_lyric_span_mask(
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    *,
+    lyrics_start_id: int,
+    lyrics_end_id: int,
+) -> torch.Tensor:
+    """``[B, T]`` 1/0 mask over the yaml lyric span of an assembled prompt.
+
+    The span is every position from the token after ``<|lyrics_start|>``
+    through ``<|lyrics_end|>``: the written lyric tokens plus the
+    closing marker whose hidden summarizes them. The caption span (the
+    Structured Caption, including Vocal Details) and the
+    ``<|audio_start|>`` continue token are **not** in the span, which is
+    the whole difference between ``faithful_plus_neu_lyric`` and
+    ``faithful_plus_neu_prefix``.
+
+    Raises if a row has no well-formed lyric span, so a hold can never
+    silently degrade into a hold on nothing.
+    """
+    if input_ids.shape != attention_mask.shape:
+        raise ValueError(
+            f"input_ids {tuple(input_ids.shape)} and attention_mask "
+            f"{tuple(attention_mask.shape)} must have the same shape"
+        )
+    real = attention_mask.to(dtype=torch.bool)
+    is_start = (input_ids == int(lyrics_start_id)) & real
+    is_end = (input_ids == int(lyrics_end_id)) & real
+    positions = torch.arange(input_ids.shape[1], device=input_ids.device)
+    big = int(input_ids.shape[1]) + 1
+    # First start marker and last end marker per row; a caption that
+    # quotes the marker text cannot shrink the span below the lyrics.
+    start = torch.where(is_start, positions, torch.full_like(positions, big)).min(dim=1).values
+    end = torch.where(is_end, positions, torch.full_like(positions, -1)).max(dim=1).values
+    if bool((start >= big).any()) or bool((end < 0).any()) or bool((end <= start).any()):
+        raise ValueError(
+            "every row needs a <|lyrics_start|> ... <|lyrics_end|> span "
+            f"(start={start.tolist()}, end={end.tolist()}); "
+            "lyric-span hold has nothing to hold"
+        )
+    inside = (positions.unsqueeze(0) > start.unsqueeze(1)) & (
+        positions.unsqueeze(0) <= end.unsqueeze(1)
+    )
+    return (inside & real).to(dtype=attention_mask.dtype)
+
+
+def lm_plus_neu_span_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    pred_zero: torch.Tensor,
+    tgt_zero: torch.Tensor,
+    pred_plus_hidden: torch.Tensor,
+    tgt_neu_hidden: torch.Tensor,
+    span_mask: torch.Tensor,
+    *,
+    span_weight: float = 1.0,
+) -> torch.Tensor:
+    """UNI + a hold on the positions ``span_mask`` selects.
+
+    ``--lm_target faithful_plus_neu_lyric``: ``MSE(last +) + MSE(last 0)
+    + MSE(lyric span + → encode(neu) lyric span)``. Same last-token
+    teacher as ``faithful_plus_neu``; the only extra term pins the
+    written line. Feeding the whole prefix mask instead reproduces
+    ``faithful_plus_neu_prefix`` up to the per-position normalizer,
+    which is the point: the two differ only in which positions the
+    hold covers.
+    """
+    last = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+    span = lm_masked_hidden_mse(pred_plus_hidden, tgt_neu_hidden, span_mask)
+    return last + float(span_weight) * span
 
 
 def lm_project_last_delta_off_lyric(
