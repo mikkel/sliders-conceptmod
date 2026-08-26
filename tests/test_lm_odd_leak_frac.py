@@ -29,6 +29,7 @@ from analysis.slider2d.odd_search import (
     row_cos_sweep,
     score_candidate,
     sheet_leak,
+    sibling_concordance,
     strength_invariance,
     worst_margin,
 )
@@ -303,6 +304,36 @@ def test_only_one_divergent_gate_moves_across_the_gain_family():
         assert row["roll_overlap"] == pytest.approx(1.0, abs=1e-6)
         assert row["roll_off_corpus"] == pytest.approx(0.0, abs=1e-6)
         assert row["roll_coherence"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_the_sibling_searches_are_one_curve():
+    """#37, #38 and #40 report three mechanisms and one one-parameter family."""
+    rows = sibling_concordance()
+    field = CELLS[WIN_CELL]()
+    for row in rows:
+        assert row["closed_form"] == pytest.approx(
+            row["reported_leak_frac"], abs=1e-3
+        ), row["source"]
+        # ...and the gain teacher at that ratio really does measure it.
+        got = score_exam(
+            row["source"],
+            field,
+            pole_mode="hidden",
+            teacher="faithful_gain",
+            target_scale=row["equivalent_gain"],
+            steps=200,
+            seed=0,
+        )
+        assert got["leak_frac"] == pytest.approx(
+            row["reported_leak_frac"], abs=2e-3
+        ), row["source"]
+    # The two published mechanism-to-ratio maps are closed form.
+    beta = {r["source"]: r["implied_odd_over_even"] for r in rows if "#38" in r["source"]}
+    assert beta["#38 common_beta β=0.60"] == pytest.approx(1.0 / 0.60, abs=2e-3)
+    assert beta["#38 common_beta β=0.50"] == pytest.approx(1.0 / 0.50, abs=2e-3)
+    apart = {r["source"]: r["implied_odd_over_even"] for r in rows if "#40" in r["source"]}
+    assert apart["#40 apart even w=1"] == pytest.approx(1.0 + 1.0 / 2, abs=2e-3)
+    assert apart["#40 apart even w=4"] == pytest.approx(1.0 + 4.0 / 2, abs=5e-3)
 
 
 def test_frontier_is_reported_either_way():

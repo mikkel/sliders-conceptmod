@@ -759,6 +759,67 @@ def sheet_table(*, steps: int = 400, seed: int = 0) -> dict[str, dict | None]:
     }
 
 
+# ``leak_frac`` numbers published by the three sibling searches open at the
+# same time, copied from their PR bodies. Every one is a *different
+# mechanism* — a teacher scale, a cap on the common term, a penalty on the
+# student's even half — so if the closed form is right they should all
+# collapse onto one curve, and the ratio it solves for is the only thing
+# that distinguishes them. Copied numbers, not re-derived ones: the point
+# is whether an independent measurement lands where the algebra says.
+SIBLING_HITS = (
+    ("#37 caption_odd_margin", "cap the common at 0.9‖odd‖", -0.105),
+    ("#38 common_beta β=0.90", "keep 90% of the common term", -0.090),
+    ("#38 common_beta β=0.70", "keep 70% of the common term", -0.329),
+    ("#38 common_beta β=0.60", "keep 60% of the common term", -0.459),
+    ("#38 common_beta β=0.50", "keep 50% of the common term", -0.590),
+    ("#40 apart even w=0.25", "penalize the student's even half", -0.102),
+    ("#40 apart even w=0.5", "penalize the student's even half", -0.205),
+    ("#40 apart even w=1", "penalize the student's even half", -0.372),
+    ("#40 apart even w=4", "penalize the student's even half", -0.795),
+)
+
+
+def implied_ratio(leak_frac: float, cell: str = WIN_CELL) -> float:
+    """The odd/even gain ratio a reported ``leak_frac`` pins down.
+
+    Inverting ``leak_frac = (β²‖c‖² − γ²‖a‖²)/(β²‖c‖² + γ²‖a‖²)`` for
+    ``γ/β``. Any recipe realizing that number has to sit here, whatever
+    the mechanism was called.
+    """
+    budget = pair_budget(cell)
+    value = float(leak_frac)
+    ratio_sq = (budget["even_sq"] / budget["odd_sq"]) * (1.0 - value) / (1.0 + value)
+    return ratio_sq**0.5
+
+
+def sibling_concordance(cell: str = WIN_CELL) -> list[dict]:
+    """Do the sibling searches land on the one curve the algebra predicts?
+
+    For each published number: the ratio it implies, and the ``leak_frac``
+    this cell measures for ``mid ± γ·a`` at that same ratio. If the closed
+    form is right the two agree to the precision the numbers were quoted
+    at, and three searches that each described a different mechanism were
+    moving the same dial.
+    """
+    budget = pair_budget(cell)
+    out = []
+    for name, mechanism, reported in SIBLING_HITS:
+        ratio = implied_ratio(reported, cell)
+        even = budget["even_sq"]
+        odd = (ratio**2) * budget["odd_sq"]
+        out.append(
+            {
+                "source": name,
+                "mechanism": mechanism,
+                "reported_leak_frac": float(reported),
+                "implied_odd_over_even": ratio,
+                "closed_form": (even - odd) / (even + odd),
+                "equivalent_gain": ratio,
+            }
+        )
+    return out
+
+
 def cell_notes() -> dict[str, str]:
     return dict(CELL_IS)
 

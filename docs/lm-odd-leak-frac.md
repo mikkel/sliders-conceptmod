@@ -234,6 +234,46 @@ cell's garble device firing on purpose.
 
 ![cost](lm-odd-leak-frac/cost.png)
 
+## Three other searches found the same curve
+
+Three sibling searches were open on this criterion at the same time,
+each describing a different mechanism: [#37](https://github.com/mikkel/sliders-conceptmod/pull/37) caps the common term at `0.9‖odd‖`,
+[#38](https://github.com/mikkel/sliders-conceptmod/pull/38) sweeps
+`--common_beta`, and [#40](https://github.com/mikkel/sliders-conceptmod/pull/40) adds a penalty on the *student's* even half and leaves the
+teacher a real caption. A teacher scale, a target cap and a loss term
+are not the same object.
+
+They land on one curve anyway. Inverting the closed form for the
+odd-over-even ratio each published `leak_frac` implies, and re-measuring
+`mid ± γ·a` at that ratio:
+
+| source | mechanism | reported `leak_frac` | implied odd/even | this cell at the same ratio |
+|---|---|---:|---:|---:|
+| #37 caption_odd_margin | cap the common at 0.9‖odd‖ | -0.105 | 1.128 | -0.105 |
+| #38 common_beta β=0.90 | keep 90% of the common term | -0.090 | 1.111 | -0.090 |
+| #38 common_beta β=0.70 | keep 70% of the common term | -0.329 | 1.429 | -0.329 |
+| #38 common_beta β=0.60 | keep 60% of the common term | -0.459 | 1.667 | -0.459 |
+| #38 common_beta β=0.50 | keep 50% of the common term | -0.590 | 1.999 | -0.590 |
+| #40 apart even w=0.25 | penalize the student's even half | -0.102 | 1.125 | -0.102 |
+| #40 apart even w=0.5 | penalize the student's even half | -0.205 | 1.250 | -0.205 |
+| #40 apart even w=1 | penalize the student's even half | -0.372 | 1.500 | -0.372 |
+| #40 apart even w=4 | penalize the student's even half | -0.795 | 3.004 | -0.795 |
+
+Every one agrees to the precision it was quoted at, and the
+mechanism-to-ratio map is closed form in each case: #38's β gives
+`1/β` (0.90 → 1.111, 0.60 → 1.667, 0.50 → 1.999) and #40's even-ridge
+weight `w` gives `1 + w/2` (0.25 → 1.125, 1 → 1.500, 4 → 3.004), which
+is just the ridge solution for shrinking one half of a quadratic.
+
+None of that makes any of them wrong — they are three correct routes to
+the same point, and #40's is the only one that keeps the teacher a real
+caption, which is a real advantage this recipe does not have. It does
+mean the four PRs are **not** four independent hits. They are one
+one-parameter family reported four times, and the exam cannot tell the
+members apart because it only ever sees the point they land on. If a
+board ends up carrying all four as separate rows, that is four names
+for one dial.
+
 ## What a hit here does not mean
 
 ### `leak_frac` is a ratio, and this buys it from the denominator

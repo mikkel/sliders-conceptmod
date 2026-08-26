@@ -44,6 +44,7 @@ from analysis.slider2d.odd_search import (
     row_cos_sweep,
     search,
     sheet_table,
+    sibling_concordance,
     strength_invariance,
 )
 
@@ -534,6 +535,47 @@ def write_report(blob: dict, path: Path) -> None:
         "",
         "![cost](lm-odd-leak-frac/cost.png)",
         "",
+        "## Three other searches found the same curve",
+        "",
+        "Three sibling searches were open on this criterion at the same time,",
+        "each describing a different mechanism: [#37](https://github.com/mikkel/"
+        "sliders-conceptmod/pull/37) caps the common term at `0.9‖odd‖`,",
+        "[#38](https://github.com/mikkel/sliders-conceptmod/pull/38) sweeps",
+        "`--common_beta`, and [#40](https://github.com/mikkel/sliders-conceptmod/"
+        "pull/40) adds a penalty on the *student's* even half and leaves the",
+        "teacher a real caption. A teacher scale, a target cap and a loss term",
+        "are not the same object.",
+        "",
+        "They land on one curve anyway. Inverting the closed form for the",
+        "odd-over-even ratio each published `leak_frac` implies, and re-measuring",
+        "`mid ± γ·a` at that ratio:",
+        "",
+        "| source | mechanism | reported `leak_frac` | implied odd/even | this cell at the same ratio |",
+        "|---|---|---:|---:|---:|",
+    ]
+    for row in blob["sibling_concordance"]:
+        lines.append(
+            f"| {row['source']} | {row['mechanism']} | "
+            f"{row['reported_leak_frac']:+.3f} | "
+            f"{row['implied_odd_over_even']:.3f} | {row['closed_form']:+.3f} |"
+        )
+    lines += [
+        "",
+        "Every one agrees to the precision it was quoted at, and the",
+        "mechanism-to-ratio map is closed form in each case: #38's β gives",
+        "`1/β` (0.90 → 1.111, 0.60 → 1.667, 0.50 → 1.999) and #40's even-ridge",
+        "weight `w` gives `1 + w/2` (0.25 → 1.125, 1 → 1.500, 4 → 3.004), which",
+        "is just the ridge solution for shrinking one half of a quadratic.",
+        "",
+        "None of that makes any of them wrong — they are three correct routes to",
+        "the same point, and #40's is the only one that keeps the teacher a real",
+        "caption, which is a real advantage this recipe does not have. It does",
+        "mean the four PRs are **not** four independent hits. They are one",
+        "one-parameter family reported four times, and the exam cannot tell the",
+        "members apart because it only ever sees the point they land on. If a",
+        "board ends up carrying all four as separate rows, that is four names",
+        "for one dial.",
+        "",
         "## What a hit here does not mean",
         "",
         "### `leak_frac` is a ratio, and this buys it from the denominator",
@@ -755,6 +797,7 @@ def main(argv: list[str] | None = None) -> int:
         "gain_window": gain_window(whole),
         "blind_window": gain_window(blind),
         "sheet": sheet_table(steps=args.steps),
+        "sibling_concordance": sibling_concordance(),
         "row_cos_sweep": row_cos_sweep(steps=args.sweep_steps),
         "algebra_check": algebra_check(),
         "strength_invariance": strength_invariance(),

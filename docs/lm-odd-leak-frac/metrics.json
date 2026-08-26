@@ -2811,6 +2811,80 @@
       "board_wins": true
     }
   },
+  "sibling_concordance": [
+    {
+      "source": "#37 caption_odd_margin",
+      "mechanism": "cap the common at 0.9\u2016odd\u2016",
+      "reported_leak_frac": -0.105,
+      "implied_odd_over_even": 1.1279361573374642,
+      "closed_form": -0.10499999999999997,
+      "equivalent_gain": 1.1279361573374642
+    },
+    {
+      "source": "#38 common_beta \u03b2=0.90",
+      "mechanism": "keep 90% of the common term",
+      "reported_leak_frac": -0.09,
+      "implied_odd_over_even": 1.1109830937407796,
+      "closed_form": -0.08999999999999998,
+      "equivalent_gain": 1.1109830937407796
+    },
+    {
+      "source": "#38 common_beta \u03b2=0.70",
+      "mechanism": "keep 70% of the common term",
+      "reported_leak_frac": -0.329,
+      "implied_odd_over_even": 1.428618032849597,
+      "closed_form": -0.32899999999999996,
+      "equivalent_gain": 1.428618032849597
+    },
+    {
+      "source": "#38 common_beta \u03b2=0.60",
+      "mechanism": "keep 60% of the common term",
+      "reported_leak_frac": -0.459,
+      "implied_odd_over_even": 1.6670319010175132,
+      "closed_form": -0.459,
+      "equivalent_gain": 1.6670319010175132
+    },
+    {
+      "source": "#38 common_beta \u03b2=0.50",
+      "mechanism": "keep 50% of the common term",
+      "reported_leak_frac": -0.59,
+      "implied_odd_over_even": 1.9990402158272527,
+      "closed_form": -0.59,
+      "equivalent_gain": 1.9990402158272527
+    },
+    {
+      "source": "#40 apart even w=0.25",
+      "mechanism": "penalize the student's even half",
+      "reported_leak_frac": -0.102,
+      "implied_odd_over_even": 1.1245208864530385,
+      "closed_form": -0.10200000000000005,
+      "equivalent_gain": 1.1245208864530385
+    },
+    {
+      "source": "#40 apart even w=0.5",
+      "mechanism": "penalize the student's even half",
+      "reported_leak_frac": -0.205,
+      "implied_odd_over_even": 1.24975492384251,
+      "closed_form": -0.20499999999999996,
+      "equivalent_gain": 1.24975492384251
+    },
+    {
+      "source": "#40 apart even w=1",
+      "mechanism": "penalize the student's even half",
+      "reported_leak_frac": -0.372,
+      "implied_odd_over_even": 1.5004175355980127,
+      "closed_form": -0.37199999999999994,
+      "equivalent_gain": 1.5004175355980127
+    },
+    {
+      "source": "#40 apart even w=4",
+      "mechanism": "penalize the student's even half",
+      "reported_leak_frac": -0.795,
+      "implied_odd_over_even": 3.0037943307329336,
+      "closed_form": -0.795,
+      "equivalent_gain": 3.0037943307329336
+    }
+  ],
   "row_cos_sweep": [
     {
       "probe_cos": -0.11,
