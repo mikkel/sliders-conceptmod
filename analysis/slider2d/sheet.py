@@ -78,8 +78,15 @@ from conceptmod.textsliders.slider_targets import (
     lm_axis_hold,
     lm_blind_projector,
     lm_dual_band_pole_loss,
+    lm_faithful_gate_odd_sub_even,
     lm_faithful_guard_e,
     lm_faithful_sub_e_if_unused,
+    lm_faithful_sub_even_blend,
+    lm_faithful_sub_even_blend_guard,
+    lm_faithful_sub_even_blend_if_unused,
+    lm_faithful_sub_even_e,
+    lm_faithful_sub_even_e_guard,
+    lm_faithful_sub_even_e_if_unused,
     lm_hidden_targets,
     lm_hold_dir,
     lm_next_token_logits,
@@ -606,6 +613,14 @@ TEACHERS = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "faithful_sub_even_e",
+    "faithful_sub_even_e_if_unused",
+    "faithful_sub_even_e_guard",
+    "faithful_sub_even_blend",
+    "faithful_sub_even_blend_if_unused",
+    "faithful_sub_even_blend_guard",
+    "faithful_gate_odd_sub_even",
+    "faithful_gate_odd_sub_even_blend",
 )
 POLE_MODES = ("hidden", "semantic_kl", "semantic_kl_null", "dual_band")
 
@@ -662,6 +677,36 @@ def teacher_points(
         if leak_dir is None:
             return pos, neg
         return lm_faithful_guard_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
+    if mode == "faithful_sub_even_e":
+        if leak_dir is None:
+            raise ValueError("faithful_sub_even_e needs a declared ê")
+        return lm_faithful_sub_even_e(pos, neg, neu, leak_dir, slider_dir=field.short_u())
+    if mode == "faithful_sub_even_e_if_unused":
+        return lm_faithful_sub_even_e_if_unused(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u()
+        )
+    if mode == "faithful_sub_even_e_guard":
+        if leak_dir is None:
+            return pos, neg
+        return lm_faithful_sub_even_e_guard(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u()
+        )
+    if mode == "faithful_sub_even_blend":
+        return lm_faithful_sub_even_blend(pos, neg, neu, None)
+    if mode == "faithful_sub_even_blend_if_unused":
+        return lm_faithful_sub_even_blend_if_unused(
+            pos, neg, neu, leak_dir, None, slider_dir=field.short_u()
+        )
+    if mode == "faithful_sub_even_blend_guard":
+        return lm_faithful_sub_even_blend_guard(pos, neg, neu, None)
+    if mode == "faithful_gate_odd_sub_even":
+        return lm_faithful_gate_odd_sub_even(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u()
+        )
+    if mode == "faithful_gate_odd_sub_even_blend":
+        return lm_faithful_gate_odd_sub_even(
+            pos, neg, neu, leak_dir, slider_dir=field.short_u(), even_dir=None
+        )
     raise ValueError(f"teacher must be one of {TEACHERS}, got {teacher!r}")
 
 
