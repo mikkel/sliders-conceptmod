@@ -63,6 +63,18 @@ UNUSED_E_OVERLAP_MAX = 0.50
 LEAK_HOLD_WEIGHT = 8.0
 SAME_DIR_MAX = 0.06
 
+# Student-only regularizer. Teacher stays a caption (t± = h± / leftover-gate
+# / guard). These terms act on the fitted residual, not on the target:
+#   even     ‖½(d+ + d−)‖² / D     — shrink the shared even
+#   cos      cos(d+, d−)           — leak_frac itself
+#   same_dir ‖even‖ / (‖even‖+‖odd‖)
+# Large weight secretly implements pair-odd (w_even → 0) and fails
+# exam_divergent. That is not a win.
+APART_KINDS = ("even", "cos", "same_dir")
+# CPU pair-exam (seed 0, 400 steps): even 0.25 passes both live pairs at
+# leak_frac ≈ −0.10, the faithful_attrs band. Default stays 0.
+APART_EVEN_WEIGHT = 0.25
+
 
 def sd_noise_target(
     neutral: torch.Tensor,
@@ -663,6 +675,38 @@ def leftover_bipolar(d_plus: torch.Tensor, d_minus: torch.Tensor) -> dict[str, f
     }
 
 
+def resolve_apart_kind(kind: str) -> str:
+    mode = str(kind).strip().lower()
+    if mode not in APART_KINDS:
+        raise ValueError(f"apart_kind must be one of {APART_KINDS}, got {kind!r}")
+    return mode
+
+
+def lm_student_apart(
+    pred_plus: torch.Tensor,
+    pred_minus: torch.Tensor,
+    neu: torch.Tensor,
+    *,
+    kind: str = "even",
+) -> torch.Tensor:
+    """Student-only term that pushes +1 and −1 apart. Teacher is unchanged.
+
+    ``d± = h(±1) − h0``. ``even`` penalizes ‖½(d+ + d−)‖² (mean-squared,
+    same scale as pole MSE). ``cos`` is leak_frac itself. ``same_dir`` is
+    the leftover-bipolar even share. None of these rewrite ``t±``.
+    """
+    mode = resolve_apart_kind(kind)
+    d_plus = (pred_plus - neu).flatten()
+    d_minus = (pred_minus - neu).flatten()
+    even = 0.5 * (d_plus + d_minus)
+    odd = 0.5 * (d_plus - d_minus)
+    if mode == "even":
+        return even.pow(2).mean()
+    if mode == "cos":
+        return F.cosine_similarity(d_plus.unsqueeze(0), d_minus.unsqueeze(0)).squeeze()
+    return even.norm() / (even.norm() + odd.norm() + 1e-8)
+
+
 def lm_slider_loss(
     pred_plus: torch.Tensor,
     pred_minus: torch.Tensor,
@@ -674,12 +718,16 @@ def lm_slider_loss(
     anchor_weight: float = 0.0,
     hold: torch.Tensor | None = None,
     hold_weight: float = 0.0,
+    apart: torch.Tensor | None = None,
+    apart_weight: float = 0.0,
 ) -> torch.Tensor:
     """Pole MSE plus optional v9 anchor MSE and orthogonal hold.
 
     Endreg / planreg / collapse_weight are AR-only and are not expressed on
     the CPU field. Semantic-KL poles are ``lm_semantic_pole_loss``; they
     need a readout, which ``analysis/slider2d/sheet.py`` supplies.
+    ``apart`` is a student-only regularizer (see ``lm_student_apart``);
+    default weight 0 leaves the teacher and the pole term alone.
     """
     pole = F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_minus, tgt_minus)
     weight = float(anchor_weight)
@@ -690,6 +738,9 @@ def lm_slider_loss(
     hold_w = float(hold_weight)
     if hold_w > 0.0 and hold is not None:
         pole = pole + hold_w * hold
+    apart_w = float(apart_weight)
+    if apart_w > 0.0 and apart is not None:
+        pole = pole + apart_w * apart
     return pole
 
 
@@ -743,6 +794,8 @@ def lm_semantic_pole_loss(
     *,
     hold: torch.Tensor | None = None,
     hold_weight: float = 0.0,
+    apart: torch.Tensor | None = None,
+    apart_weight: float = 0.0,
 ) -> torch.Tensor:
     """``lm_slider_loss`` with the pole MSE replaced by semantic KL.
 
@@ -753,6 +806,8 @@ def lm_semantic_pole_loss(
     the midpoint is not a caption, and matching its policy is the same
     off-sheet target with a different metric on top. See
     ``analysis/slider2d/sheet.py``.
+    ``apart`` is still a hidden-space student regularizer; the KL does
+    not see it.
     """
     pole = lm_semantic_kl(pred_plus_logits, tgt_plus_logits) + lm_semantic_kl(
         pred_minus_logits, tgt_minus_logits
@@ -760,6 +815,9 @@ def lm_semantic_pole_loss(
     hold_w = float(hold_weight)
     if hold_w > 0.0 and hold is not None:
         pole = pole + hold_w * hold
+    apart_w = float(apart_weight)
+    if apart_w > 0.0 and apart is not None:
+        pole = pole + apart_w * apart
     return pole
 
 

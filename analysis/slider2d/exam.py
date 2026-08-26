@@ -89,6 +89,8 @@ import torch
 from analysis.slider2d.field import cosine
 from analysis.slider2d.sheet import nucleus
 from conceptmod.textsliders.slider_targets import (
+    APART_EVEN_WEIGHT,
+    leftover_bipolar,
     lm_axis_hold,
     lm_faithful_sub_e,
     lm_faithful_sub_e_if_unused,
@@ -98,7 +100,9 @@ from conceptmod.textsliders.slider_targets import (
     lm_pair_odd_sub_e,
     lm_semantic_pole_loss,
     lm_slider_loss,
+    lm_student_apart,
     lm_unit,
+    resolve_apart_kind,
 )
 
 
@@ -997,6 +1001,8 @@ def fit_exam(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    apart_weight: float = 0.0,
+    apart_kind: str = "even",
     steps: int = 400,
     lr: float = 0.08,
     seed: int = 0,
@@ -1012,6 +1018,8 @@ def fit_exam(
     head = field.readout()
     held = hold_direction(field, leak_dir)
     lam = float(hold_weight) if held is not None else 0.0
+    apart_w = float(apart_weight)
+    apart_mode = resolve_apart_kind(apart_kind) if apart_w > 0.0 else apart_kind
     targets = [
         teacher_points(
             field, row, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
@@ -1032,6 +1040,11 @@ def fit_exam(
             hold = None
             if held is not None and lam > 0.0:
                 hold = lm_axis_hold(pred_plus, pred_minus, neu, held)
+            apart = None
+            if apart_w > 0.0:
+                apart = lm_student_apart(
+                    pred_plus, pred_minus, neu, kind=apart_mode
+                )
             if mode == "hidden":
                 term = lm_slider_loss(
                     pred_plus,
@@ -1040,6 +1053,8 @@ def fit_exam(
                     t_minus,
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
+                    apart=apart,
+                    apart_weight=apart_w,
                 )
             else:
                 term = lm_semantic_pole_loss(
@@ -1049,6 +1064,8 @@ def fit_exam(
                     head.logits(t_minus),
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
+                    apart=apart,
+                    apart_weight=apart_w,
                 )
             total = term if total is None else total + term
         return total / float(len(targets))
@@ -1075,6 +1092,8 @@ def score_exam(
     leak_dir: torch.Tensor | None = None,
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
+    apart_weight: float = 0.0,
+    apart_kind: str = "even",
     steps: int = 400,
     seed: int = 0,
 ) -> dict:
@@ -1086,6 +1105,8 @@ def score_exam(
         leak_dir=leak_dir,
         hold_weight=hold_weight,
         common_beta=common_beta,
+        apart_weight=apart_weight,
+        apart_kind=apart_kind,
         steps=steps,
         seed=seed,
     )
@@ -1167,6 +1188,8 @@ def score_exam(
             "pole_mode": pole_mode,
             "teacher": teacher,
             "hold_weight": float(hold_weight) if leak_dir is not None else 0.0,
+            "apart_weight": float(apart_weight),
+            "apart_kind": str(apart_kind),
             "common_beta": float(common_beta),
             # Pair coordinates the sheet field has no column for.
             "divergence": field.divergence(),
@@ -1177,6 +1200,7 @@ def score_exam(
             "pair_odd_cos": cosine(d_plus, a),
             "collapse": cosine(d_plus, d_minus),
             "pole_cos": cosine(d_plus, pos - neu),
+            **leftover_bipolar(d_plus, d_minus),
             "pperc": pperc,
             "nperc": nperc,
             "perc_gap": abs(pperc - nperc),
@@ -1317,6 +1341,15 @@ def recipes(field: PairField) -> list[tuple[str, dict]]:
         (
             "faithful_sub_e_if_unused",
             {"pole_mode": "hidden", "teacher": "faithful_sub_e_if_unused", "leak_dir": e},
+        ),
+        (
+            "faithful_apart_even",
+            {
+                "pole_mode": "hidden",
+                "teacher": "faithful",
+                "apart_weight": APART_EVEN_WEIGHT,
+                "apart_kind": "even",
+            },
         ),
     ]
     if e is not None:
@@ -1588,3 +1621,118 @@ def floatable(row: dict) -> dict:
         elif isinstance(value, dict) and all(isinstance(v, str) for v in value.values()):
             out[key] = value
     return out
+
+
+# Student-apart sweep. Teacher stays a caption. The regularizer only
+# touches the fitted residual. Large weight is pair-odd in disguise.
+APART_WEIGHTS = (0.0, 0.01, 0.03, 0.06, 0.12, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
+APART_SWEEP_KINDS = ("even", "cos", "same_dir")
+# leak_frac ≈ −1 that fails divergent is the midpoint Goodhart. A win
+# has to sit on the other side of 0 without falling into that well.
+APART_MIDPOINT_LEAK = -0.80
+
+
+def apart_is_win(row: dict) -> bool:
+    """exam_divergent True and leak_frac < 0, and not the −1 well."""
+    return bool(
+        row.get("exam_divergent")
+        and row.get("leak_frac") is not None
+        and float(row["leak_frac"]) < 0.0
+        and float(row["leak_frac"]) > APART_MIDPOINT_LEAK
+    )
+
+
+def score_apart(
+    kind: str,
+    weight: float,
+    *,
+    steps: int = 400,
+    seed: int = 0,
+    leftover_leak: float | None = None,
+) -> dict:
+    """One (kind, weight) on the live exam pairs. Teacher is faithful."""
+    mode = resolve_apart_kind(kind)
+    kwargs = {
+        "pole_mode": "hidden",
+        "teacher": "faithful",
+        "apart_weight": float(weight),
+        "apart_kind": mode,
+        "steps": steps,
+        "seed": seed,
+    }
+    divergent = score_exam("apart", CELLS["divergent"](seed=seed), **kwargs)
+    close = score_exam("apart", CELLS["close"](seed=seed), **kwargs)
+    unused = score_exam("apart", CELLS["unused_e"](seed=seed), **kwargs)
+    row = {
+        "name": f"faithful_apart_{mode}_w{weight:g}",
+        "apart_kind": mode,
+        "apart_weight": float(weight),
+        "teacher": "faithful",
+        "pole_mode": "hidden",
+        "exam_divergent": bool(divergent["pass"]),
+        "exam_close": bool(close["pass"]),
+        "exam_unused_e": bool(unused["pass"]),
+        "divergent_overlap": float(divergent["roll_overlap"]),
+        "divergent_swing": float(divergent["roll_swing_kept"]),
+        "divergent_coherence": float(divergent["roll_coherence"]),
+        "close_overlap": float(close["roll_overlap"]),
+        "close_swing": float(close["roll_swing_kept"]),
+        "leak_frac": float(divergent["leak_frac"]),
+        "same_dir": float(divergent["same_dir"]),
+        "close_leak_frac": float(close["leak_frac"]),
+        "unused_leak_frac": float(unused["leak_frac"]),
+        "unused_leak_tok": unused.get("leak_tok"),
+        "leftover_leak": leftover_leak,
+        "divergent_reason": divergent["reason"],
+        "close_reason": close["reason"],
+        "pair_odd_like": float(divergent["leak_frac"]) <= APART_MIDPOINT_LEAK,
+    }
+    row["win"] = apart_is_win(row)
+    return row
+
+
+def apart_sweep(
+    *,
+    kinds: tuple[str, ...] = APART_SWEEP_KINDS,
+    weights: tuple[float, ...] = APART_WEIGHTS,
+    steps: int = 400,
+    seed: int = 0,
+    leftover_leaks: dict[tuple[str, float], float] | None = None,
+) -> list[dict]:
+    """Weight sweep of the student-apart regularizer on caption poles."""
+    leaks = leftover_leaks or {}
+    out = []
+    for kind in kinds:
+        for weight in weights:
+            out.append(
+                score_apart(
+                    kind,
+                    weight,
+                    steps=steps,
+                    seed=seed,
+                    leftover_leak=leaks.get((kind, float(weight))),
+                )
+            )
+    return out
+
+
+# Data-pin existence proof: faithful_attrs sits at leak_frac −0.08.
+# The train card aims at that band without rewriting captions.
+APART_ATTRS_LEAK = -0.08
+
+
+def pick_apart_win(sweep: list[dict]) -> dict | None:
+    """Prefer even, then the leak_frac nearest the attrs band, then smallest weight."""
+    wins = [row for row in sweep if row.get("win")]
+    if not wins:
+        return None
+    wins = sorted(
+        wins,
+        key=lambda r: (
+            0 if r.get("exam_close") else 1,
+            0 if r["apart_kind"] == "even" else 1,
+            abs(float(r["leak_frac"]) - APART_ATTRS_LEAK),
+            float(r["apart_weight"]),
+        ),
+    )
+    return wins[0]

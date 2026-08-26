@@ -62,6 +62,8 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from conceptmod.textsliders.slider_targets import (
+    APART_EVEN_WEIGHT,
+    APART_KINDS,
     LEAK_HOLD_WEIGHT,
     SLIDER_ALIGN_MIN,
     lm_anchor_kappa,
@@ -82,6 +84,8 @@ from conceptmod.textsliders.slider_targets import (
     lm_project_odd_axis,
     lm_semantic_pole_loss,
     lm_slider_loss,
+    lm_student_apart,
+    resolve_apart_kind,
 )
 
 DEFAULT_MODEL = Path("/ml2/music/models/MiniMax-Music3")
@@ -359,6 +363,8 @@ def lm_train_loss(
     anchor_weight: float = 0.0,
     pole_mode: str = "hidden",
     readout: torch.Tensor | None = None,
+    apart_weight: float = 0.0,
+    apart_kind: str = "even",
 ) -> torch.Tensor:
     """Live pole loss: ``lm_slider_loss`` plus optional hold.
 
@@ -370,6 +376,9 @@ def lm_train_loss(
     ``pole_mode=hidden`` (default) is hidden MSE. ``semantic_kl`` is
     ``lm_semantic_pole_loss`` on ``lm_next_token_logits`` of the
     semantic-band readout — not a second KL.
+
+    ``apart_weight`` (default 0) is a student-only regularizer on the
+    fitted ±1 residual. The teacher is unchanged.
     """
     hold = None
     if float(hold_weight) > 0.0:
@@ -383,6 +392,14 @@ def lm_train_loss(
             hold = lm_ortho_hold(pred_plus, pred_minus, neu, slider_dir)
         else:
             raise ValueError("hold_weight>0 requires a declared leak_dir or slider_dir")
+    apart = None
+    apart_w = float(apart_weight)
+    if apart_w > 0.0:
+        if neu is None:
+            raise ValueError("apart_weight>0 requires neu")
+        apart = lm_student_apart(
+            pred_plus, pred_minus, neu, kind=resolve_apart_kind(apart_kind)
+        )
     mode = resolve_pole_mode(pole_mode)
     if mode == "semantic_kl":
         if readout is None:
@@ -395,6 +412,8 @@ def lm_train_loss(
             lm_next_token_logits(tgt_minus, head),
             hold=hold,
             hold_weight=hold_weight,
+            apart=apart,
+            apart_weight=apart_w,
         )
     return lm_slider_loss(
         pred_plus,
@@ -406,6 +425,8 @@ def lm_train_loss(
         anchor_weight=anchor_weight,
         hold=hold,
         hold_weight=hold_weight,
+        apart=apart,
+        apart_weight=apart_w,
     )
 
 
@@ -831,6 +852,13 @@ def train(args: argparse.Namespace) -> Path:
         print("pole_mode=semantic_kl: next-token KL on the semantic band of lm_head")
     else:
         print("pole_mode=hidden: hidden MSE onto the chosen targets")
+    apart_w = float(getattr(args, "apart_weight", 0.0) or 0.0)
+    apart_kind = resolve_apart_kind(getattr(args, "apart_kind", "even"))
+    if apart_w > 0.0:
+        print(
+            f"apart_kind={apart_kind} apart_weight={apart_w:g}: "
+            "student-only ±1 regularizer; teacher is unchanged"
+        )
 
     row_data = []
     for encoded, should_project in zip(encoded_rows, decisions):
@@ -1057,6 +1085,8 @@ def train(args: argparse.Namespace) -> Path:
             anchor_weight=anchor_w,
             pole_mode=pole_mode,
             readout=readout,
+            apart_weight=apart_w,
+            apart_kind=apart_kind,
         )
         loss = pole + 0.5 * args.endreg_weight * (end_pos + end_neg) + args.planreg_weight * (plan_pos + plan_neg)
         opt.zero_grad(set_to_none=True)
@@ -1135,6 +1165,8 @@ def train(args: argparse.Namespace) -> Path:
         "pole_mode": pole_mode,
         "symmetric": bool(args.symmetric),
         "hold_weight": hold_w,
+        "apart_weight": apart_w,
+        "apart_kind": apart_kind if apart_w > 0.0 else "even",
         "project_align_min": align_min if recipe in PROJECT_RECIPES else getattr(args, "project_align_min", None),
         "project_align_scope": align_scope if recipe in PROJECT_RECIPES else None,
         "anchor_weight": anchor_w,
@@ -1260,6 +1292,24 @@ def parse_args(argv=None):
         "--leak_negative",
         default=None,
         help="declared − leak caption; pair with --leak_positive",
+    )
+    p.add_argument(
+        "--apart_weight",
+        type=float,
+        default=0.0,
+        help="student-only regularizer on the fitted ±1 residual (default 0). "
+        f"Teacher is unchanged. even {APART_EVEN_WEIGHT:g} is the CPU card "
+        "that passes exam_divergent at leak_frac < 0; see "
+        "docs/lm-student-apart.md. Large weight secretly implements "
+        "pair-odd and fails energy. Not the default",
+    )
+    p.add_argument(
+        "--apart_kind",
+        default="even",
+        choices=APART_KINDS,
+        help="student-apart term (default even = ‖½(d++d−)‖²). cos is "
+        "leak_frac itself; same_dir is leftover-bipolar even share. "
+        "Ignored when --apart_weight is 0",
     )
     p.add_argument(
         "--hold_weight",

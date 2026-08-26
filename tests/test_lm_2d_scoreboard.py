@@ -334,6 +334,7 @@ def test_the_live_default_is_still_v9_on_hidden_mse():
     args = parse_args(["--prompts", "x.yaml"])
     assert args.lm_target == "v9"
     assert args.pole_mode == "hidden"
+    assert args.apart_weight == 0.0
     assert args.common_beta == 0.0
     assert "v9" in LM_RECIPES
     assert "semantic_kl" in POLE_MODES

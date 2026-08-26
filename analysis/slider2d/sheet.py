@@ -74,6 +74,7 @@ from analysis.slider2d.field import cosine
 from analysis.slider2d.highd import BEND_GENDER
 from conceptmod.textsliders.slider_targets import (
     LEAK_HOLD_WEIGHT,
+    leftover_bipolar,
     lm_axis_hold,
     lm_hidden_targets,
     lm_hold_dir,
@@ -82,7 +83,9 @@ from conceptmod.textsliders.slider_targets import (
     lm_pair_odd_sub_e,
     lm_semantic_pole_loss,
     lm_slider_loss,
+    lm_student_apart,
     lm_unit,
+    resolve_apart_kind,
 )
 
 
@@ -700,6 +703,8 @@ def fit_sheet(
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
     student: str = "odd_even",
+    apart_weight: float = 0.0,
+    apart_kind: str = "even",
     steps: int = 400,
     lr: float = 0.08,
     seed: int = 0,
@@ -717,6 +722,8 @@ def fit_sheet(
     head = field.readout()
     held = hold_direction(field, leak_dir)
     lam = float(hold_weight) if held is not None else 0.0
+    apart_w = float(apart_weight)
+    apart_mode = resolve_apart_kind(apart_kind) if apart_w > 0.0 else apart_kind
     targets = [
         teacher_points(
             field, row, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
@@ -737,6 +744,11 @@ def fit_sheet(
             hold = None
             if held is not None and lam > 0.0:
                 hold = lm_axis_hold(pred_plus, pred_minus, neu, held)
+            apart = None
+            if apart_w > 0.0:
+                apart = lm_student_apart(
+                    pred_plus, pred_minus, neu, kind=apart_mode
+                )
             if mode == "hidden":
                 term = lm_slider_loss(
                     pred_plus,
@@ -745,6 +757,8 @@ def fit_sheet(
                     t_minus,
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
+                    apart=apart,
+                    apart_weight=apart_w,
                 )
             else:
                 term = lm_semantic_pole_loss(
@@ -754,6 +768,8 @@ def fit_sheet(
                     head.logits(t_minus),
                     hold=hold,
                     hold_weight=lam if hold is not None else 0.0,
+                    apart=apart,
+                    apart_weight=apart_w,
                 )
             total = term if total is None else total + term
         return total / float(len(targets))
@@ -776,6 +792,8 @@ def score_sheet(
     hold_weight: float = 0.0,
     common_beta: float = 0.0,
     student: str = "odd_even",
+    apart_weight: float = 0.0,
+    apart_kind: str = "even",
     steps: int = 400,
     seed: int = 0,
 ) -> dict:
@@ -788,6 +806,8 @@ def score_sheet(
         hold_weight=hold_weight,
         common_beta=common_beta,
         student=student,
+        apart_weight=apart_weight,
+        apart_kind=apart_kind,
         steps=steps,
         seed=seed,
     )
@@ -810,6 +830,9 @@ def score_sheet(
             "teacher": teacher,
             "student": student,
             "hold_weight": float(hold_weight) if held is not None else 0.0,
+            "apart_weight": float(apart_weight),
+            "apart_kind": str(apart_kind),
+            **leftover_bipolar(d_plus, d_minus),
             "common": float(field.common),
             "common_beta": float(common_beta),
             "probe_cos": field.probe_cos(0),

@@ -55,6 +55,8 @@ def test_bare_parse_defaults_to_v9_and_symmetric():
     args = parse_args(["--prompts_file", "prompts.yaml"])
     assert args.lm_target == "v9"
     assert args.pole_mode == "hidden"
+    assert args.apart_weight == 0.0
+    assert args.apart_kind == "even"
     assert args.symmetric is True
     assert resolve_lm_recipe(lm_target=args.lm_target, symmetric=args.symmetric) == "v9"
     assert resolve_pole_mode(args.pole_mode) == "hidden"

@@ -161,6 +161,12 @@ reproduces all three listens and
 board and the next card (`gender-lm-v19`: `--lm_target faithful
 --pole_mode hidden`).
 
+`--apart_weight` / `--apart_kind` is a student-only regularizer that
+keeps the caption teacher and pushes +1/−1 apart (`leak_frac =
+cos(d+, d−)`). `even 0.25` is the CPU card that passes `exam_divergent`
+at leak_frac &lt; 0; large weight is pair-odd in disguise and fails
+energy. Default stays 0. See [docs/lm-student-apart.md](docs/lm-student-apart.md).
+
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
 problem (`docs/tf-leak.md`); do not change `--loss nmse --target_mode axis`.
 Published Hub floor is `--lm_target hub` and still leaks — not the default.
