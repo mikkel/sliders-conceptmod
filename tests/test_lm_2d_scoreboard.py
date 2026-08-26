@@ -13,6 +13,7 @@ import pytest
 
 from analysis.slider2d.exam import LIVE_EXAM, LIVE_ROW
 from analysis.slider2d.scoreboard import (
+    BIPOLAR_MIRROR_BAND,
     BIPOLAR_MIRROR_FLOOR,
     CELL_ORDER,
     COMPILED_GARBLE_MAX,
@@ -21,7 +22,9 @@ from analysis.slider2d.scoreboard import (
     COMPILED_SWING_FLOOR,
     EXAM_ALIAS,
     FAILS,
+    HIGH_LEAK_RECIPES,
     RACE_RECIPES,
+    SAME_DIR_BAND,
     UNSCORED,
     WORKS,
     WORKS_SOME,
@@ -34,6 +37,8 @@ from analysis.slider2d.scoreboard import (
     exam_score,
     failing_cells,
     gates_blob,
+    leak_band,
+    leak_frac_chart_rows,
     leak_ok,
     live_exam_report,
     predicts_for,
@@ -555,3 +560,25 @@ def test_exam_score_does_not_see_leak_frac():
         "overlap",
         "swing",
     )
+
+
+def test_leak_frac_chart_keeps_race_and_high_leak_and_sorts_same_dir_on_top():
+    """Informative mix: leftover-gate next to hub / pair-odd, not a winner table."""
+    chart = leak_frac_chart_rows(board())
+    ids = [r["id"] for r in chart]
+    for name in RACE_RECIPES | HIGH_LEAK_RECIPES:
+        assert name in ids, name
+    assert ids == sorted(ids, key=lambda n: float(by_id()[n]["leak_frac"]))
+    assert float(by_id()[ids[-1]]["leak_frac"]) >= float(by_id()[ids[0]]["leak_frac"])
+    # same-dir / caption-pole at the top of the figure (last in barh order)
+    assert leak_band(by_id()[ids[-1]]["leak_frac"]) == SAME_DIR_BAND
+    assert leak_band(by_id()["pair_odd_midpoint"]["leak_frac"]) == BIPOLAR_MIRROR_BAND
+    assert leak_band(by_id()["hub"]["leak_frac"]) == BIPOLAR_MIRROR_BAND
+    missing = leak_frac_chart_rows(
+        [{"id": "no_reading", "leak_frac": None}, by_id()["hub"]]
+    )
+    assert [r["id"] for r in missing] == ["hub"]
+    # leftover-gate: unused ê gone, leak_frac still not bipolar
+    gated = by_id()["faithful_sub_e_if_unused"]
+    assert abs(gated["leftover_leak"]) <= COMPILED_LEAK_LOCK
+    assert leak_band(gated["leak_frac"]) != BIPOLAR_MIRROR_BAND

@@ -19,17 +19,23 @@ if str(_REPO) not in sys.path:
 
 from analysis.slider2d.exam import LIVE_EXAM
 from analysis.slider2d.scoreboard import (
+    BIPOLAR_MIRROR_BAND,
     BIPOLAR_MIRROR_FLOOR,
     CELL_LABEL,
     CELL_ORDER,
+    COMPILED_LEAK_LOCK,
     FAILS,
     RACE_RECIPES,
+    SAME_DIR_BAND,
     UNSCORED,
+    WEAK_OPPOSITE_BAND,
     WORKS,
     WORKS_SOME,
     collect_scoreboard,
     floatable_row,
     gates_blob,
+    leak_band,
+    leak_frac_chart_rows,
     live_exam_report,
     sort_rows,
 )
@@ -202,44 +208,59 @@ def _hatch_race(bar, row: dict) -> None:
     bar.set_edgecolor("#1a252f")
 
 
+LEAK_BAND_COLOR = {
+    SAME_DIR_BAND: "#c0392b",
+    WEAK_OPPOSITE_BAND: "#b9770e",
+    BIPOLAR_MIRROR_BAND: "#1e8449",
+}
+
+
 def plot_leak_frac(rows: list[dict], path: Path) -> None:
-    """Horizontal leak_frac bars. Same recipe order as exam-score; race hatched."""
-    plotted = [r for r in rows if r.get("leak_frac") is not None]
-    scored = [r for r in plotted if r.get("exam_score") is not None]
-    scored = sorted(scored, key=lambda r: float(r["exam_score"]))
-    nulls = sorted(
-        [r for r in plotted if r.get("exam_score") is None],
-        key=lambda r: float(r["leak_frac"]),
-    )
-    plotted = nulls + scored
+    """leak_frac bars sorted same-dir → bipolar, leftover leak on the side."""
+    plotted = leak_frac_chart_rows(rows)
     if not plotted:
         return
-    height = max(4.8, 0.42 * len(plotted) + 1.6)
-    fig, ax = plt.subplots(figsize=(8.8, height))
+    height = max(5.2, 0.40 * len(plotted) + 2.0)
+    fig, (ax, ax_e) = plt.subplots(
+        1,
+        2,
+        sharey=True,
+        figsize=(11.2, height),
+        gridspec_kw={"width_ratios": [2.35, 1.0]},
+    )
     y = list(range(len(plotted)))
-    colors = [VERDICT_COLOR.get(r["compiled"], "#7f8c8d") for r in plotted]
     widths = [float(r["leak_frac"]) for r in plotted]
+    colors = [LEAK_BAND_COLOR[leak_band(w)] for w in widths]
     bars = ax.barh(y, widths, color=colors, height=0.62, zorder=3)
-    for bar, row, value in zip(bars, plotted, widths):
+    leftovers = [
+        None if r.get("leftover_leak") is None else float(r["leftover_leak"])
+        for r in plotted
+    ]
+    e_colors = []
+    e_widths = []
+    for leak in leftovers:
+        if leak is None:
+            e_widths.append(0.0)
+            e_colors.append("#bdc3c7")
+        elif abs(leak) <= COMPILED_LEAK_LOCK:
+            e_widths.append(leak)
+            e_colors.append("#1e8449")
+        else:
+            e_widths.append(leak)
+            e_colors.append("#c0392b")
+    e_bars = ax_e.barh(y, e_widths, color=e_colors, height=0.62, zorder=3)
+    for bar, e_bar, row, value, leftover in zip(bars, e_bars, plotted, widths, leftovers):
         _hatch_race(bar, row)
-        if row["id"] in RACE_RECIPES:
-            ax.plot(
-                -1.12,
-                bar.get_y() + bar.get_height() / 2.0,
-                marker=">",
-                color="#1a252f",
-                markersize=7,
-                clip_on=False,
-                zorder=4,
-            )
-        side = 1 if value >= 0 else -1
+        _hatch_race(e_bar, row)
+        leftover_txt = "ê=N/A" if leftover is None else f"ê={leftover:+.3f}"
+        label = f"{value:+.3f}  {leftover_txt}"
         ax.text(
-            value + 0.035 * side,
+            max(value, 0.0) + 0.04,
             bar.get_y() + bar.get_height() / 2.0,
-            f"{value:+.3f}",
+            label,
             va="center",
-            ha="left" if value >= 0 else "right",
-            fontsize=7.4,
+            ha="left",
+            fontsize=7.0,
         )
     ax.axvline(
         BIPOLAR_MIRROR_FLOOR,
@@ -247,24 +268,33 @@ def plot_leak_frac(rows: list[dict], path: Path) -> None:
         ls="--",
         lw=1.0,
         zorder=2,
-        label=f"bipolar-mirror floor ({BIPOLAR_MIRROR_FLOOR:.2f})",
     )
-    ax.axvline(0.0, color="#7f8c8d", ls=":", lw=1.0, zorder=2, label="same-dir starts (0)")
+    ax.axvline(0.0, color="#7f8c8d", ls=":", lw=1.0, zorder=2)
+    ax_e.axvline(COMPILED_LEAK_LOCK, color="#7f8c8d", ls=":", lw=0.9)
     ax.set_yticks(y)
     ax.set_yticklabels([r["id"] for r in plotted], fontsize=8)
-    ax.set_xlim(-1.22, 1.22)
-    ax.set_xlabel("leak_frac = cos(d+, d−)  (leftover_bipolar; logged, never scored)")
-    ax.set_title("caption-pole even motion (leftover leak ≠ leak_frac; race rows hatched)")
+    ax.set_xlim(-1.08, 1.55)
+    ax.set_xlabel("leak_frac = cos(d+, d−)  (logged, never scored)")
+    ax_e.set_xlabel("leftover leak  (unused ê)")
+    ax.set_title("same-dir / caption-pole at top; bipolar-mirror at bottom")
+    ax_e.set_title("unused ê on leftover sheet")
     ax.grid(axis="x", alpha=0.25)
+    ax_e.grid(axis="x", alpha=0.25)
     handles = [
-        plt.Rectangle((0, 0), 1, 1, color=VERDICT_COLOR[WORKS], label=WORKS),
-        plt.Rectangle((0, 0), 1, 1, color=VERDICT_COLOR[WORKS_SOME], label=WORKS_SOME),
-        plt.Rectangle((0, 0), 1, 1, color=VERDICT_COLOR[FAILS], label=FAILS),
+        plt.Rectangle((0, 0), 1, 1, color=LEAK_BAND_COLOR[SAME_DIR_BAND], label="same-dir (≥ 0)"),
+        plt.Rectangle((0, 0), 1, 1, color=LEAK_BAND_COLOR[WEAK_OPPOSITE_BAND], label="weak-opposite"),
+        plt.Rectangle((0, 0), 1, 1, color=LEAK_BAND_COLOR[BIPOLAR_MIRROR_BAND], label="bipolar-mirror (≤ −0.80)"),
         plt.Rectangle((0, 0), 1, 1, facecolor="#7f8c8d", hatch="///", edgecolor="#1a252f", label="2026-08-25 race"),
-        plt.Line2D([0], [0], color="#1a252f", ls="--", label=f"bipolar-mirror floor ({BIPOLAR_MIRROR_FLOOR:.2f})"),
+        plt.Line2D([0], [0], color="#1a252f", ls="--", label="bipolar-mirror floor (−0.80)"),
         plt.Line2D([0], [0], color="#7f8c8d", ls=":", label="same-dir starts (0)"),
     ]
-    ax.legend(handles=handles, fontsize=7.4, loc="lower right")
+    ax.legend(handles=handles, fontsize=7.0, loc="lower right")
+    fig.suptitle(
+        "leftover leak ≠ leak_frac — leftover mix/BPM / unused gender on the "
+        "energy-like sheet vs ±1 even motion of the same student",
+        fontsize=9.5,
+        y=0.995,
+    )
     fig.tight_layout()
     fig.savefig(path, dpi=140)
     plt.close(fig)
@@ -489,13 +519,18 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "",
         "![leak_frac = cos(d+, d−)](lm-2d-scoreboard/leak-frac.png)",
         "",
-        "`leak_frac` = `cos(d+, d−)` from `leftover_bipolar` on the fitted ±1",
-        "student. This is **not** leftover leak. Clean bipolar wants",
-        f"`leak_frac` ≤ {gates['bipolar_mirror_floor']:.2f}; caption-pole / leftover-gate",
-        "no-op recipes keep the common component and sit near 0. Leftover-gate",
-        "clears unused ê and does **not** clear this leak. Hatched the same",
-        "way as `exam-score.png`. Vertical lines: bipolar-mirror floor",
-        f"({gates['bipolar_mirror_floor']:.2f}) and same-dir starts (0).",
+        "Sorted by `leak_frac` (same-dir / least bipolar at the top, clean",
+        "bipolar at the bottom) so the −0.80 and 0 lines split clusters.",
+        "Race rows stay hatched; high-leak cousins (`hub`, hold-ê raw,",
+        "project û, leftover_hold, pair-odd / `_sub_e` / midpoint) stay on",
+        "the same chart. Color is the leak band, not the compiled verdict.",
+        "Each bar is annotated `leak_frac` and leftover leak (`ê=…`) so a",
+        "leftover-gate row can show unused ê gone and `leak_frac` still",
+        "caption-pole. The right panel is leftover leak on the energy-like",
+        "sheet — unused gender / leftover mix-BPM sitting inside `a`, the",
+        "fixture pairing this chart already has. Close vs divergent is the",
+        "pair-exam; this figure is the ±1 student on that leftover field.",
+        "Neither column is scored.",
         "",
         "![leftover leak vs leak_frac](lm-2d-scoreboard/leftover-vs-leak-frac.png)",
         "",

@@ -185,6 +185,31 @@ RACE_RECIPES = frozenset(
     }
 )
 
+# High-leak / blend / midpoint cousins the leak_frac chart must keep next
+# to the race rows. Skip any of these that have no leftover_bipolar reading.
+HIGH_LEAK_RECIPES = frozenset(
+    {
+        "hub",
+        "hold_e_raw_l1",
+        "hold_e_raw_l8",
+        "hold_e_raw_synonym_l8",
+        "project_short_u",
+        "project_rich_u",
+        "leftover_hold_l1",
+        "leftover_hold_l8",
+        "pair_odd_midpoint",
+        "pair_odd_sub_e",
+        "faithful_sub_e",
+        "semantic_kl_sub_e",
+        "semantic_kl_midpoint",
+        "dual_band_midpoint",
+    }
+)
+
+SAME_DIR_BAND = "same-dir"
+WEAK_OPPOSITE_BAND = "weak-opposite"
+BIPOLAR_MIRROR_BAND = "bipolar-mirror"
+
 
 def na(value: Any) -> Any:
     """JSON-friendly missing metric. ``None`` stays ``None``."""
@@ -406,6 +431,30 @@ def bipolar_from(*bags: dict | None) -> tuple[float | None, float | None]:
         if leak_frac is not None and same_dir is not None:
             break
     return leak_frac, same_dir
+
+
+def leak_band(leak_frac: float | None) -> str | None:
+    """Cluster label for the leak_frac chart. Not a compiled gate."""
+    if not _finite(leak_frac):
+        return None
+    value = float(leak_frac)
+    if value >= 0.0:
+        return SAME_DIR_BAND
+    if value > BIPOLAR_MIRROR_FLOOR:
+        return WEAK_OPPOSITE_BAND
+    return BIPOLAR_MIRROR_BAND
+
+
+def leak_frac_chart_rows(rows: list[dict]) -> list[dict]:
+    """Race + high-leak mix, sorted least bipolar → most bipolar.
+
+    Keeps leftover-gate / dual_band / faithful and the hub / hold / project
+    / midpoint cousins. ``barh`` puts the first item at the bottom, so
+    same-dir sits at the top and clean bipolar at the bottom. A recipe
+    with no ``leak_frac`` is skipped, not invented.
+    """
+    plotted = [r for r in rows if _finite(r.get("leak_frac"))]
+    return sorted(plotted, key=lambda r: float(r["leak_frac"]))
 
 
 def exam_cells_for(recipe_id: str, exam: dict[str, list[dict]] | None) -> dict:
