@@ -48,6 +48,41 @@ CANDIDATES: list[dict] = [
         "even_scale": 0.25,
     },
     {
+        "name": "faithful_sub_even_blend_s60",
+        "teacher": "faithful_sub_even_blend",
+        "even_scale": 0.6,
+    },
+    {
+        "name": "faithful_sub_even_blend_s75",
+        "teacher": "faithful_sub_even_blend",
+        "even_scale": 0.75,
+    },
+    {
+        "name": "gate_odd_even_blend_s50",
+        "teacher": "faithful_gate_odd_sub_even_blend",
+        "even_scale": 0.5,
+    },
+    {
+        "name": "gate_odd_even_blend_s25",
+        "teacher": "faithful_gate_odd_sub_even_blend",
+        "even_scale": 0.25,
+    },
+    {
+        "name": "gate_odd_even_blend_s75",
+        "teacher": "faithful_gate_odd_sub_even_blend",
+        "even_scale": 0.75,
+    },
+    {
+        "name": "gate_odd_even_blend_s85",
+        "teacher": "faithful_gate_odd_sub_even_blend",
+        "even_scale": 0.85,
+    },
+    {
+        "name": "gate_odd_even_blend_s90",
+        "teacher": "faithful_gate_odd_sub_even_blend",
+        "even_scale": 0.90,
+    },
+    {
         "name": "faithful_hold_even_e_l8",
         "teacher": "faithful",
         "hold_weight": 8.0,

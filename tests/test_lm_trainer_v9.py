@@ -16,6 +16,7 @@ from analysis.slider2d.field import E_SLIDER, Field2D
 from analysis.slider2d.mismatch import LIVE_GENDER_V1_ALIGN, MismatchField2D
 from conceptmod.textsliders.slider_targets import (
     DUAL_BAND_WEIGHT,
+    EVEN_BLEND_SCALE,
     LEAK_HOLD_WEIGHT,
     UNUSED_E_OVERLAP_MAX,
     lm_anchor_kappa,
@@ -590,6 +591,68 @@ def test_faithful_sub_e_if_unused_subtracts_only_when_leftover_is_unused():
     )
     assert torch.allclose(clean_plus, pos)
     assert torch.allclose(clean_minus, neg)
+
+
+def test_faithful_even_blend_is_wired_and_not_the_default():
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful_even_blend"]
+    )
+    assert args.lm_target == "faithful_even_blend"
+    assert args.pole_mode == "hidden"
+    assert args.even_blend_scale == EVEN_BLEND_SCALE
+    assert resolve_lm_recipe(lm_target="faithful_even_blend", symmetric=True) == (
+        "faithful_even_blend"
+    )
+    hold, anchor = resolve_lm_loss_weights(
+        "faithful_even_blend",
+        hold_weight=None,
+        anchor_weight=None,
+        leak_declared=True,
+    )
+    assert hold == 0.0
+    assert anchor == 0.0
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+    assert bare.pole_mode == "hidden"
+    assert bare.even_blend_scale == EVEN_BLEND_SCALE
+    pos, neg, neu = _ungated_pair()
+    plus, minus, _, _ = lm_train_targets(
+        pos, neg, neu, recipe="faithful_even_blend"
+    )
+    assert torch.allclose(plus, pos)
+    assert torch.allclose(minus, neg)
+    leftover = torch.tensor([0.0, 1.0])
+    gated, _, _, _ = lm_train_targets(
+        pos,
+        neg,
+        neu,
+        recipe="faithful_even_blend",
+        slider_dir=E_SLIDER,
+        leak_dir=leftover,
+    )
+    pair_odd = lm_hidden_targets(pos, neg, neu, target_mode="symmetric")
+    assert not torch.allclose(gated, pair_odd[0])
+    from analysis.slider2d.exam import divergent_field
+    from conceptmod.textsliders.slider_targets import leftover_bipolar
+
+    field = divergent_field()
+    d_pos, d_neg, d_neu = field.poles(0)
+    blend_plus, blend_minus, _, _ = lm_train_targets(
+        d_pos,
+        d_neg,
+        d_neu,
+        recipe="faithful_even_blend",
+        slider_dir=field.short_u(),
+        leak_dir=field.declared_e(),
+        even_dir=field.declared_e_even(),
+        even_scale=EVEN_BLEND_SCALE,
+    )
+    metrics = leftover_bipolar(blend_plus - d_neu, blend_minus - d_neu)
+    assert metrics["leak_frac"] < 0.0
+    assert metrics["leak_frac"] > -0.80
+    mid_plus, _ = lm_hidden_targets(d_pos, d_neg, d_neu, target_mode="symmetric")
+    assert not torch.allclose(blend_plus, mid_plus, atol=1e-4)
+    assert not torch.allclose(blend_plus, d_pos, atol=1e-4)
 
 
 def _divergent_pair():

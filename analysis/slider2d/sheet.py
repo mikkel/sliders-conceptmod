@@ -691,6 +691,9 @@ def teacher_points(
         return lm_faithful_sub_even_e_guard(
             pos, neg, neu, leak_dir, slider_dir=field.short_u()
         )
+    # Leftover-sheet unused leftover is odd. Leak-pair even (ê_even) is
+    # the energy-v4 track *sum*; it is near-zero here, so even_dir=None
+    # is the honest leftover-sheet teacher, not a missing wire.
     if mode == "faithful_sub_even_blend":
         return lm_faithful_sub_even_blend(pos, neg, neu, None)
     if mode == "faithful_sub_even_blend_if_unused":

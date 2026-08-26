@@ -172,3 +172,25 @@ def test_leftover_gate_still_sits_at_positive_leak_frac():
     )
     metrics = leftover_bipolar(plus - neu, minus - neu)
     assert metrics["leak_frac"] > 0.0
+
+
+def test_half_even_blend_crosses_zero_and_is_not_pair_odd():
+    """α=0.5 on energy-v4: leak_frac < 0, caption ŝ stays, not t± = h0 ± a."""
+    field = divergent_field()
+    pos, neg, neu = _pair(field)
+    plus, minus = lm_faithful_gate_odd_sub_even(
+        pos,
+        neg,
+        neu,
+        field.declared_e(),
+        slider_dir=field.short_u(),
+        even_dir=field.declared_e_even(),
+        scale=0.5,
+    )
+    metrics = leftover_bipolar(plus - neu, minus - neu)
+    assert metrics["leak_frac"] < 0.0
+    assert metrics["leak_frac"] > -0.80
+    pair_plus, _ = lm_hidden_targets(pos, neg, neu, target_mode="symmetric")
+    assert not torch.allclose(plus, pair_plus, atol=1e-4)
+    even = lm_even_residual(plus, minus, neu)
+    assert float((even @ field.sheet_dir()).abs()) > 0.2

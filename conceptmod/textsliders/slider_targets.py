@@ -29,10 +29,9 @@ Formulas are copied from:
   ``--lm_target faithful_guard_e`` is the threshold-free sibling:
   subtract leftover ê only while the cleaned target stays nearer its
   own caption than the pair midpoint (``lm_blend_guard``). No
-  ``leak_*`` → raw poles. Even leftover (``lm_faithful_sub_even_e``,
-  ``lm_faithful_sub_even_blend``) subtracts leftover/blend from ``c``
-  only and is not a live ``--lm_target`` until a recipe passes
-  ``exam_divergent`` with ``leak_frac < 0``. ``--pole_mode dual_band``
+  ``leak_*`` → raw poles. ``--lm_target faithful_even_blend`` leftover-
+  gates the odd part and subtracts ``EVEN_BLEND_SCALE`` of leak-pair
+  even leftover (opt-in; default stays ``v9``). ``--pole_mode dual_band``
   is KL on the
   semantic band plus hidden MSE on the centered-readout blind band
   (``P_blind`` from SVD). Neither is the default.
@@ -84,6 +83,10 @@ BLIND_SPECTRAL_CUT = 0.0
 LEAK_HOLD_WEIGHT = 8.0
 SAME_DIR_MAX = 0.06
 HOLD_DIR_EPS = 1e-6
+# Half the leak-pair even leftover. Scale 1.0 (drop all ê_even) fails
+# exam_divergent on energy-v4; 0.25 … 0.90 still pass with leak_frac < 0.
+# 0.5 is the named half-step: enough to cross zero, far from the α=1 fail.
+EVEN_BLEND_SCALE = 0.5
 
 
 def sd_noise_target(
