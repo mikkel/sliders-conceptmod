@@ -19,6 +19,7 @@ from analysis.slider2d.exam import EXAM_ROLL_OVERLAP
 from analysis.slider2d.lyric_recall import (
     ATTEND,
     EXISTING_OOD_METRICS,
+    GENDER_MOVE_MIN,
     LYRIC_RECALL_MIN,
     LYRIC_RECIPES,
     SequenceResidual,
@@ -39,8 +40,10 @@ from analysis.slider2d.lyric_recall import (
 from conceptmod.textsliders.slider_targets import (
     lm_faithful_plus_neu,
     lm_faithful_plus_neu_lyric,
+    lm_faithful_plus_neu_orth,
     lm_faithful_plus_neu_prefix,
     lm_plus_neu_loss,
+    lm_plus_neu_orth_loss,
     lm_plus_neu_prefix_loss,
 )
 from conceptmod.textsliders.train_lm_slider_music3 import parse_args
@@ -77,6 +80,16 @@ def test_prefix_target_is_wired_and_not_the_default():
     assert bare.lm_target == "v9"
 
 
+def test_orth_target_is_wired_and_not_the_default():
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful_plus_neu_orth"]
+    )
+    assert args.lm_target == "faithful_plus_neu_orth"
+    assert args.pole_mode == "hidden"
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+
+
 def test_help_lists_prefix_target_and_keeps_v9_hidden_default():
     import io
     from contextlib import redirect_stdout
@@ -88,6 +101,7 @@ def test_help_lists_prefix_target_and_keeps_v9_hidden_default():
     help_text = buf.getvalue()
     assert "faithful_plus_neu_prefix" in help_text
     assert "faithful_plus_neu_lyric" in help_text
+    assert "faithful_plus_neu_orth" in help_text
     assert "faithful_plus_neu" in help_text
     assert "v9" in help_text
     bare = parse_args(["--prompts_file", "prompts.yaml"])
@@ -101,9 +115,11 @@ def test_prefix_teacher_is_still_raw_h_plus():
     raw = lm_faithful_plus_neu(pos, neg, neu, None)
     prefix = lm_faithful_plus_neu_prefix(pos, neg, neu, None)
     lyric = lm_faithful_plus_neu_lyric(pos, neg, neu, None)
+    orth = lm_faithful_plus_neu_orth(pos, neg, neu, None)
     assert torch.allclose(raw, pos)
     assert torch.allclose(prefix, pos)
     assert torch.allclose(lyric, pos)
+    assert torch.allclose(orth, pos)
 
 
 def test_prefix_loss_is_last_plus_zero_plus_prefix():
@@ -159,8 +175,10 @@ def test_lyric_exam_does_not_import_the_bipolar_board():
     board = Path("analysis/slider2d/scoreboard.py").read_text()
     assert "lyric_recall" not in board
     assert "faithful_plus_neu_prefix" not in board
+    assert "faithful_plus_neu_orth" not in board
     plus_neu = Path("analysis/slider2d/plus_neu_exam.py").read_text()
     assert "faithful_plus_neu_prefix" not in plus_neu
+    assert "faithful_plus_neu_orth" not in plus_neu
 
 
 def test_last_hidden_fixture_cannot_see_prefix_rewrite():
@@ -203,29 +221,43 @@ def test_prefix_hold_lifts_lyric_recall_and_keeps_cover():
         assert "lyric" in prefix["sings_lyric"]
 
 
-def test_rank_is_want_box_then_grit_lyric_then_gender_move():
+def test_rank_is_want_box_then_lyric_cover_hold_gender():
     ranked = lyric_rank(table())
     names = [r["name"] for r in ranked]
     assert "faithful_plus_neu_lyric" in names
+    assert "faithful_plus_neu_orth" in names
     assert "faithful_plus_neu_prefix" in names
+    by_rank = {r["name"]: r for r in ranked}
+    assert by_rank["faithful_plus_neu_lyric"]["want_box"] is True
+    assert by_rank["faithful_plus_neu_orth"]["want_box"] is True
+    assert by_rank["faithful_plus_neu_orth"]["split_want"] is True
+    assert ranked[0]["want_box"] is True
+    assert ranked[0]["name"] in {"faithful_plus_neu_lyric", "faithful_plus_neu_orth"}
     for earlier, later in zip(ranked, ranked[1:]):
         if earlier["want_box"] != later["want_box"]:
             assert earlier["want_box"] >= later["want_box"]
             continue
-        if abs((earlier["lyric_recall_grit"] or 0) - (later["lyric_recall_grit"] or 0)) > 1e-9:
-            assert (earlier["lyric_recall_grit"] or 0) >= (later["lyric_recall_grit"] or 0)
+        if abs(earlier["lyric_recall"] - later["lyric_recall"]) > 1e-9:
+            assert earlier["lyric_recall"] >= later["lyric_recall"]
             continue
-        if abs((earlier["gender_move"] or 0) - (later["gender_move"] or 0)) > 1e-9:
-            assert (earlier["gender_move"] or 0) >= (later["gender_move"] or 0)
+        if abs(earlier["cover"] - later["cover"]) > 1e-9:
+            assert earlier["cover"] >= later["cover"]
+            continue
+        if abs(earlier["neu_hold"] - later["neu_hold"]) > 1e-9:
+            assert earlier["neu_hold"] >= later["neu_hold"]
+            continue
+        if abs(earlier["gender_move"] - later["gender_move"]) > 1e-9:
+            assert earlier["gender_move"] >= later["gender_move"]
 
 
-def test_recipes_include_lyric_hold_and_baselines():
+def test_recipes_include_lyric_hold_orth_and_baselines():
     names = [c["name"] for c in LYRIC_RECIPES]
     assert names == [
         "faithful_plus_neu",
         "faithful_plus",
         "faithful_plus_neu_prefix",
         "faithful_plus_neu_lyric",
+        "faithful_plus_neu_orth",
         "leftover_gate_bipolar",
         "pair_odd_midpoint",
     ]
@@ -303,9 +335,76 @@ def test_want_box_splits_uni_prefix_and_lyric_hold():
     assert lyric["gender_move"] >= 0.85
     assert grit_lyric["cover"] >= PLUS_COVER_MIN
     assert lyric["neu_hold"] >= PLUS_NEU_HOLD_MIN
-    ranked = lyric_rank(table())
-    assert ranked[0]["name"] == "faithful_plus_neu_lyric"
-    assert ranked[0]["want_box"] is True
+    ranked = {r["name"]: r for r in lyric_rank(table())}
+    assert ranked["faithful_plus_neu_lyric"]["want_box"] is True
+
+
+def test_uni_hits_gender_and_misses_grit_lyrics():
+    uni_div = by_name("divergent")["faithful_plus_neu"]
+    uni_close = by_name("close")["faithful_plus_neu"]
+    assert uni_div["lyric_recall"] < LYRIC_RECALL_MIN
+    assert uni_close["gender_move"] >= GENDER_MOVE_MIN
+    assert uni_div["want_box"] is False
+
+
+def test_prefix_hold_hits_grit_and_misses_gender_move():
+    prefix_div = by_name("divergent")["faithful_plus_neu_prefix"]
+    prefix_close = by_name("close")["faithful_plus_neu_prefix"]
+    assert prefix_div["lyric_recall"] >= LYRIC_RECALL_MIN
+    assert prefix_close["gender_move"] < GENDER_MOVE_MIN
+    assert prefix_div["hit"] is True
+    assert prefix_close["want_box"] is False
+
+
+def test_last_delta_orth_beats_the_uni_prefix_split():
+    for cell in ("divergent", "close"):
+        row = by_name(cell)["faithful_plus_neu_orth"]
+        assert row["last_delta_orth"] is True
+        assert row["prefix_hold"] is False
+        assert row["lyric_recall"] >= LYRIC_RECALL_MIN
+        assert row["cover"] >= PLUS_COVER_MIN
+        assert row["neu_hold"] >= PLUS_NEU_HOLD_MIN
+        assert row["gender_move"] >= GENDER_MOVE_MIN
+        assert row["want_box"] is True
+        assert "lyric" in row["sings_lyric"]
+        assert "punk" not in row["sings_lyric"]
+    verdict = lyric_verdict(table())
+    assert verdict["uni_grit_lyric_miss"] is True
+    assert verdict["uni_gender_hit"] is True
+    assert verdict["prefix_grit_lyric_hit"] is True
+    assert verdict["prefix_gender_miss"] is True
+    assert verdict["orth_beats_split"] is True
+
+
+def test_orth_loss_is_not_a_lyric_token_hold():
+    last_p = torch.tensor([1.0, 0.0])
+    last_0 = torch.tensor([0.0, 0.0])
+    lyric = torch.tensor([[1.0, 0.0], [1.0, 0.0]])
+    base = lm_plus_neu_orth_loss(last_p, last_p, last_0, last_0, lyric, lyric)
+    uni = lm_plus_neu_loss(last_p, last_p, last_0, last_0)
+    assert float(base) == pytest.approx(float(uni), abs=1e-8)
+    inspan = lm_plus_neu_orth_loss(
+        last_p, last_p, last_0, last_0, lyric * 1.4, lyric
+    )
+    offspan = lm_plus_neu_orth_loss(
+        last_p,
+        last_p,
+        last_0,
+        last_0,
+        lyric + torch.tensor([[0.0, 1.0], [0.0, 1.0]]),
+        lyric,
+    )
+    assert float(inspan) == pytest.approx(float(base), abs=1e-6)
+    assert float(offspan) > float(base)
+    with pytest.raises((RuntimeError, ValueError)):
+        lm_plus_neu_orth_loss(
+            last_p,
+            last_p,
+            last_0,
+            last_0,
+            torch.zeros_like(lyric),
+            torch.zeros_like(lyric),
+        )
 
 
 def test_sequence_last_hidden_is_causal_in_prefix():

@@ -159,6 +159,7 @@ def infer(args: argparse.Namespace) -> list[Path]:
         "faithful_plus_neu_prefix",
         "faithful_plus_neu_roles",
         "faithful_plus_neu_lyric",
+        "faithful_plus_neu_orth",
     }:
         print(
             "plus+neu adapter: slider clips use the yaml neutral caption + LoRA. "
