@@ -38,7 +38,7 @@ Formulas are copied from:
   that fader is unconstrained.   ``--lm_target faithful_plus_neu`` is UNI:
   student +1 fits raw ``h+`` (never leftover-gated) and student scale 0
   fits ``h0``. Last-hidden MSE only — the LoRA still rewrites the lyric
-  prefix. ``--lm_target faithful_plus_neu_prefix`` is UNI plus a prefix
+  prefix.   ``--lm_target faithful_plus_neu_prefix`` is UNI plus a prefix
   hold: +1 last hidden → raw ``h+``, +1 prefix hidden → encode(neu)
   prefix (not encode(pos) prefix), scale 0 → ``h0``. That pins Vocal
   Details too. ``--lm_target faithful_plus_neu_lyric`` is UNI plus a
@@ -47,7 +47,12 @@ Formulas are copied from:
   faithful_plus_neu_roles`` is UNI plus a role split: yaml lyric tokens
   → encode(neu), Vocal Details / caption tokens → encode(pos) (so
   woman can move on a neu listen), last → raw ``h+``, scale 0 →
-  ``h0``. No minus teacher. Opt-in; default stays ``v9``.
+  ``h0``. No minus teacher. ``--lm_target faithful_plus_neu_orth`` is
+  last-token UNI plus a last-delta / lyric-span projection: +1 last →
+  raw ``h+``, 0 → ``h0``, and the last-token update must not lie in
+  the lyric-token hidden span (lyric tokens keep only the in-span
+  residual). Vocal Details are not held. Fail closed if the lyric
+  span cannot be found. Opt-in; default stays ``v9``.
   ``--pole_mode dual_band`` is KL on the
   semantic band plus hidden MSE on the centered-readout blind band
   (``P_blind`` from SVD). Neither is the default.
@@ -703,6 +708,33 @@ def lm_faithful_plus_neu_roles(
     + teacher as ``faithful_plus_neu``. Lyrics → encode(neu) and
     Vocal Details → encode(pos) are sequence losses, not a different
     last-hidden point. ``leak_dir`` / leftover-gate never apply.
+    """
+    return lm_faithful_plus_neu(
+        pos,
+        neg,
+        neu,
+        leak_dir,
+        slider_dir=slider_dir,
+        target_scale=target_scale,
+    )
+
+
+def lm_faithful_plus_neu_orth(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+) -> torch.Tensor:
+    """UNI last-delta-orth last-token teacher: still raw ``h+``.
+
+    ``--lm_target faithful_plus_neu_orth`` keeps the same last-token
+    + teacher as ``faithful_plus_neu``. The lyric-span projection is a
+    sequence constraint (last-token update ⊥ lyric-token hiddens), not
+    a different last-hidden point. ``leak_dir`` / leftover-gate never
+    apply.
     """
     return lm_faithful_plus_neu(
         pos,
@@ -1386,24 +1418,104 @@ def lm_plus_neu_roles_loss(
     return last + float(lyric_weight) * lyric + float(concept_weight) * concept
 
 
+def lm_plus_neu_orth_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    pred_zero: torch.Tensor,
+    tgt_zero: torch.Tensor,
+    pred_plus_lyric: torch.Tensor,
+    tgt_neu_lyric: torch.Tensor,
+    *,
+    lyric_weight: float = 1.0,
+    fail_closed: bool = True,
+) -> torch.Tensor:
+    """UNI last-token MSE plus last-delta off the lyric-token span.
+
+    ``--lm_target faithful_plus_neu_orth``: ``MSE(last + → raw h+) +
+    MSE(last 0 → h0)`` and the last-token update must not lie in the
+    lyric span. Lyric tokens keep only the in-span residual
+    (``||(I−P)(student_lyric − encode(neu) lyric)||²``). That is not
+    a lyric-token *hold* to neu: in-span motion stays free. Vocal
+    Details (outside the lyric span) are not held. Fail closed if
+    the lyric span cannot be found. ``tgt_plus`` is raw last-token
+    ``h+``.
+    """
+    last = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+    off = lm_project_last_delta_off_lyric(
+        pred_plus_lyric - tgt_neu_lyric,
+        tgt_neu_lyric,
+        fail_closed=fail_closed,
+    )
+    return last + float(lyric_weight) * off.pow(2).mean()
+
+
+def lm_lyric_span_basis(
+    lyric_span: torch.Tensor,
+    *,
+    fail_closed: bool = False,
+) -> torch.Tensor | None:
+    """Orthonormal basis for the lyric-token hidden span. Rank-aware.
+
+    ``lyric_span`` is ``[..., H]`` (encode(neu) lyric-token hiddens).
+    Repeated copies of one lyric vector count as rank 1 — do not keep
+    the leftover QR columns (those are numerical junk and would eat
+    the concept). Fail closed when the span cannot be found.
+    """
+    if lyric_span.numel() == 0:
+        if fail_closed:
+            raise RuntimeError("lyric span cannot be found (empty)")
+        return None
+    span = lyric_span.reshape(-1, lyric_span.shape[-1])
+    if float(span.norm()) <= 1e-8:
+        if fail_closed:
+            raise RuntimeError("lyric span cannot be found (near-zero)")
+        return None
+    q, r = torch.linalg.qr(span.T.float(), mode="reduced")
+    diag = r.abs() if r.ndim == 1 else torch.diagonal(r).abs()
+    tol = 1e-6 * float(diag.max().clamp_min(1e-8))
+    rank = int((diag > tol).sum().item())
+    if rank <= 0:
+        if fail_closed:
+            raise RuntimeError("lyric span cannot be found (rank 0)")
+        return None
+    return q[:, :rank].to(dtype=lyric_span.dtype)
+
+
 def lm_project_last_delta_off_lyric(
     last_delta: torch.Tensor,
     lyric_span: torch.Tensor,
+    *,
+    fail_closed: bool = False,
 ) -> torch.Tensor:
     """Project a last-token delta off the span of lyric-token hiddens.
 
     Cheap sibling of prefix-hold: the concept update at the continue
     token is orthogonal to the yaml lyric positions. ``lyric_span`` is
-    ``[P, H]`` (encode(neu) prefix). Used by the fixture's optional
-    ``faithful_plus_neu_prefix_orth`` variant; not a live default.
+    ``[..., H]`` (encode(neu) lyric-token hiddens). Used by
+    ``--lm_target faithful_plus_neu_orth``. Fail closed if the lyric
+    span cannot be found. Rank-aware: identical lyric rows are rank 1.
     """
-    span = lyric_span.reshape(-1, lyric_span.shape[-1]).to(dtype=last_delta.dtype)
-    if span.numel() == 0 or float(span.norm()) <= 1e-8:
+    basis = lm_lyric_span_basis(lyric_span, fail_closed=fail_closed)
+    if basis is None:
         return last_delta
-    q, _r = torch.linalg.qr(span.T, mode="reduced")
-    rank = min(q.shape[1], span.shape[0])
-    basis = q[:, :rank]
-    return last_delta - basis @ (basis.T @ last_delta.reshape(-1))
+    hidden = int(lyric_span.shape[-1])
+    if last_delta.ndim >= 1 and last_delta.shape[-1] == hidden:
+        flat = last_delta.reshape(-1, hidden)
+        return (flat - (flat @ basis) @ basis.T).reshape_as(last_delta)
+    vec = last_delta.reshape(-1)
+    return last_delta - (basis @ (basis.T @ vec)).reshape_as(last_delta)
+
+
+def lm_project_onto_lyric_span(
+    last_delta: torch.Tensor,
+    lyric_span: torch.Tensor,
+    *,
+    fail_closed: bool = False,
+) -> torch.Tensor:
+    """Keep only the component of a delta that already lies in the lyric span."""
+    return last_delta - lm_project_last_delta_off_lyric(
+        last_delta, lyric_span, fail_closed=fail_closed
+    )
 
 
 def lm_slider_loss(

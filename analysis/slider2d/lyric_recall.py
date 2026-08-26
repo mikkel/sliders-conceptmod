@@ -66,6 +66,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_plus_neu_lyric_loss,
     lm_plus_neu_prefix_loss,
     lm_project_last_delta_off_lyric,
+    lm_project_onto_lyric_span,
     lm_slider_loss,
 )
 
@@ -102,6 +103,7 @@ LYRIC_RECIPES: list[dict] = [
         "prefix_hold": False,
         "prefix_orth": False,
         "lyric_hold": False,
+        "last_delta_orth": False,
     },
     {
         "name": "faithful_plus",
@@ -111,6 +113,7 @@ LYRIC_RECIPES: list[dict] = [
         "prefix_hold": False,
         "prefix_orth": False,
         "lyric_hold": False,
+        "last_delta_orth": False,
     },
     {
         "name": "faithful_plus_neu_prefix",
@@ -120,6 +123,7 @@ LYRIC_RECIPES: list[dict] = [
         "prefix_hold": True,
         "prefix_orth": False,
         "lyric_hold": False,
+        "last_delta_orth": False,
     },
     {
         "name": "faithful_plus_neu_lyric",
@@ -129,6 +133,17 @@ LYRIC_RECIPES: list[dict] = [
         "prefix_hold": False,
         "prefix_orth": False,
         "lyric_hold": True,
+        "last_delta_orth": False,
+    },
+    {
+        "name": "faithful_plus_neu_orth",
+        "teacher": "faithful_plus_neu",
+        "plus_neu": True,
+        "plus_only": False,
+        "prefix_hold": False,
+        "prefix_orth": False,
+        "lyric_hold": False,
+        "last_delta_orth": True,
     },
     {
         "name": "leftover_gate_bipolar",
@@ -138,6 +153,7 @@ LYRIC_RECIPES: list[dict] = [
         "prefix_hold": False,
         "prefix_orth": False,
         "lyric_hold": False,
+        "last_delta_orth": False,
     },
     {
         "name": "pair_odd_midpoint",
@@ -147,6 +163,7 @@ LYRIC_RECIPES: list[dict] = [
         "prefix_hold": False,
         "prefix_orth": False,
         "lyric_hold": False,
+        "last_delta_orth": False,
     },
 ]
 
@@ -291,6 +308,7 @@ def encode_sequence(
     residual: SequenceResidual,
     row: int,
     scale: float,
+    last_delta_orth: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Student encode(neu tokens, LoRA @ scale) → (prefix, last).
 
@@ -298,6 +316,10 @@ def encode_sequence(
     hidden = continue content + attend · mean(prefix). Teacher
     encode(pos) last is ``h+``; + REF prefix uses pos Vocal Details
     and the same lyrics.
+
+    ``last_delta_orth`` keeps the last-token UNI residual and lets
+    lyric tokens keep only the in-span residual. Vocal Details stay
+    on the unprojected vocal extra (not a prefix hold).
     """
     vd_base = vocal_embeds(field, row, pole="neu")
     ly_base = lyric_embeds(field, row)
@@ -305,10 +327,40 @@ def encode_sequence(
     _pos, _neg, neu = field.poles(row)
     last_base = neu - float(ATTEND) * prefix_base.mean(0)
     vd = vd_base + residual.vocal_delta(scale)
-    ly = ly_base + residual.lyric_delta(scale)
+    ly_delta = residual.lyric_delta(scale)
+    if last_delta_orth:
+        if ly_base.numel() == 0 or float(ly_base.norm()) <= 1e-8:
+            raise RuntimeError("lyric span is empty or near-zero; fail closed")
+        ly_delta = lm_project_onto_lyric_span(
+            ly_delta,
+            ly_base,
+            fail_closed=True,
+        )
+    ly = ly_base + ly_delta
     prefix = torch.cat([vd, ly], dim=0)
     last = last_base + residual.last_delta(scale) + float(ATTEND) * prefix.mean(0)
     return prefix, last
+
+
+def gender_move(field: PairField, prefix: torch.Tensor, row: int) -> float:
+    """Vocal Details free: +1 VD may differ from neu (woman allowed).
+
+    Cosine of (student VD − neu VD) with (pos − neu). Whole-prefix hold
+    pins VD to neu so this is 0. Last-token UNI, lyric-hold, and
+    last-delta-orth leave VD free so gender can still move.
+    """
+    vd = vocal_span(prefix).mean(0)
+    vd_neu = vocal_embeds(field, row, pole="neu").mean(0)
+    pos, _neg, neu = field.poles(row)
+    got = vd - vd_neu
+    want = pos - neu
+    if float(got.norm()) <= 1e-6 or float(want.norm()) <= 1e-6:
+        return 0.0
+    return float(
+        F.cosine_similarity(got.flatten().unsqueeze(0), want.flatten().unsqueeze(0))
+        .clamp(min=0.0)
+        .squeeze()
+    )
 
 
 def ref_plus_sequence(field: PairField, row: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -344,27 +396,6 @@ def off_lyric(field: PairField, prefix: torch.Tensor, row: int) -> float:
     if not seq:
         return 1.0
     return sum(1.0 for t in seq if t not in bag) / float(len(seq))
-
-
-def gender_move(field: PairField, prefix: torch.Tensor, row: int) -> float:
-    """Vocal Details free: +1 VD may differ from neu (woman allowed).
-
-    Cosine of (student VD − neu VD) with (pos − neu). Whole-prefix hold
-    pins VD to neu so this is 0. Last-token UNI and lyric-hold let the
-    shared rewrite move VD toward the + caption. Gate ``0.85``.
-    """
-    vd = vocal_span(prefix).mean(0)
-    vd_neu = vocal_embeds(field, row, pole="neu").mean(0)
-    pos, _neg, neu = field.poles(row)
-    got = vd - vd_neu
-    want = pos - neu
-    if float(got.norm()) <= 1e-6 or float(want.norm()) <= 1e-6:
-        return 0.0
-    return float(
-        F.cosine_similarity(got.flatten().unsqueeze(0), want.flatten().unsqueeze(0))
-        .clamp(min=0.0)
-        .squeeze()
-    )
 
 
 def sings_vocal_line(field: PairField, prefix: torch.Tensor, row: int) -> str:
@@ -555,15 +586,25 @@ def fit_lyric_exam(
     prefix_hold: bool = False,
     prefix_orth: bool = False,
     lyric_hold: bool = False,
+    last_delta_orth: bool = False,
     steps: int = 400,
     lr: float = 0.08,
     seed: int = 0,
 ) -> SequenceResidual:
-    """Fit a sequence LoRA. Prefix-hold / lyric-hold add prefix MSE."""
+    """Fit a sequence LoRA. Prefix-hold / lyric-hold add prefix MSE.
+
+    ``last_delta_orth`` is encode-side in-span projection on lyric
+    tokens, not a lyric-token hold to neu and not a whole-prefix hold.
+    Last-token UNI stays ``MSE(last + → raw h+) + MSE(last 0 → h0)``.
+    """
     if plus_only and plus_neu:
         raise ValueError("plus_only and plus_neu are mutually exclusive")
     if prefix_hold and lyric_hold:
         raise ValueError("prefix_hold and lyric_hold are mutually exclusive")
+    if prefix_hold and last_delta_orth:
+        raise ValueError("prefix_hold and last_delta_orth are mutually exclusive")
+    if lyric_hold and last_delta_orth:
+        raise ValueError("lyric_hold and last_delta_orth are mutually exclusive")
     targets = [
         plus_neu_teacher(
             field, row, teacher=teacher, leak_dir=leak_dir, even_scale=even_scale
@@ -579,9 +620,15 @@ def fit_lyric_exam(
             _pos, _neg, neu = field.poles(row)
             prefix_neu = prefix_embeds(field, row, pole="neu")
             ly_neu = lyric_span(prefix_neu)
-            pref_p, last_p = encode_sequence(field, residual, row, 1.0)
-            pref_m, last_m = encode_sequence(field, residual, row, -1.0)
-            pref_0, last_0 = encode_sequence(field, residual, row, 0.0)
+            pref_p, last_p = encode_sequence(
+                field, residual, row, 1.0, last_delta_orth=last_delta_orth
+            )
+            pref_m, last_m = encode_sequence(
+                field, residual, row, -1.0, last_delta_orth=last_delta_orth
+            )
+            pref_0, last_0 = encode_sequence(
+                field, residual, row, 0.0, last_delta_orth=last_delta_orth
+            )
             tgt_last = t_plus
             if prefix_orth:
                 delta = t_plus - neu
@@ -594,6 +641,11 @@ def fit_lyric_exam(
                 term = lm_plus_neu_lyric_loss(
                     last_p, tgt_last, last_0, neu, lyric_span(pref_p), ly_neu
                 )
+            elif last_delta_orth:
+                # Last-token UNI. Lyric-span projection is already in
+                # encode_sequence; do not also pin the prefix extra to
+                # neu (that is lyric-token hold / prefix-hold).
+                term = lm_plus_neu_loss(last_p, tgt_last, last_0, neu)
             elif plus_neu:
                 term = lm_plus_neu_loss(last_p, tgt_last, last_0, neu)
             elif plus_only:
@@ -620,6 +672,7 @@ def score_lyric_exam(
     prefix_hold: bool = False,
     prefix_orth: bool = False,
     lyric_hold: bool = False,
+    last_delta_orth: bool = False,
     steps: int = 400,
     seed: int = 0,
 ) -> dict:
@@ -634,6 +687,7 @@ def score_lyric_exam(
         prefix_hold=prefix_hold,
         prefix_orth=prefix_orth,
         lyric_hold=lyric_hold,
+        last_delta_orth=last_delta_orth,
         steps=steps,
         seed=seed,
     )
@@ -665,9 +719,15 @@ def score_lyric_exam(
     for row in range(int(field.rows)):
         pos, neg, neu = field.poles(row)
         mid = 0.5 * (pos + neg)
-        pref_p, last_p = encode_sequence(field, residual, row, 1.0)
-        pref_0, last_0 = encode_sequence(field, residual, row, 0.0)
-        _pref_m, last_m = encode_sequence(field, residual, row, -1.0)
+        pref_p, last_p = encode_sequence(
+            field, residual, row, 1.0, last_delta_orth=last_delta_orth
+        )
+        pref_0, last_0 = encode_sequence(
+            field, residual, row, 0.0, last_delta_orth=last_delta_orth
+        )
+        _pref_m, last_m = encode_sequence(
+            field, residual, row, -1.0, last_delta_orth=last_delta_orth
+        )
         ref_pref, ref_last = ref_plus_sequence(field, row)
         plus_seqs = _continue(field, last_p, row=row, sign=1.0)
         zero_seqs = _continue(field, last_0, row=row, sign=0.0)
@@ -730,6 +790,12 @@ def score_lyric_exam(
         and hold >= PLUS_NEU_HOLD_MIN
     )
     hit = lyric_hit
+    want_box = bool(
+        recall >= LYRIC_RECALL_MIN
+        and move >= GENDER_MOVE_MIN
+        and cover >= PLUS_COVER_MIN
+        and hold >= PLUS_NEU_HOLD_MIN
+    )
     transplant = bool(recall_ref >= LYRIC_RECALL_MIN and recall < LYRIC_RECALL_MIN)
     landed = max(set(canary_landed), key=canary_landed.count)
     canary_off_mean = sum(canary_off) / len(canary_off)
@@ -742,6 +808,7 @@ def score_lyric_exam(
         "prefix_hold": bool(prefix_hold),
         "prefix_orth": bool(prefix_orth),
         "lyric_hold": bool(lyric_hold),
+        "last_delta_orth": bool(last_delta_orth),
         "lyric_recall": recall,
         "gender_move": move,
         "lyric_hit": lyric_hit,
@@ -756,6 +823,7 @@ def score_lyric_exam(
         "overlap_neu": sum(neu_overlap_rows) / len(neu_overlap_rows),
         "old_box": old_box,
         "hit": hit,
+        "want_box": want_box,
         "last_token_transplant": transplant,
         "sings_plus": " | ".join(sings_plus),
         "sings_zero": " | ".join(sings_zero),
@@ -801,8 +869,9 @@ def lyric_exam_table(*, steps: int = 400, seed: int = 0) -> dict[str, list[dict]
                     plus_only=bool(cand["plus_only"]),
                     plus_neu=bool(cand["plus_neu"]),
                     prefix_hold=bool(cand["prefix_hold"]),
-                    prefix_orth=bool(cand["prefix_orth"]),
+                    prefix_orth=bool(cand.get("prefix_orth", False)),
                     lyric_hold=bool(cand.get("lyric_hold", False)),
+                    last_delta_orth=bool(cand.get("last_delta_orth", False)),
                     steps=steps,
                     seed=seed,
                 )
@@ -812,7 +881,7 @@ def lyric_exam_table(*, steps: int = 400, seed: int = 0) -> dict[str, list[dict]
 
 
 def lyric_rank(table: dict[str, list[dict]]) -> list[dict]:
-    """Combined rank: lyric_recall@+1, then cover. Required pairs only."""
+    """Want-box first, then lyric_recall@+1, cover, neu_hold, gender_move."""
     by: dict[str, dict[str, dict]] = {}
     for cell, rows in table.items():
         by[cell] = {r["name"]: r for r in rows}
@@ -823,8 +892,12 @@ def lyric_rank(table: dict[str, list[dict]]) -> list[dict]:
         cells = [by[c][name] for c in required]
         grit = by["divergent"][name] if "divergent" in by else None
         gender = by["close"][name] if "close" in by else None
-        grit_lyric = bool(grit and grit["lyric_recall"] >= LYRIC_RECALL_MIN)
-        gender_free = bool(gender and gender["gender_move"] >= GENDER_MOVE_MIN)
+        grit_lyric = (
+            grit is not None and float(grit["lyric_recall"]) >= LYRIC_RECALL_MIN
+        )
+        gender_free = (
+            gender is not None and float(gender["gender_move"]) >= GENDER_MOVE_MIN
+        )
         cover_ok = all(
             r["cover"] >= PLUS_COVER_MIN and r["neu_hold"] >= PLUS_NEU_HOLD_MIN
             for r in cells
@@ -834,6 +907,7 @@ def lyric_rank(table: dict[str, list[dict]]) -> list[dict]:
                 "name": name,
                 "in_box": all(r["hit"] for r in cells),
                 "want_box": bool(grit_lyric and gender_free and cover_ok),
+                "split_want": bool(grit_lyric and gender_free),
                 "hit_divergent": cells[0]["hit"] if "divergent" in by else None,
                 "hit_close": cells[1]["hit"] if "close" in by else None,
                 "grit_lyric_hit": grit_lyric,
@@ -845,6 +919,8 @@ def lyric_rank(table: dict[str, list[dict]]) -> list[dict]:
                 "gender_move_grit": None if grit is None else grit["gender_move"],
                 "cover": sum(r["cover"] for r in cells) / len(cells),
                 "neu_hold": sum(r["neu_hold"] for r in cells) / len(cells),
+                "gender_move": sum(r.get("gender_move", 0.0) for r in cells)
+                / len(cells),
                 "off_caption": sum(r["off_caption"] for r in cells) / len(cells),
                 "lyric_recall_ref_plus": sum(r["lyric_recall_ref_plus"] for r in cells)
                 / len(cells),
@@ -852,17 +928,18 @@ def lyric_rank(table: dict[str, list[dict]]) -> list[dict]:
                 "last_token_transplant": any(r["last_token_transplant"] for r in cells),
                 "prefix_hold": cells[0]["prefix_hold"],
                 "lyric_hold": cells[0].get("lyric_hold", False),
+                "last_delta_orth": bool(cells[0].get("last_delta_orth", False)),
                 "plus_neu": cells[0]["plus_neu"],
                 "plus_only": cells[0]["plus_only"],
             }
         )
     ranked.sort(
         key=lambda r: (
-            -int(r["want_box"]),
-            -float(r["lyric_recall_grit"] or 0.0),
-            -float(r["gender_move"] or 0.0),
+            -int(bool(r["want_box"])),
+            -float(r["lyric_recall"]),
             -float(r["cover"]),
             -float(r["neu_hold"]),
+            -float(r["gender_move"]),
             str(r["name"]),
         )
     )
@@ -881,6 +958,11 @@ def lyric_verdict(table: dict[str, list[dict]]) -> dict:
     prefix = [by[c]["faithful_plus_neu_prefix"] for c in required]
     lyric = [by[c]["faithful_plus_neu_lyric"] for c in required] if "faithful_plus_neu_lyric" in by[required[0]] else []
     plus = [by[c]["faithful_plus"] for c in required]
+    orth = (
+        [by[c]["faithful_plus_neu_orth"] for c in required]
+        if all("faithful_plus_neu_orth" in by[c] for c in required)
+        else []
+    )
     replicated = any(r["last_token_transplant"] and r["old_box"] for r in uni)
     prefix_lifts = all(
         p["lyric_recall"] + 1e-6 >= u["lyric_recall"] for p, u in zip(prefix, uni)
@@ -899,6 +981,26 @@ def lyric_verdict(table: dict[str, list[dict]]) -> dict:
     pref_c = gender.get("faithful_plus_neu_prefix")
     lyr_g = grit.get("faithful_plus_neu_lyric")
     lyr_c = gender.get("faithful_plus_neu_lyric")
+    uni_grit_lyric_miss = (
+        "divergent" in by
+        and float(by["divergent"]["faithful_plus_neu"]["lyric_recall"])
+        < LYRIC_RECALL_MIN
+    )
+    uni_gender_hit = (
+        "close" in by
+        and float(by["close"]["faithful_plus_neu"]["gender_move"]) >= GENDER_MOVE_MIN
+    )
+    prefix_grit_lyric_hit = (
+        "divergent" in by
+        and float(by["divergent"]["faithful_plus_neu_prefix"]["lyric_recall"])
+        >= LYRIC_RECALL_MIN
+    )
+    prefix_gender_miss = (
+        "close" in by
+        and float(by["close"]["faithful_plus_neu_prefix"]["gender_move"])
+        < GENDER_MOVE_MIN
+    )
+    orth_beats_split = bool(orth) and all(r.get("want_box", False) for r in orth)
     return {
         "replicated_last_token_transplant": replicated,
         "uni_old_box": [r["old_box"] for r in uni],
@@ -940,6 +1042,15 @@ def lyric_verdict(table: dict[str, list[dict]]) -> dict:
             and lyr_g["neu_hold"] >= PLUS_NEU_HOLD_MIN
             and lyr_c["neu_hold"] >= PLUS_NEU_HOLD_MIN
         ),
+        "orth_lyric_recall": [r["lyric_recall"] for r in orth],
+        "orth_cover": [r["cover"] for r in orth],
+        "orth_neu_hold": [r["neu_hold"] for r in orth],
+        "orth_gender_move": [r.get("gender_move", 0.0) for r in orth],
+        "uni_grit_lyric_miss": uni_grit_lyric_miss,
+        "uni_gender_hit": uni_gender_hit,
+        "prefix_grit_lyric_hit": prefix_grit_lyric_hit,
+        "prefix_gender_miss": prefix_gender_miss,
+        "orth_beats_split": orth_beats_split,
         "plus_lyric_recall": [r["lyric_recall"] for r in plus],
         "last_hidden_blind": {
             cell: last_hidden_cannot_see_transplant(LYRIC_CELLS[cell]())

@@ -1040,6 +1040,143 @@ def test_faithful_plus_neu_roles_is_wired_and_not_the_default():
     assert bare.pole_mode == "hidden"
 
 
+def test_faithful_plus_neu_orth_is_wired_and_not_the_default():
+    from conceptmod.textsliders.train_lm_slider_music3 import (
+        PLUS_NEU_ORTH_RECIPES,
+        PLUS_NEU_PREFIX_RECIPES,
+        PLUS_NEU_RECIPES,
+        _lyric_token_mask,
+    )
+
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful_plus_neu_orth"]
+    )
+    assert args.lm_target == "faithful_plus_neu_orth"
+    assert args.pole_mode == "hidden"
+    assert resolve_lm_recipe(lm_target="faithful_plus_neu_orth", symmetric=True) == (
+        "faithful_plus_neu_orth"
+    )
+    assert "faithful_plus_neu_orth" in PLUS_NEU_RECIPES
+    assert PLUS_NEU_ORTH_RECIPES == frozenset({"faithful_plus_neu_orth"})
+    assert "faithful_plus_neu_orth" not in PLUS_NEU_PREFIX_RECIPES
+    hold, anchor = resolve_lm_loss_weights(
+        "faithful_plus_neu_orth",
+        hold_weight=None,
+        anchor_weight=None,
+        leak_declared=True,
+    )
+    assert hold == 0.0
+    assert anchor == 0.0
+    pos, neg, neu = _ungated_pair()
+    plus, minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful_plus_neu_orth")
+    assert torch.allclose(plus, pos)
+    leftover = torch.tensor([0.0, 1.0])
+    still_raw, _, _, _ = lm_train_targets(
+        pos,
+        neg,
+        neu,
+        recipe="faithful_plus_neu_orth",
+        slider_dir=E_SLIDER,
+        leak_dir=leftover,
+    )
+    assert torch.allclose(still_raw, pos)
+    pred_plus = plus + 0.1
+    pred_minus = minus + 3.0
+    pred_zero = neu + 0.2
+    lyric = torch.stack([torch.tensor([1.0, 0.0]), torch.tensor([1.0, 0.0])])
+    base = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        plus,
+        minus,
+        plus_neu=True,
+        plus_neu_orth=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pred_plus_lyric=lyric,
+        tgt_neu_lyric=lyric,
+        pole_mode="hidden",
+    )
+    moved_minus = lm_train_loss(
+        pred_plus,
+        pred_minus + 4.0,
+        plus,
+        minus,
+        plus_neu=True,
+        plus_neu_orth=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pred_plus_lyric=lyric,
+        tgt_neu_lyric=lyric,
+        pole_mode="hidden",
+    )
+    offspan = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        plus,
+        minus,
+        plus_neu=True,
+        plus_neu_orth=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pred_plus_lyric=lyric + torch.tensor([[0.0, 1.0], [0.0, 1.0]]),
+        tgt_neu_lyric=lyric,
+        pole_mode="hidden",
+    )
+    inspan = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        plus,
+        minus,
+        plus_neu=True,
+        plus_neu_orth=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pred_plus_lyric=lyric * 1.5,
+        tgt_neu_lyric=lyric,
+        pole_mode="hidden",
+    )
+    uni = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        plus,
+        minus,
+        plus_neu=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pole_mode="hidden",
+    )
+    assert float(moved_minus) == pytest.approx(float(base), abs=1e-7)
+    assert float(inspan) == pytest.approx(float(base), abs=1e-6)
+    assert float(offspan) > float(base)
+    assert float(base) == pytest.approx(float(uni), abs=1e-7)
+    src = Path("conceptmod/textsliders/train_lm_slider_music3.py").read_text()
+    assert '"plus_neu_orth": recipe in PLUS_NEU_ORTH_RECIPES' in src
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+    assert bare.pole_mode == "hidden"
+
+    class _Tok:
+        def convert_tokens_to_ids(self, token):
+            return {
+                "<|lyrics_start|>": 1,
+                "<|lyrics_end|>": 2,
+                "<|audio_start|>": 3,
+            }[token]
+
+    ids = torch.tensor([[1, 10, 11, 2, 3]])
+    attn = torch.ones_like(ids)
+    mask = _lyric_token_mask(ids, attn, _Tok(), where="test")
+    assert mask.tolist() == [[False, True, True, False, False]]
+    empty = torch.tensor([[1, 2, 3]])
+    with pytest.raises(RuntimeError, match="empty"):
+        _lyric_token_mask(empty, torch.ones_like(empty), _Tok(), where="empty")
+    missing = torch.tensor([[10, 11, 3]])
+    with pytest.raises(RuntimeError, match="missing"):
+        _lyric_token_mask(missing, torch.ones_like(missing), _Tok(), where="missing")
+    assert mask[0, -1].item() is False
+
+
 def test_help_lists_faithful_plus_neu_and_keeps_v9_hidden_default():
     import io
     from contextlib import redirect_stdout
@@ -1052,6 +1189,8 @@ def test_help_lists_faithful_plus_neu_and_keeps_v9_hidden_default():
     assert "--lm_target" in help_text
     assert "faithful_plus_neu" in help_text
     assert "faithful_plus_neu_lyric" in help_text
+    assert "faithful_plus_neu_orth" in help_text
+    assert "faithful_plus_neu_roles" in help_text
     assert "faithful_plus" in help_text
     assert "v9" in help_text
     bare = parse_args(["--prompts_file", "prompts.yaml"])
@@ -1492,9 +1631,11 @@ def test_plus_neu_skips_minus_endreg_and_minus_early_stop():
     assert _endreg_uses_minus("faithful_plus_neu_prefix") is False
     assert _endreg_uses_minus("faithful_plus_neu_lyric") is False
     assert _endreg_uses_minus("faithful_plus_neu_roles") is False
+    assert _endreg_uses_minus("faithful_plus_neu_orth") is False
     assert _minus_pole_used("faithful_plus_neu") is False
     assert _minus_pole_used("faithful_plus_neu_lyric") is False
     assert _minus_pole_used("faithful_plus_neu_roles") is False
+    assert _minus_pole_used("faithful_plus_neu_orth") is False
     src = Path("conceptmod/textsliders/train_lm_slider_music3.py").read_text()
     assert "if _minus_pole_used(recipe):" in src
     assert "plus_neu=recipe in PLUS_NEU_RECIPES" in src

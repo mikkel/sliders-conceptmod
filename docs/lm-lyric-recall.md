@@ -127,6 +127,7 @@ on [lm-lyric-hold.md](lm-lyric-hold.md). Default stays
 ## Related cells
 
 - [lm-lyric-hold.md](lm-lyric-hold.md) — grit lyrics vs gender_move scoreboard.
+- [lm-lyric-orth.md](lm-lyric-orth.md) — last-delta / lyric-span projection UNI board.
 - [lm-plus-neu-exam.md](lm-plus-neu-exam.md) — last-hidden cover / neu_hold / off-caption.
 - [lm-plus-exam.md](lm-plus-exam.md) — plus-only cover / off-caption.
 - [lm-pair-exam.md](lm-pair-exam.md) — bipolar continuation / same_words / off_corpus / coherence.
