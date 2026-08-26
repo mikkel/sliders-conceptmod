@@ -32,11 +32,15 @@ from analysis.slider2d.exam import (
     LIVE_ROW,
     divergence_sweep,
     exam_table,
+    factorial_table,
     first_above,
     first_below,
     floatable,
+    guard_is_uniform,
+    guard_table,
     live_exam_rows,
     pair_coordinate_table,
+    seed_spread,
     teacher_geometry_table,
     visible_sweep,
 )
@@ -146,6 +150,13 @@ def plot_visible(sweep: list[dict], path: Path) -> None:
     xs = [r["visible_share"] for r in sweep]
     ax.plot(xs, [r["kl_swing"] for r in sweep], "o-", color="#c0392b", label="semantic KL, swing kept")
     ax.plot(xs, [r["mse_swing"] for r in sweep], "s-", color="#1e8449", label="hidden MSE, swing kept")
+    ax.plot(
+        xs,
+        [r["dual_swing"] for r in sweep],
+        "D-",
+        color="#2471a3",
+        label="dual band (KL + blind MSE), swing kept",
+    )
     ax.plot(xs, [r["kl_loss"] for r in sweep], "^--", color="#7f8c8d", label="KL loss at the end")
     ax.axhline(EXAM_ROLL_SWING, color="#7f8c8d", ls=":", lw=0.9)
     ax.axvline(
@@ -182,6 +193,161 @@ def cell_row_md(row: dict) -> str:
         f"{_f(row['pair_odd_cos'], '+.3f')} | {_f(row['collapse'], '+.3f')} | "
         f"{_f(row['pperc'], '.2f')} | {_f(row['loss'], '.4f')} | {_verdict(row)} |"
     )
+
+
+def _new_technique_lines(blob: dict) -> list[str]:
+    """The two techniques this cell is used to find, and their evidence."""
+    guard = blob["guard"]
+    factorial = blob["factorial"]
+    spread = blob["seed_spread"]
+    by_arm = {(r["target"], r["pole_mode"]): r for r in factorial}
+    divergent = next(r for r in guard if r["cell"] == "divergent")
+    leftover = next(r for r in guard if r["cell"] == "unused_e")
+    lines = [
+        "## Two techniques that top both pairs",
+        "",
+        "Both live losses fail one of the two pairs, and the two halves fail",
+        "for unrelated reasons: `faithful_sub_e` deletes a divergent pair's",
+        "axis because the yaml's `ê` restates it, and `semantic_kl` never",
+        "learns a close pair's axis because the readout cannot see it. So the",
+        "two fixes are a **target rule** and a **loss**, and they compose.",
+        "",
+        "### The blend guard — one ê rule for both pair types",
+        "",
+        "`lm_blend_guard` asks one question about a target point, with no",
+        "threshold and no optimizer: is it still nearer the pole caption it",
+        "claims to be than the pair's own midpoint?",
+        "",
+        "```",
+        "mid = ½(pos + neg)",
+        "to_pole = max(‖t₊ − pos‖, ‖t₋ − neg‖)",
+        "to_mid  = min(‖t₊ − mid‖, ‖t₋ − mid‖)",
+        "admissible ⟺ to_pole < to_mid",
+        "```",
+        "",
+        "`mid` is the one point on the segment that is neither caption, and on",
+        "a divergent pair it is a state no caption occupies at all. A target",
+        "that has drifted nearer it than to its own pole is a blend, and both",
+        "ends of a blend sing both songs. `--lm_target faithful_guard_e`",
+        "subtracts the declared `ê_⊥` only while the guard admits it and keeps",
+        "the raw caption otherwise, so a yaml can declare `leak_*` without that",
+        "declaration being able to eat the slider.",
+        "",
+        "| pair | declared ê | to_pole / ‖a‖ | to_mid / ‖a‖ | axis eaten | guard | teacher it uses |",
+        "|---|---|---:|---:|---:|---|---|",
+    ]
+    seen: set[str] = set()
+    for row in guard:
+        if row["cell"] in seen:
+            continue
+        seen.add(row["cell"])
+        admits = {True: "**takes ê**", False: "**refuses**", None: "nothing to decide"}[
+            row["admits"]
+        ]
+        lines.append(
+            f"| `{row['cell']}` | {'yes' if row['declared_e'] else 'no'} | "
+            f"{row['to_pole']:.3f} | {row['to_mid']:.3f} | "
+            f"{row['axis_eaten']:.3f} | {admits} | `{row['teacher_used']}` |"
+        )
+    lines += [
+        "",
+        f"Every prompt row of every pair agrees with its pair's decision"
+        f" ({'uniform' if blob['guard_uniform'] else 'MIXED — see metrics.json'}),",
+        "so this is not a per-row coin flip that would train a mixed teacher.",
+        "The separation is not marginal: the divergent pair's ê-cleaned target",
+        f"sits at {divergent['to_pole']:.2f}‖a‖ from its caption against",
+        f"{divergent['to_mid']:.2f}‖a‖ from the midpoint, and the leftover cell's",
+        f"at {leftover['to_pole']:.2f} against {leftover['to_mid']:.2f}. The",
+        "condition is equivalent to \"what is left of the axis is longer than",
+        "what was taken\", which is where the √½ boundary comes from — it is",
+        "derived, not tuned.",
+        "",
+        "### The dual-band loss — a gradient where the KL has none",
+        "",
+        "`lm_dual_band_pole_loss` splits the two bands the live losses",
+        "conflate:",
+        "",
+        "```",
+        "loss = KL(t₊ ‖ p₊) + KL(t₋ ‖ p₋)",
+        "     + blind_weight · ( ‖P_blind(p₊ − t₊)‖² + ‖P_blind(p₋ − t₋)‖² )",
+        "```",
+        "",
+        "`P_blind` comes from the frozen head: one SVD of the *centered*",
+        "semantic band, keeping the right-singular directions it does not read",
+        "(centered because a softmax cannot see a uniform logit shift either).",
+        "Neither band is new; splitting them is. Semantic KL alone has exactly",
+        "zero gradient on `P_blind`, which on a close pair is where the axis",
+        "lives — that is `gender-lm-v16`, loss 0.0091 and nothing arrived.",
+        "Hidden MSE alone pins that band but also insists on Euclidean",
+        "agreement in the band anyone actually listens to.",
+        "",
+        "The weight is not a tuned number: the cell is flat in it from 0.5 to",
+        "32, because the term's job is to supply a gradient where there was",
+        "none rather than to outweigh the KL. If the band's row space fills the",
+        "hidden width there is no blind band, `lm_blind_projector` returns",
+        "`None`, and the loss is exactly `semantic_kl` — the trainer prints a",
+        "warning rather than pretending to have fixed something.",
+        "",
+        "### The 2×2: each half is necessary, together they are enough",
+        "",
+        "| target | loss | pins the blind band | divergent | close | exam_score | both |",
+        "|---|---|---|---:|---:|---:|---|",
+    ]
+    for row in factorial:
+        lines.append(
+            f"| {row['target']} | `{row['pole_mode']}` | "
+            f"{'yes' if row['pins_blind_band'] else 'no'} | "
+            f"{row['divergent_score']:.3f} | {row['close_score']:.3f} | "
+            f"{row['exam_score']:.3f} | "
+            f"{'**both**' if row['both'] else 'no'} |"
+        )
+    caption_kl = by_arm[("caption", "semantic_kl")]
+    midpoint_dual = by_arm[("midpoint", "dual_band")]
+    caption_dual = by_arm[("caption", "dual_band")]
+    lines += [
+        "",
+        "Read it as two ablations rather than four opinions. Turn the blind",
+        "band off and keep the caption (`caption` / `semantic_kl`, which is the",
+        f"live v16 recipe): the close pair drops to {caption_kl['close_score']:.3f}",
+        "and the divergent pair is untouched — that is the live energy win and",
+        "the live gender garble, the same recipe. Turn the caption off and keep",
+        f"the blind band (`midpoint` / `dual_band`): the divergent pair drops to",
+        f"{midpoint_dual['divergent_score']:.3f} and fails on the words it sings,",
+        "because pinning every dimension of the wrong point is still the wrong",
+        "point. Turn both on and both pairs pass, under either of the two",
+        f"losses that pin the blind band ({caption_dual['exam_score']:.3f} for the",
+        f"dual band, {by_arm[('caption', 'hidden')]['exam_score']:.3f} for hidden",
+        "MSE).",
+        "",
+        "That is the hypothesis this cell was pointed at, and both halves of it",
+        "survive: real caption poles **and** the dimensions one scored token",
+        "cannot see. Neither alone tops both pairs.",
+        "",
+        "### How sharp is a 1.000",
+        "",
+        "The rollout is sampled, so the top of the board is a band and not a",
+        "point. `exam_score` over four seeds:",
+        "",
+        "| recipe | seeds | min | max | passes every seed |",
+        "|---|---|---:|---:|---|",
+    ]
+    for row in spread:
+        scores = ", ".join(f"{s:.3f}" for s in row["scores"])
+        lines.append(
+            f"| `{row['recipe']}` | {scores} | {row['min']:.3f} | "
+            f"{row['max']:.3f} | {'yes' if row['all_pass'] else 'NO'} |"
+        )
+    lines += [
+        "",
+        "So the honest ordering is: the two hidden-MSE-on-captions recipes and",
+        "the dual band all pass both pairs at every seed, and the gap between a",
+        "printed 1.000 and a printed 0.994 is inside the sampling. What is",
+        "seed-robust is the verdict, which is what the board's gate reads; the",
+        "board's number is a seed-0 reading and should be sorted on, not",
+        "subtracted.",
+        "",
+    ]
+    return lines
 
 
 def write_report(blob: dict, path: Path) -> None:
@@ -333,15 +499,23 @@ def write_report(blob: dict, path: Path) -> None:
         for row in rows:
             lines.append(f"- `{row['name']}`: {row['reason']}")
         if cell == "unused_e":
+            leaky = [r for r in rows if abs(r.get("leak_tok") or 0.0) > EXAM_LEAK_LOCK]
+            clean = [r for r in rows if abs(r.get("leak_tok") or 0.0) <= 0.01]
             lines += [
                 "",
                 "Every recipe passes here, and the leak column is why the cell is",
-                "still on the board: `faithful` and `semantic_kl` onto raw poles",
-                f"carry +0.227 of the unpinned attribute, the three `sub_e` rows",
-                "carry +0.000, and hold-ê λ=8 carries +0.005 — the same numbers",
-                "the #22 sheet cell reports, from a different readout. Leak is",
-                "logged here and **scored there**: this cell's rollout commits",
-                "after the first token and averages an attribute tilt away.",
+                "still on the board. The rows that aim at a raw pole carry the",
+                "unpinned attribute with them —",
+                ", ".join(f"`{r['name']}` {r['leak_tok']:+.3f}" for r in leaky)
+                + " —",
+                "and the rows that subtract or hold the declared ê (including the",
+                "guarded ones, because on *this* pair the guard admits it) carry",
+                ", ".join(f"`{r['name']}` {r['leak_tok']:+.3f}" for r in clean)
+                + ".",
+                "Those are the same numbers the #22 sheet cell reports, from a",
+                "different readout. Leak is logged here and **scored there**:",
+                "this cell's rollout commits after the first token and averages",
+                "an attribute tilt away.",
             ]
         lines += [""]
     lines += [
@@ -406,8 +580,8 @@ def write_report(blob: dict, path: Path) -> None:
         "A close pair at fixed `‖a‖`, moving the axis from the delivery block",
         "(invisible to the scored token) into the readable block.",
         "",
-        "| visible share | KL loss | KL solved | invisible kept (KL) | p% (KL) | c+ (KL) | KL swing | invisible kept (MSE) | MSE swing |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| visible share | KL loss | KL solved | invisible kept (KL) | p% (KL) | c+ (KL) | KL swing | invisible kept (MSE) | MSE swing | invisible kept (dual) | dual swing |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in vis:
         lines.append(
@@ -415,7 +589,8 @@ def write_report(blob: dict, path: Path) -> None:
             f"{row['kl_solved']:.3f} | {_f(row['kl_invisible_kept'], '.3f')} | "
             f"{row['kl_pperc']:.2f} | {row['kl_c_plus']:+.3f} | "
             f"{row['kl_swing']:+.2f} | "
-            f"{_f(row['mse_invisible_kept'], '.3f')} | {row['mse_swing']:+.2f} |"
+            f"{_f(row['mse_invisible_kept'], '.3f')} | {row['mse_swing']:+.2f} | "
+            f"{_f(row['dual_invisible_kept'], '.3f')} | {row['dual_swing']:+.2f} |"
         )
     kl_flip = first_above(vis, "kl_swing", EXAM_ROLL_SWING, "visible_share")
     lines += [
@@ -428,8 +603,17 @@ def write_report(blob: dict, path: Path) -> None:
         f"floor once about {_f(kl_flip, '.2f', 'no point in this grid')} of the axis",
         f"is readable. gender-v4 sits at {by_cell['close']['visible_share']:.2f}.",
         "",
-        "![visible share](lm-pair-exam/visible.png)",
+        "`dual_band` is the same KL with hidden MSE added on that block alone.",
+        "It keeps `invisible kept` at 1.00 and the swing above the floor across",
+        "the whole sweep, and it converges on plain KL at the readable end —",
+        "where there is nothing blind left to add. A recipe that only differed",
+        "at one end of this sweep would be a coincidence; one that differs",
+        "exactly where the blind share is large is the mechanism.",
         "",
+        "![visible share](lm-pair-exam/visible.png)",
+        "",]
+    lines += _new_technique_lines(blob)
+    lines += [
         "## The mechanism, stated precisely",
         "",
         "1. **`c` is only shared caption content when the poles are captions of",
@@ -565,6 +749,10 @@ def main(argv: list[str] | None = None) -> int:
         ],
         "divergence_sweep": divergence_sweep(steps=args.sweep_steps, seed=args.seed),
         "visible_sweep": visible_sweep(steps=args.sweep_steps, seed=args.seed),
+        "guard": guard_table(),
+        "guard_uniform": guard_is_uniform(),
+        "factorial": factorial_table(steps=args.steps, seed=args.seed),
+        "seed_spread": seed_spread(steps=args.steps),
         "live_default_unchanged": True,
     }
     (out / "metrics.json").write_text(json.dumps(blob, indent=2) + "\n", encoding="utf-8")

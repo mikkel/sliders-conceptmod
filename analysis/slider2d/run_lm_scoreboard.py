@@ -231,9 +231,37 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "The two `semantic_kl_poles` cells are the load-bearing row: it is the",
         "live energy win on a divergent pair and the live gender garble on a",
         "close one, so no single verdict for the recipe is honest and",
-        "`works-on-some-pairs` names which. `faithful_raw` and its data-fixed",
-        "sibling `faithful_attrs` are the only recipes that pass every pair",
-        "they are read on.",
+        "`works-on-some-pairs` names which.",
+        "",
+        "## Two new techniques, and what they change",
+        "",
+        "`faithful_guard_e` and the `dual_band` rows are new here. Full",
+        "derivation, the 2×2 ablation and the seed spread are in",
+        "[lm-pair-exam.md](lm-pair-exam.md#two-techniques-that-top-both-pairs).",
+        "",
+        "**The blend guard** (`lm_blend_guard`, `--lm_target faithful_guard_e`)",
+        "is a threshold-free admissibility test on a target point: it is",
+        "admissible while it is nearer the pole caption it claims to be than",
+        "the pair's own midpoint. Subtracting a declared `ê_⊥` is taken only",
+        "when it passes. On energy-v4 it does not — the yaml's `ê` restates the",
+        "genre and BPM the poles move, the ê-cleaned target lands 0.78‖a‖ from",
+        "its caption and 0.63‖a‖ from the midpoint, and the guard keeps the",
+        "caption instead. On a pair whose `ê` really is a leftover it is taken",
+        "and the leak goes to 0.000. That is one recipe for both pair types,",
+        "and it is the only row on this board that passes every cell without",
+        "rewriting a caption.",
+        "",
+        "**The dual-band loss** (`lm_dual_band_pole_loss`, `--pole_mode",
+        "dual_band`) keeps the live v16 semantic KL where the head reads and",
+        "adds hidden MSE on the band it is blind to, which is where a close",
+        "pair's axis lives and where a KL's gradient is exactly zero. It is the",
+        "smallest change to the recipe that garbled `gender-lm-v16`: same",
+        "target, one added term, and the close pair's swing goes from 0.387 to",
+        "0.994 while the divergent pair is untouched.",
+        "",
+        "`dual_band_midpoint` is on the board as the control. It pins the blind",
+        "band and still fails the divergent pair, which is what says the target",
+        "point has to be a real caption and the loss alone is not the fix.",
         "",
         "## Short verdict",
         "",
@@ -242,11 +270,16 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         names = ", ".join(f"`{r['id']}`" for r in winners)
         lines.append(
             f"**Works on every pair it is read on:** {names}. "
+            "`faithful_guard_e` is the new one and the only one that gets "
+            "there from the yamls as written: `--lm_target faithful_guard_e "
+            "--pole_mode hidden`, blend-guarded ê on real poles. "
             "`faithful_attrs` is `--lm_target faithful --pole_mode hidden` plus "
-            "the data fix — the unpinned attribute written into both pole "
+            "a data fix — the unpinned attribute written into both pole "
             "captions, the way energy-v4 already pins the singer with "
             "`attributes` — so there is no leftover ê in the text for the "
-            "sheet cell to charge it for."
+            "sheet cell to charge it for. `dual_band_guard_e` is both new "
+            "pieces at once and passes every cell too, at a slightly lower "
+            "exam_score than hidden MSE reaches."
         )
     else:
         lines.append("No recipe passed on every pair it is read on.")
@@ -258,9 +291,12 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
             "and fails another. `faithful_raw` (and `hidden_beta1`, which is "
             "the same target reached through `--lm_target symmetric "
             "--common_beta 1`) passes all three pair cells and is charged only "
-            "by the unused-ê sheet — which is a leak gender-v4 has no `leak_*` "
-            "to trip, so it is the next live card. `semantic_kl_poles` is the "
-            "row the live exam is about: the energy win and the gender garble.",
+            "by the unused-ê sheet — which is the cell `faithful_guard_e` "
+            "fixes by deciding, per pair, whether the declared ê is safe to "
+            "subtract. `dual_band_poles` is charged by the same leak for the "
+            "same reason: it is a loss, and a loss does not clean a target. "
+            "`semantic_kl_poles` is the row the live exam is about: the energy "
+            "win and the gender garble.",
         ]
     lines += [
         "",
@@ -268,6 +304,12 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "project, and the high-D leftover holds. None of them has a pair-exam "
         "reading; they fail on leftover leak and the sheet alone. A perfect "
         "pair-odd lock and a solved pole loss are both failure modes here.",
+        "",
+        "One caveat on the number itself: `exam_score` is a seed-0 reading of a "
+        "sampled rollout, and the top of the board is a band. Over four seeds "
+        "`faithful_raw` and `faithful_guard_e` both range 0.994 … 1.000 and "
+        "`dual_band_poles` 0.970 … 0.994, and all three pass both pairs at "
+        "every seed. Sort on the number; do not subtract two of them.",
         "",
         "## The full joined table",
         "",
@@ -307,20 +349,18 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
             )
     lines += [
         "",
-        "## The next live card the board points at",
+        "## The next live cards the board points at",
         "",
-        "`faithful_raw` — `--lm_target faithful --pole_mode hidden` — is the",
-        "only recipe besides its own data-fixed sibling that passes every pair",
-        "it is read on, and it has **no live run**. It is the untrained winner.",
-        "",
-        "It is also the one recipe that fixes what `gender-lm-v16` actually",
-        "did wrong. Both aim at the same target — the real pole captions — so",
-        "the target point is not the difference. The difference is that hidden",
-        "MSE pins the whole state, including the part of it the semantic band",
-        "does not read at `<|audio_start|>`, which on a close pair is where the",
-        "axis lives. In the pair-exam cell that recipe copies 1.00 of the",
-        "invisible block against semantic KL's 0.00, and it is the swing over",
-        "the continuation that separates them, not the loss.",
+        "`faithful_raw` — `--lm_target faithful --pole_mode hidden` — is still",
+        "the untrained winner on the two live pairs, and the card #28 already",
+        "pointed at. It is the one recipe that fixes what `gender-lm-v16`",
+        "actually did wrong. Both aim at the same target — the real pole",
+        "captions — so the target point is not the difference. The difference",
+        "is that hidden MSE pins the whole state, including the part of it the",
+        "semantic band does not read at `<|audio_start|>`, which on a close pair",
+        "is where the axis lives. In the pair-exam cell that recipe copies 1.00",
+        "of the invisible block against semantic KL's 0.00, and it is the swing",
+        "over the continuation that separates them, not the loss.",
         "",
         "```bash",
         "python conceptmod/textsliders/train_lm_slider_music3.py \\",
@@ -339,7 +379,36 @@ def write_report(rows: list[dict], blob: dict, path: Path) -> None:
         "cos rather than −1; per #22 and this board that is expected under a",
         "caption target and is not a regression. The listen is the gate.",
         "",
-        "This does not change the live default, which is still `--lm_target v9`",
+        "The new row the board adds is the *energy* card, on the yaml that has",
+        "a `leak_*` pair and where every previous attempt to use it deleted the",
+        "slider. `faithful_guard_e` reads that yaml as written and refuses the",
+        "subtraction, so it should sound like `energy-lm-v18` (the win) rather",
+        "than `energy-lm-v16` (the garble), and it needs no second recipe name",
+        "for the gender pair.",
+        "",
+        "```bash",
+        "python conceptmod/textsliders/train_lm_slider_music3.py \\",
+        "  --name energy-lm-v20 \\",
+        "  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \\",
+        "  --lm_target faithful_guard_e --pole_mode hidden \\",
+        "  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \\",
+        "  --no-early_stop --endreg_weight 1.0",
+        "```",
+        "",
+        "What to watch: the per-row setup line prints `guard=REFUSED (poles)`",
+        "with `to_pole` / `to_mid` next to it. If it prints `guard=sub_e` on",
+        "energy-v4 then the live pair geometry is not this fixture's and the",
+        "board is wrong about that yaml — which is the cheap falsification, and",
+        "it costs one setup pass rather than 800 steps. The same flag on",
+        "gender-v4 prints `guard=no-ê` and is `faithful` exactly.",
+        "",
+        "`--pole_mode dual_band` is the card for anyone who wants to keep the",
+        "v16 semantic KL: same `--lm_target faithful`, one added term, and the",
+        "run prints how many blind dims it found. If it prints 0 the semantic",
+        "band's row space fills the hidden width and the mode is plain",
+        "`semantic_kl` — raise `--blind_cut` before reading anything into it.",
+        "",
+        "None of this changes the live default, which is still `--lm_target v9`",
         "/ `--pole_mode hidden`.",
         "",
         "## Why four columns are logged and never scored",

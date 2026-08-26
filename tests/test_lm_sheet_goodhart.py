@@ -320,11 +320,23 @@ def test_kl_onto_the_midpoint_is_still_garbled():
 
 
 def test_the_passing_recipes_all_target_a_real_caption():
-    """Both survivors aim at a pole; one uses MSE and one uses KL."""
+    """Every survivor aims at a pole, under all three losses.
+
+    ``faithful_guard_e`` / ``dual_band_guard_e`` reach the same ê-cleaned
+    target the other two do: on *this* field ê is a genuine leftover, so the
+    blend guard admits the subtraction. The guard is what stops that same
+    recipe doing it on a divergent pair, which is a pair-exam question and
+    not one this cell can see.
+    """
     winners = {name for name, row in leaky().items() if row["pass"]}
-    assert winners == {"faithful_sub_e", "v16_semantic_kl_sub_e"}
+    assert winners == {
+        "faithful_sub_e",
+        "v16_semantic_kl_sub_e",
+        "faithful_guard_e",
+        "dual_band_guard_e",
+    }
     modes = {leaky()[name]["pole_mode"] for name in winners}
-    assert modes == {"hidden", "semantic_kl"}
+    assert modes == {"hidden", "semantic_kl", "dual_band"}
     for name in winners:
         assert leaky()[name]["teacher"].startswith("faithful")
 

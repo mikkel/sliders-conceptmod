@@ -90,19 +90,22 @@ seed tested.
 | `divergent` | `pair_odd` | 1.000 | 1.000 | 1.015 | 1.425 | no |
 | `divergent` | `pair_odd_sub_e` | 0.628 | 0.537 | 1.279 | 1.193 | **yes** |
 | `divergent` | `faithful_sub_e` | 0.628 | 0.537 | 0.778 | 0.628 | **yes** |
+| `divergent` | `faithful_guard_e` | 1.000 | 1.000 | 0.000 | 1.000 | no |
 | `close` | `caption` | 1.000 | 1.000 | 0.000 | 1.000 | no |
 | `close` | `pair_odd` | 1.000 | 1.000 | 0.923 | 1.361 | no |
+| `close` | `faithful_guard_e` | 1.000 | 1.000 | 0.000 | 1.000 | no |
 | `unused_e` | `caption` | 1.000 | 1.000 | 0.000 | 1.000 | no |
 | `unused_e` | `pair_odd` | 1.000 | 1.000 | 1.015 | 1.425 | no |
 | `unused_e` | `pair_odd_sub_e` | 0.920 | 0.912 | 1.088 | 1.370 | no |
 | `unused_e` | `faithful_sub_e` | 0.920 | 0.912 | 0.391 | 0.920 | no |
+| `unused_e` | `faithful_guard_e` | 0.920 | 0.912 | 0.391 | 0.920 | no |
 
 `faithful_sub_e` is `mid ± â` with `mid = ½(h₊+h₋)`. On the same-song
 cell `ê` names the unpinned attribute, `â` keeps
 0.91 of the
 visible axis and the target is not a blend. On the divergent cell `ê`
 names the track, `â` keeps only
-0.54 of it,
+1.00 of it,
 and the target is nearer `mid` than the pole it claims to be. `mid` on
 a divergent pair is pop-punk-at-168 and ambient-lullaby-at-52 at once:
 no caption says both, and the policy there is bimodal rather than
@@ -116,6 +119,10 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 | `faithful_raw` | hidden | `faithful` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.702 | +0.015 | 0.05 | 0.0064 | **PASS** |
 | `semantic_kl_midpoint` | semantic_kl | `pair_odd` | 0.943 | 0.73 | 1.000 | 0.005 | +0.94 | N/A | +0.922 | -0.996 | 0.39 | 0.0002 | **FAIL** *(near same_words)* |
 | `semantic_kl_poles` | semantic_kl | `faithful` | 1.000 | 0.90 | 1.000 | 0.000 | +1.00 | N/A | +0.625 | +0.082 | 0.53 | 0.0003 | **PASS** |
+| `faithful_guard_e` | hidden | `faithful_guard_e` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.702 | +0.015 | 0.05 | 0.0064 | **PASS** |
+| `dual_band_poles` | dual_band | `faithful` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.709 | +0.000 | 0.45 | 0.0008 | **PASS** |
+| `dual_band_guard_e` | dual_band | `faithful_guard_e` | 1.000 | 1.23 | 1.000 | 0.000 | +1.00 | N/A | +0.709 | +0.000 | 0.45 | 0.0008 | **PASS** |
+| `dual_band_midpoint` | dual_band | `pair_odd` | 0.979 | 0.72 | 1.000 | 0.005 | +0.98 | N/A | +0.999 | -0.997 | 0.07 | 0.0007 | **FAIL** *(near same_words)* |
 | `hold_e_perp_l8` | hidden | `pair_odd` | 0.974 | 0.54 | 1.000 | 0.026 | +0.97 | N/A | +0.653 | -1.000 | 0.76 | 0.4356 | **FAIL** |
 | `pair_odd_sub_e` | hidden | `pair_odd_sub_e` | 0.979 | 0.55 | 0.982 | 0.005 | +0.96 | N/A | +0.628 | -1.000 | 0.05 | 0.0012 | **FAIL** |
 | `faithful_sub_e` | hidden | `faithful_sub_e` | 0.917 | 0.67 | 0.917 | 0.000 | +0.83 | N/A | +0.330 | +0.447 | 0.05 | 0.0045 | **FAIL** *(near coherence)* |
@@ -125,6 +132,10 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 - `faithful_raw`: on-continuation
 - `semantic_kl_midpoint`: continuation drifts off the pole's own; because KL-small / hidden-far
 - `semantic_kl_poles`: on-continuation (despite KL-small / hidden-far)
+- `faithful_guard_e`: on-continuation
+- `dual_band_poles`: on-continuation
+- `dual_band_guard_e`: on-continuation
+- `dual_band_midpoint`: continuation drifts off the pole's own
 - `hold_e_perp_l8`: continuation drifts off the pole's own
 - `pair_odd_sub_e`: continuation drifts off the pole's own; because blend teacher + axis eaten by ê
 - `faithful_sub_e`: continuation drifts off the pole's own; because blend teacher + axis eaten by ê
@@ -138,11 +149,19 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 | `faithful_raw` | hidden | `faithful` | 1.000 | 1.16 | 0.982 | 0.000 | +1.00 | N/A | +0.735 | -0.080 | 0.05 | 0.0018 | **PASS** |
 | `semantic_kl_midpoint` | semantic_kl | `pair_odd` | 0.849 | 0.47 | 0.958 | 0.000 | +0.41 | N/A | +0.119 | -1.000 | 0.99 | 0.0000 | **FAIL** *(near continuation)* |
 | `semantic_kl_poles` | semantic_kl | `faithful` | 0.906 | 0.46 | 0.958 | 0.000 | +0.39 | N/A | +0.017 | +0.958 | 0.95 | 0.0000 | **FAIL** |
+| `faithful_guard_e` | hidden | `faithful_guard_e` | 1.000 | 1.16 | 0.982 | 0.000 | +1.00 | N/A | +0.735 | -0.080 | 0.05 | 0.0018 | **PASS** |
+| `dual_band_poles` | dual_band | `faithful` | 1.000 | 1.16 | 0.988 | 0.000 | +0.99 | N/A | +0.776 | -0.203 | 0.60 | 0.0010 | **PASS** |
+| `dual_band_guard_e` | dual_band | `faithful_guard_e` | 1.000 | 1.16 | 0.988 | 0.000 | +0.99 | N/A | +0.776 | -0.203 | 0.60 | 0.0010 | **PASS** |
+| `dual_band_midpoint` | dual_band | `pair_odd` | 0.969 | 1.11 | 0.982 | 0.000 | +0.97 | N/A | +1.000 | -1.000 | 0.05 | 0.0010 | **PASS** |
 
 - `pair_odd_midpoint`: on-continuation
 - `faithful_raw`: on-continuation
 - `semantic_kl_midpoint`: no audible swing; because KL-small / hidden-far
 - `semantic_kl_poles`: no audible swing; because KL-small / hidden-far
+- `faithful_guard_e`: on-continuation
+- `dual_band_poles`: on-continuation
+- `dual_band_guard_e`: on-continuation
+- `dual_band_midpoint`: on-continuation
 
 ## The `unused_e` cell — one song plus an unpinned attribute inside a (the #22 cell)
 
@@ -152,6 +171,10 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 | `faithful_raw` | hidden | `faithful` | 1.000 | 1.03 | 1.000 | 0.000 | +1.00 | +0.228 | +0.702 | +0.015 | 0.05 | 0.0026 | **PASS** |
 | `semantic_kl_midpoint` | semantic_kl | `pair_odd` | 0.990 | 0.95 | 1.000 | 0.000 | +0.94 | +0.227 | +0.951 | -0.994 | 0.31 | 0.0004 | **PASS** |
 | `semantic_kl_poles` | semantic_kl | `faithful` | 1.000 | 0.93 | 1.000 | 0.000 | +0.90 | +0.227 | +0.691 | -0.053 | 0.66 | 0.0004 | **PASS** |
+| `faithful_guard_e` | hidden | `faithful_guard_e` | 0.974 | 1.00 | 0.982 | 0.021 | +0.99 | +0.000 | +0.618 | +0.098 | 0.05 | 0.0024 | **PASS** |
+| `dual_band_poles` | dual_band | `faithful` | 1.000 | 1.03 | 1.000 | 0.000 | +1.00 | +0.227 | +0.742 | -0.102 | 0.63 | 0.0005 | **PASS** |
+| `dual_band_guard_e` | dual_band | `faithful_guard_e` | 1.000 | 1.02 | 1.000 | 0.000 | +1.01 | -0.000 | +0.659 | -0.025 | 0.65 | 0.0006 | **PASS** |
+| `dual_band_midpoint` | dual_band | `pair_odd` | 1.000 | 1.00 | 1.000 | 0.000 | +0.99 | +0.227 | +0.999 | -0.994 | 0.08 | 0.0005 | **PASS** |
 | `hold_e_perp_l8` | hidden | `pair_odd` | 0.984 | 0.99 | 0.988 | 0.016 | +0.98 | +0.005 | +0.925 | -1.000 | 0.39 | 0.0450 | **PASS** |
 | `pair_odd_sub_e` | hidden | `pair_odd_sub_e` | 0.964 | 0.99 | 0.982 | 0.031 | +0.96 | +0.000 | +0.920 | -1.000 | 0.05 | 0.0011 | **PASS** |
 | `faithful_sub_e` | hidden | `faithful_sub_e` | 0.974 | 1.00 | 0.982 | 0.021 | +0.99 | +0.000 | +0.618 | +0.098 | 0.05 | 0.0024 | **PASS** |
@@ -161,18 +184,26 @@ wrong-but-decided. One token cannot tell those apart. Eight can.
 - `faithful_raw`: on-continuation
 - `semantic_kl_midpoint`: on-continuation (despite KL-small / hidden-far)
 - `semantic_kl_poles`: on-continuation (despite KL-small / hidden-far)
+- `faithful_guard_e`: on-continuation
+- `dual_band_poles`: on-continuation
+- `dual_band_guard_e`: on-continuation
+- `dual_band_midpoint`: on-continuation
 - `hold_e_perp_l8`: on-continuation
 - `pair_odd_sub_e`: on-continuation
 - `faithful_sub_e`: on-continuation
 - `semantic_kl_sub_e`: on-continuation (despite KL-small / hidden-far)
 
 Every recipe passes here, and the leak column is why the cell is
-still on the board: `faithful` and `semantic_kl` onto raw poles
-carry +0.227 of the unpinned attribute, the three `sub_e` rows
-carry +0.000, and hold-ê λ=8 carries +0.005 — the same numbers
-the #22 sheet cell reports, from a different readout. Leak is
-logged here and **scored there**: this cell's rollout commits
-after the first token and averages an attribute tilt away.
+still on the board. The rows that aim at a raw pole carry the
+unpinned attribute with them —
+`pair_odd_midpoint` +0.227, `faithful_raw` +0.228, `semantic_kl_midpoint` +0.227, `semantic_kl_poles` +0.227, `dual_band_poles` +0.227, `dual_band_midpoint` +0.227 —
+and the rows that take the declared ê out (including the guarded
+ones, because on *this* pair the guard admits it) carry
+`faithful_guard_e` +0.000, `dual_band_guard_e` -0.000, `hold_e_perp_l8` +0.005, `pair_odd_sub_e` +0.000, `faithful_sub_e` +0.000, `semantic_kl_sub_e` +0.000.
+Those are the same numbers the #22 sheet cell reports, from a
+different readout. Leak is logged here and **scored there**:
+this cell's rollout commits after the first token and averages
+an attribute tilt away.
 
 ![pairs](lm-pair-exam/pairs.png)
 
@@ -224,15 +255,15 @@ readout.
 A close pair at fixed `‖a‖`, moving the axis from the delivery block
 (invisible to the scored token) into the readable block.
 
-| visible share | KL loss | KL solved | invisible kept (KL) | p% (KL) | c+ (KL) | KL swing | invisible kept (MSE) | MSE swing |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 0.020 | 0.00001 | 0.999 | 0.000 | 0.97 | +0.000 | +0.18 | 1.000 | +1.00 |
-| 0.100 | 0.00002 | 0.999 | 0.000 | 0.97 | +0.012 | +0.22 | 1.000 | +1.00 |
-| 0.250 | 0.00006 | 0.998 | 0.000 | 0.95 | +0.072 | +0.41 | 1.000 | +0.96 |
-| 0.450 | 0.00017 | 0.997 | 0.000 | 0.91 | +0.215 | +0.58 | 1.000 | +1.02 |
-| 0.650 | 0.00031 | 0.997 | 0.000 | 0.83 | +0.402 | +0.76 | 1.000 | +0.98 |
-| 0.850 | 0.00044 | 0.997 | 0.000 | 0.72 | +0.610 | +0.92 | 1.000 | +1.00 |
-| 0.990 | 0.00050 | 0.997 | 0.000 | 0.61 | +0.762 | +1.01 | 1.000 | +1.00 |
+| visible share | KL loss | KL solved | invisible kept (KL) | p% (KL) | c+ (KL) | KL swing | invisible kept (MSE) | MSE swing | invisible kept (dual) | dual swing |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.020 | 0.00001 | 0.999 | 0.000 | 0.97 | +0.000 | +0.18 | 1.000 | +1.00 | 1.000 | +1.00 |
+| 0.100 | 0.00002 | 0.999 | 0.000 | 0.97 | +0.012 | +0.22 | 1.000 | +1.00 | 1.000 | +0.99 |
+| 0.250 | 0.00006 | 0.998 | 0.000 | 0.95 | +0.072 | +0.41 | 1.000 | +0.96 | 1.000 | +1.01 |
+| 0.450 | 0.00017 | 0.997 | 0.000 | 0.91 | +0.215 | +0.58 | 1.000 | +1.02 | 1.000 | +1.04 |
+| 0.650 | 0.00031 | 0.997 | 0.000 | 0.83 | +0.402 | +0.76 | 1.000 | +0.98 | 1.000 | +0.99 |
+| 0.850 | 0.00044 | 0.997 | 0.000 | 0.72 | +0.610 | +0.92 | 1.000 | +1.00 | 1.000 | +1.02 |
+| 0.990 | 0.00050 | 0.997 | 0.000 | 0.61 | +0.762 | +1.01 | 1.000 | +1.00 | 1.000 | +1.01 |
 
 The KL loss is essentially solved at every point in the sweep, and
 `invisible kept` is 0 at every point: the loss has no gradient there,
@@ -242,7 +273,131 @@ Semantic KL onto the same real-caption target only reaches the swing
 floor once about 0.65 of the axis
 is readable. gender-v4 sits at 0.12.
 
+`dual_band` is the same KL with hidden MSE added on that block alone.
+It keeps `invisible kept` at 1.00 and the swing above the floor across
+the whole sweep, and it converges on plain KL at the readable end —
+where there is nothing blind left to add. A recipe that only differed
+at one end of this sweep would be a coincidence; one that differs
+exactly where the blind share is large is the mechanism.
+
 ![visible share](lm-pair-exam/visible.png)
+
+## Two techniques that top both pairs
+
+Both live losses fail one of the two pairs, and the two halves fail
+for unrelated reasons: `faithful_sub_e` deletes a divergent pair's
+axis because the yaml's `ê` restates it, and `semantic_kl` never
+learns a close pair's axis because the readout cannot see it. So the
+two fixes are a **target rule** and a **loss**, and they compose.
+
+### The blend guard — one ê rule for both pair types
+
+`lm_blend_guard` asks one question about a target point, with no
+threshold and no optimizer: is it still nearer the pole caption it
+claims to be than the pair's own midpoint?
+
+```
+mid = ½(pos + neg)
+to_pole = max(‖t₊ − pos‖, ‖t₋ − neg‖)
+to_mid  = min(‖t₊ − mid‖, ‖t₋ − mid‖)
+admissible ⟺ to_pole < to_mid
+```
+
+`mid` is the one point on the segment that is neither caption, and on
+a divergent pair it is a state no caption occupies at all. A target
+that has drifted nearer it than to its own pole is a blend, and both
+ends of a blend sing both songs. `--lm_target faithful_guard_e`
+subtracts the declared `ê_⊥` only while the guard admits it and keeps
+the raw caption otherwise, so a yaml can declare `leak_*` without that
+declaration being able to eat the slider.
+
+| pair | declared ê | to_pole / ‖a‖ | to_mid / ‖a‖ | axis eaten | guard | teacher it uses |
+|---|---|---:|---:|---:|---|---|
+| `divergent` | yes | 0.778 | 0.628 | 0.372 | **refuses** | `faithful` |
+| `close` | no | 0.000 | 1.000 | 0.000 | nothing to decide | `faithful` |
+| `unused_e` | yes | 0.391 | 0.920 | 0.080 | **takes ê** | `faithful_sub_e` |
+
+Every prompt row of every pair agrees with its pair's decision (uniform),
+so this is not a per-row coin flip that would train a mixed teacher.
+The separation is not marginal: the divergent pair's ê-cleaned target
+sits at 0.78‖a‖ from its caption against
+0.63‖a‖ from the midpoint, and the leftover cell's
+at 0.39 against 0.92. The
+condition is equivalent to "what is left of the axis is longer than
+what was taken", which is where the √½ boundary comes from — it is
+derived, not tuned.
+
+### The dual-band loss — a gradient where the KL has none
+
+`lm_dual_band_pole_loss` splits the two bands the live losses
+conflate:
+
+```
+loss = KL(t₊ ‖ p₊) + KL(t₋ ‖ p₋)
+     + blind_weight · ( ‖P_blind(p₊ − t₊)‖² + ‖P_blind(p₋ − t₋)‖² )
+```
+
+`P_blind` comes from the frozen head: one SVD of the *centered*
+semantic band, keeping the right-singular directions it does not read
+(centered because a softmax cannot see a uniform logit shift either).
+Neither band is new; splitting them is. Semantic KL alone has exactly
+zero gradient on `P_blind`, which on a close pair is where the axis
+lives — that is `gender-lm-v16`, loss 0.0091 and nothing arrived.
+Hidden MSE alone pins that band but also insists on Euclidean
+agreement in the band anyone actually listens to.
+
+The weight is not a tuned number: the cell is flat in it from 0.5 to
+32, because the term's job is to supply a gradient where there was
+none rather than to outweigh the KL. If the band's row space fills the
+hidden width there is no blind band, `lm_blind_projector` returns
+`None`, and the loss is exactly `semantic_kl` — the trainer prints a
+warning rather than pretending to have fixed something.
+
+### The 2×2: each half is necessary, together they are enough
+
+| target | loss | pins the blind band | divergent | close | exam_score | both |
+|---|---|---|---:|---:|---:|---|
+| caption | `hidden` | yes | 1.000 | 1.000 | 1.000 | **both** |
+| caption | `semantic_kl` | no | 1.000 | 0.387 | 0.387 | no |
+| caption | `dual_band` | yes | 1.000 | 0.994 | 0.994 | **both** |
+| midpoint | `hidden` | yes | 0.984 | 0.974 | 0.974 | no |
+| midpoint | `semantic_kl` | no | 0.943 | 0.410 | 0.410 | no |
+| midpoint | `dual_band` | yes | 0.979 | 0.969 | 0.969 | no |
+
+Read it as two ablations rather than four opinions. Turn the blind
+band off and keep the caption (`caption` / `semantic_kl`, which is the
+live v16 recipe): the close pair drops to 0.387
+and the divergent pair is untouched — that is the live energy win and
+the live gender garble, the same recipe. Turn the caption off and keep
+the blind band (`midpoint` / `dual_band`): the divergent pair drops to
+0.979 and fails on the words it sings,
+because pinning every dimension of the wrong point is still the wrong
+point. Turn both on and both pairs pass, under either of the two
+losses that pin the blind band (0.994 for the
+dual band, 1.000 for hidden
+MSE).
+
+That is the hypothesis this cell was pointed at, and both halves of it
+survive: real caption poles **and** the dimensions one scored token
+cannot see. Neither alone tops both pairs.
+
+### How sharp is a 1.000
+
+The rollout is sampled, so the top of the board is a band and not a
+point. `exam_score` over four seeds:
+
+| recipe | seeds | min | max | passes every seed |
+|---|---|---:|---:|---|
+| `faithful_raw` | 1.000, 1.000, 0.994, 1.000 | 0.994 | 1.000 | yes |
+| `faithful_guard_e` | 1.000, 1.000, 0.994, 1.000 | 0.994 | 1.000 | yes |
+| `dual_band_poles` | 0.994, 0.990, 0.970, 0.990 | 0.970 | 0.994 | yes |
+
+So the honest ordering is: the two hidden-MSE-on-captions recipes and
+the dual band all pass both pairs at every seed, and the gap between a
+printed 1.000 and a printed 0.994 is inside the sampling. What is
+seed-robust is the verdict, which is what the board's gate reads; the
+board's number is a seed-0 reading and should be sorted on, not
+subtracted.
 
 ## The mechanism, stated precisely
 
@@ -257,7 +412,7 @@ is readable. gender-v4 sits at 0.12.
 2. **A declared `leak_*` pair is only leftover if the poles do not move
    it.** energy-v4's `ê` restates the poles' own genre and BPM, so
    `â = a − (a·ê̂_⊥)ê̂_⊥` keeps only
-   0.54 of
+   1.00 of
    the axis the scored token can read. Both ends of the slider then
    land at `mid`, and which of the two songs' words wins is decided by
    residual noise — different per prompt row, which is what "random

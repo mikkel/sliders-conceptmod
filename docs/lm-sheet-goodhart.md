@@ -92,6 +92,10 @@ argmax, token-space leak and audible swing. `cos±` and `±1` are
 | `v6_faithful` | hidden | `faithful` | +0.735 | -0.080 | 0.938 | 0.997 | 0.005 | 1.00 | 1.02 | +0.000 | 0.00 | 0.023 | **PASS** |
 | `kl_on_midpoint` | semantic_kl | `pair_odd` | +0.988 | -0.953 | 0.539 | 0.573 | 0.415 | 0.33 | 0.27 | +0.000 | 0.00 | 0.983 | **FAIL** |
 | `v16_semantic_kl` | semantic_kl | `faithful` | +0.727 | -0.056 | 0.934 | 0.994 | 0.005 | 1.00 | 1.00 | +0.000 | 0.00 | 0.011 | **PASS** |
+| `faithful_guard_e` | hidden | `faithful_guard_e` | +0.735 | -0.080 | 0.938 | 0.997 | 0.005 | 1.00 | 1.02 | +0.000 | 0.00 | 0.023 | **PASS** |
+| `dual_band_poles` | dual_band | `faithful` | +0.727 | -0.056 | 0.934 | 0.994 | 0.005 | 1.00 | 1.00 | +0.000 | 0.00 | 0.011 | **PASS** |
+| `dual_band_guard_e` | dual_band | `faithful_guard_e` | +0.727 | -0.056 | 0.934 | 0.994 | 0.005 | 1.00 | 1.00 | +0.000 | 0.00 | 0.011 | **PASS** |
+| `dual_band_midpoint` | dual_band | `pair_odd` | +0.988 | -0.953 | 0.539 | 0.573 | 0.415 | 0.33 | 0.27 | +0.000 | 0.00 | 0.983 | **FAIL** |
 
 ### Energy-like: unused gender inside `a`, ê declared, invisible mix detail
 
@@ -105,6 +109,10 @@ argmax, token-space leak and audible swing. `cos±` and `±1` are
 | `kl_on_midpoint` | semantic_kl | `pair_odd` | +0.901 | -0.960 | 0.366 | 0.390 | 0.406 | 0.33 | 0.26 | +0.227 | 0.00 | 1.139 | **FAIL** |
 | `v16_semantic_kl` | semantic_kl | `faithful` | +0.602 | +0.125 | 0.938 | 0.997 | 0.001 | 1.00 | 1.00 | +0.226 | 0.00 | 0.008 | **FAIL** |
 | `v16_semantic_kl_sub_e` | semantic_kl | `faithful_sub_e` | +0.522 | +0.209 | 0.889 | 0.945 | 0.001 | 1.00 | 1.09 | +0.000 | 0.00 | 0.101 | **PASS** |
+| `faithful_guard_e` | hidden | `faithful_guard_e` | +0.621 | +0.105 | 0.883 | 0.939 | 0.001 | 1.00 | 1.11 | +0.000 | 1.00 | 0.111 | **PASS** |
+| `dual_band_poles` | dual_band | `faithful` | +0.697 | +0.027 | 0.938 | 0.997 | 0.001 | 1.00 | 1.00 | +0.226 | 1.00 | 0.008 | **FAIL** |
+| `dual_band_guard_e` | dual_band | `faithful_guard_e` | +0.623 | +0.098 | 0.889 | 0.945 | 0.001 | 1.00 | 1.09 | +0.000 | 1.00 | 0.101 | **PASS** |
+| `dual_band_midpoint` | dual_band | `pair_odd` | +0.992 | -0.967 | 0.366 | 0.390 | 0.406 | 0.33 | 0.26 | +0.227 | 1.00 | 1.139 | **FAIL** |
 
 ## What that table says
 
@@ -316,16 +324,6 @@ as much as the caption and the midpoint do here.
 
 ## Related cells
 
-- [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — one compiled table of
-  every scored 2-D / high-D / sheet recipe, with this cell's gate.
-- [lm-pair-exam.md](lm-pair-exam.md) — the two properties of a *pair*
-  this cell has no coordinate for, scored over a rollout. It is where
-  the 2026-08-25 live runs are graded, and it says which of this cell's
-  two fields is the right stand-in for which yaml: the unused-ê field
-  here is a same-song pair with an unpinned attribute, and energy-v4 is
-  not that. Leak is still scored here, on the one token; that cell's
-  rollout averages an attribute tilt away and reproduces these
-  `leak_tok` numbers from its own readout as a cross-check.
 - [lm-v9-2d.md](lm-v9-2d.md) — the pair-odd teacher and hold-ê on the
   orthonormal 2-D field, where a perfect lock is the success metric.
 - [lm-faithful-2d.md](lm-faithful-2d.md) — why raw-pole MSE (v6) was

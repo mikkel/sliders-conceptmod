@@ -78,11 +78,15 @@ The verdict stays a label; the number is what a human sorts by.
 | recipe | exam_score | divergent | close | unused_e | sheet_leftover | sheet_gender | predicts live | compiled |
 |---|---:|---|---|---|---|---|---|---|
 | `faithful_attrs` | 1.000 | pass | pass | pass | pass | pass | — | **works** |
+| `faithful_guard_e` | 1.000 | pass | pass | pass | pass | pass | — | **works** |
 | `faithful_raw` | 1.000 | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
 | `hidden_beta1` | 1.000 | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
+| `dual_band_guard_e` | 0.994 | pass | pass | pass | pass | pass | — | **works** |
+| `dual_band_poles` | 0.994 | pass | pass | pass | **fail** | pass | — | works-on-some-pairs |
 | `gender_like_no_e` | 0.974 | — | pass | — | — | **fail** | — | works-on-some-pairs |
 | `pair_odd_midpoint` | 0.974 | **fail** | pass | pass | **fail** | **fail** | — | works-on-some-pairs |
 | `hold_e_perp_l8` | 0.974 | **fail** | — | pass | **fail** | **fail** | — | works-on-some-pairs |
+| `dual_band_midpoint` | 0.969 | **fail** | pass | pass | **fail** | **fail** | — | works-on-some-pairs |
 | `pair_odd_sub_e` | 0.964 | **fail** | — | pass | **fail** | **fail** | — | works-on-some-pairs |
 | `faithful_sub_e` | 0.833 | **fail** | — | pass | pass | — | — | works-on-some-pairs |
 | `semantic_kl_midpoint` | 0.410 | **fail** | **fail** | pass | **fail** | **fail** | — | works-on-some-pairs |
@@ -109,17 +113,47 @@ What each cell is:
 The two `semantic_kl_poles` cells are the load-bearing row: it is the
 live energy win on a divergent pair and the live gender garble on a
 close one, so no single verdict for the recipe is honest and
-`works-on-some-pairs` names which. `faithful_raw` and its data-fixed
-sibling `faithful_attrs` are the only recipes that pass every pair
-they are read on.
+`works-on-some-pairs` names which.
+
+## Two new techniques, and what they change
+
+`faithful_guard_e` and the `dual_band` rows are new here. Full
+derivation, the 2×2 ablation and the seed spread are in
+[lm-pair-exam.md](lm-pair-exam.md#two-techniques-that-top-both-pairs).
+
+**The blend guard** (`lm_blend_guard`, `--lm_target faithful_guard_e`)
+is a threshold-free admissibility test on a target point: it is
+admissible while it is nearer the pole caption it claims to be than
+the pair's own midpoint. Subtracting a declared `ê_⊥` is taken only
+when it passes. On energy-v4 it does not — the yaml's `ê` restates the
+genre and BPM the poles move, the ê-cleaned target lands 0.78‖a‖ from
+its caption and 0.63‖a‖ from the midpoint, and the guard keeps the
+caption instead. On a pair whose `ê` really is a leftover it is taken
+and the leak goes to 0.000. That is one recipe for both pair types,
+and it is the only row on this board that passes every cell without
+rewriting a caption.
+
+**The dual-band loss** (`lm_dual_band_pole_loss`, `--pole_mode
+dual_band`) keeps the live v16 semantic KL where the head reads and
+adds hidden MSE on the band it is blind to, which is where a close
+pair's axis lives and where a KL's gradient is exactly zero. It is the
+smallest change to the recipe that garbled `gender-lm-v16`: same
+target, one added term, and the close pair's swing goes from 0.387 to
+0.994 while the divergent pair is untouched.
+
+`dual_band_midpoint` is on the board as the control. It pins the blind
+band and still fails the divergent pair, which is what says the target
+point has to be a real caption and the loss alone is not the fix.
 
 ## Short verdict
 
-**Works on every pair it is read on:** `faithful_attrs`. `faithful_attrs` is `--lm_target faithful --pole_mode hidden` plus the data fix — the unpinned attribute written into both pole captions, the way energy-v4 already pins the singer with `attributes` — so there is no leftover ê in the text for the sheet cell to charge it for.
+**Works on every pair it is read on:** `faithful_attrs`, `faithful_guard_e`, `dual_band_guard_e`. `faithful_guard_e` is the new one and the only one that gets there from the yamls as written: `--lm_target faithful_guard_e --pole_mode hidden`, blend-guarded ê on real poles. `faithful_attrs` is `--lm_target faithful --pole_mode hidden` plus a data fix — the unpinned attribute written into both pole captions, the way energy-v4 already pins the singer with `attributes` — so there is no leftover ê in the text for the sheet cell to charge it for. `dual_band_guard_e` is both new pieces at once and passes every cell too, at a slightly lower exam_score than hidden MSE reaches.
 
-**Works on some pairs:** `faithful_raw`, `hidden_beta1`, `gender_like_no_e`, `pair_odd_midpoint`, `hold_e_perp_l8`, `pair_odd_sub_e`, `faithful_sub_e`, `semantic_kl_midpoint`, `semantic_kl_poles`, `semantic_kl_sub_e`. Each passes at least one pair and fails another. `faithful_raw` (and `hidden_beta1`, which is the same target reached through `--lm_target symmetric --common_beta 1`) passes all three pair cells and is charged only by the unused-ê sheet — which is a leak gender-v4 has no `leak_*` to trip, so it is the next live card. `semantic_kl_poles` is the row the live exam is about: the energy win and the gender garble.
+**Works on some pairs:** `faithful_raw`, `hidden_beta1`, `dual_band_poles`, `gender_like_no_e`, `pair_odd_midpoint`, `hold_e_perp_l8`, `dual_band_midpoint`, `pair_odd_sub_e`, `faithful_sub_e`, `semantic_kl_midpoint`, `semantic_kl_poles`, `semantic_kl_sub_e`. Each passes at least one pair and fails another. `faithful_raw` (and `hidden_beta1`, which is the same target reached through `--lm_target symmetric --common_beta 1`) passes all three pair cells and is charged only by the unused-ê sheet — which is the cell `faithful_guard_e` fixes by deciding, per pair, whether the declared ê is safe to subtract. `dual_band_poles` is charged by the same leak for the same reason: it is a loss, and a loss does not clean a target. `semantic_kl_poles` is the row the live exam is about: the energy win and the gender garble.
 
 **Fails:** 9 recipes — hub, hold-ê raw, short-û and rich-û project, and the high-D leftover holds. None of them has a pair-exam reading; they fail on leftover leak and the sheet alone. A perfect pair-odd lock and a solved pole loss are both failure modes here.
+
+One caveat on the number itself: `exam_score` is a seed-0 reading of a sampled rollout, and the top of the board is a band. Over four seeds `faithful_raw` and `faithful_guard_e` both range 0.994 … 1.000 and `dual_band_poles` 0.970 … 0.994, and all three pass both pairs at every seed. Sort on the number; do not subtract two of them.
 
 ## The full joined table
 
@@ -129,11 +163,15 @@ Pair-odd cos and ±1 are **logged, never scored**.
 | recipe | exam_score | leftover leak | on-sheet | kept | off-sheet | argmax | swing | pair-odd cos *(log)* | ±1 *(log)* | intended cos | c+ | perc | rich-kept | compiled |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | `faithful_attrs` | 1.000 | +0.000 | 0.938 | 0.997 | 0.005 | 1.00 | 1.02 | +0.735 | -0.080 | +1.000 | +0.735 | N/A | 1.00 | **works** |
+| `faithful_guard_e` | 1.000 | +0.000 | 0.883 | 0.939 | 0.001 | 1.00 | 1.11 | +0.621 | +0.105 | N/A | +0.621 | N/A | N/A | **works** |
 | `faithful_raw` | 1.000 | +0.228 | 0.934 | 0.993 | 0.001 | 1.00 | 1.01 | +0.696 | +0.030 | N/A | +0.696 | N/A | N/A | works-on-some-pairs |
 | `hidden_beta1` | 1.000 | +0.228 | 0.934 | 0.993 | 0.001 | 1.00 | 1.01 | +0.696 | +0.030 | N/A | +0.696 | N/A | N/A | works-on-some-pairs |
+| `dual_band_guard_e` | 0.994 | +0.000 | 0.889 | 0.945 | 0.001 | 1.00 | 1.09 | +0.623 | +0.098 | N/A | +0.623 | N/A | N/A | **works** |
+| `dual_band_poles` | 0.994 | +0.226 | 0.938 | 0.997 | 0.001 | 1.00 | 1.00 | +0.697 | +0.027 | N/A | +0.697 | N/A | N/A | works-on-some-pairs |
 | `gender_like_no_e` | 0.974 | N/A | 0.540 | 0.575 | 0.415 | 0.00 | 0.27 | +1.000 | -1.000 | +0.987 | +0.987 | 0 | N/A | works-on-some-pairs |
 | `pair_odd_midpoint` | 0.974 | +0.228 | 0.345 | 0.367 | 0.406 | 0.00 | 0.27 | +1.000 | -1.000 | N/A | +1.000 | N/A | N/A | works-on-some-pairs |
 | `hold_e_perp_l8` | 0.974 | +0.006 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.932 | -1.000 | +0.988 | +0.696 | 1 | N/A | works-on-some-pairs |
+| `dual_band_midpoint` | 0.969 | +0.227 | 0.366 | 0.390 | 0.406 | 0.33 | 0.26 | +0.992 | -0.967 | N/A | +0.992 | N/A | N/A | works-on-some-pairs |
 | `pair_odd_sub_e` | 0.964 | +0.000 | 0.320 | 0.340 | 0.415 | 0.00 | 0.27 | +0.928 | -1.000 | N/A | +0.809 | 1 | N/A | works-on-some-pairs |
 | `faithful_sub_e` | 0.833 | +0.000 | 0.883 | 0.939 | 0.001 | 1.00 | 1.11 | +0.621 | +0.105 | N/A | +0.621 | N/A | N/A | works-on-some-pairs |
 | `semantic_kl_midpoint` | 0.410 | +0.227 | 0.366 | 0.390 | 0.406 | 0.33 | 0.26 | +0.901 | -0.960 | N/A | +0.901 | N/A | N/A | works-on-some-pairs |
@@ -157,11 +195,23 @@ Pair-odd cos and ±1 are **logged, never scored**.
   - divergent pair: on-continuation
   - close pair: on-continuation
   - unused_e pair: on-continuation
+- `faithful_guard_e` — blend-guarded ê on real poles (new). new target rule: subtract the declared ê_⊥ only while the result is still nearer the pole caption than the pair midpoint (lm_blend_guard). Refuses on energy-v4, where ê restates the axis; accepts on a real leftover. No data fix. Fixture: sheet leftover + sheet gender.
+  - divergent pair: on-continuation
+  - close pair: on-continuation
+  - unused_e pair: on-continuation
 - `faithful_raw` — faithful / v6 raw poles. raw-pole MSE. Caption target; unused ê rides along. Fixture: sheet leftover + sheet gender.
   - divergent pair: on-continuation
   - close pair: on-continuation
   - unused_e pair: on-continuation
 - `hidden_beta1` — pair-odd β=1 / symmetric --common_beta 1. lm_hidden_targets(symmetric, β=1) is the raw poles. Sheet-good, still leaks ê. Fixture: sheet leftover faithful ≡ β=1 + gender hidden_beta1.
+  - divergent pair: on-continuation
+  - close pair: on-continuation
+  - unused_e pair: on-continuation
+- `dual_band_guard_e` — dual-band loss + blend-guarded ê (new). both new pieces at once: semantic KL where the head reads, hidden MSE on the band it is blind to, aimed at guarded real poles. Fixture: sheet leftover + sheet gender.
+  - divergent pair: on-continuation
+  - close pair: on-continuation
+  - unused_e pair: on-continuation
+- `dual_band_poles` — dual-band loss on real poles (new). new loss: lm_dual_band_pole_loss. The smallest change to the live v16 recipe that makes the close pair arrive — KL keeps the readable band, MSE pins the band the KL has no gradient on. Still charged for the unpinned ê the target carries. Fixture: sheet leftover + sheet gender.
   - divergent pair: on-continuation
   - close pair: on-continuation
   - unused_e pair: on-continuation
@@ -173,6 +223,10 @@ Pair-odd cos and ±1 are **logged, never scored**.
   - unused_e pair: on-continuation
 - `hold_e_perp_l8` — hold-ê ê_⊥û λ=8 (live v9). current leftover-ê default. Fixes unused-axis leak, not the sheet. Fixture: sheet leftover hold-ê + overlap ê_⊥û λ=8. (c+ distinct +0.696; loss 0.852)
   - divergent pair: continuation drifts off the pole's own
+  - unused_e pair: on-continuation
+- `dual_band_midpoint` — dual-band loss on the v9 midpoint (control). ablation: the new loss with the old target. Pins the blind band and still walks off the divergent pair's continuation, which is what says the target point has to be a caption. Fixture: sheet leftover + sheet gender.
+  - divergent pair: continuation drifts off the pole's own
+  - close pair: on-continuation
   - unused_e pair: on-continuation
 - `pair_odd_sub_e` — pair_odd_sub_e (#20, midpoint − ê_⊥). λ→∞ hold in one step. Leak 0; further off-caption than pair-odd. Fixture: sheet leftover pair_odd_sub_e + high-D leftover subtract. (content-cos +0.893; c+ distinct +0.809; loss 0.000)
   - divergent pair: continuation drifts off the pole's own; because blend teacher + axis eaten by ê
@@ -201,20 +255,18 @@ Pair-odd cos and ±1 are **logged, never scored**.
 - `project_rich_u` — project rich û (oracle intended span). oracle û = span{short, slider adjectives}. Still a midpoint in the intended plane, so c is dropped; sheet inherited from pair-odd. Fixture: rich project_rich.
 - `project_short_u` — project short û. leak-0 by dropping everything ⊥ short û, including the singer and slider adjectives. Still a midpoint (c deleted); sheet inherited from pair-odd. Fixture: rich project_short + live gender always_project_hold.
 
-## The next live card the board points at
+## The next live cards the board points at
 
-`faithful_raw` — `--lm_target faithful --pole_mode hidden` — is the
-only recipe besides its own data-fixed sibling that passes every pair
-it is read on, and it has **no live run**. It is the untrained winner.
-
-It is also the one recipe that fixes what `gender-lm-v16` actually
-did wrong. Both aim at the same target — the real pole captions — so
-the target point is not the difference. The difference is that hidden
-MSE pins the whole state, including the part of it the semantic band
-does not read at `<|audio_start|>`, which on a close pair is where the
-axis lives. In the pair-exam cell that recipe copies 1.00 of the
-invisible block against semantic KL's 0.00, and it is the swing over
-the continuation that separates them, not the loss.
+`faithful_raw` — `--lm_target faithful --pole_mode hidden` — is still
+the untrained winner on the two live pairs, and the card #28 already
+pointed at. It is the one recipe that fixes what `gender-lm-v16`
+actually did wrong. Both aim at the same target — the real pole
+captions — so the target point is not the difference. The difference
+is that hidden MSE pins the whole state, including the part of it the
+semantic band does not read at `<|audio_start|>`, which on a close pair
+is where the axis lives. In the pair-exam cell that recipe copies 1.00
+of the invisible block against semantic KL's 0.00, and it is the swing
+over the continuation that separates them, not the loss.
 
 ```bash
 python conceptmod/textsliders/train_lm_slider_music3.py \
@@ -233,7 +285,36 @@ What to watch: `p%` / `n%` should land near the shipped v9 residual
 cos rather than −1; per #22 and this board that is expected under a
 caption target and is not a regression. The listen is the gate.
 
-This does not change the live default, which is still `--lm_target v9`
+The new row the board adds is the *energy* card, on the yaml that has
+a `leak_*` pair and where every previous attempt to use it deleted the
+slider. `faithful_guard_e` reads that yaml as written and refuses the
+subtraction, so it should sound like `energy-lm-v18` (the win) rather
+than `energy-lm-v16` (the garble), and it needs no second recipe name
+for the gender pair.
+
+```bash
+python conceptmod/textsliders/train_lm_slider_music3.py \
+  --name energy-lm-v20 \
+  --prompts_file conceptmod/textsliders/data/prompts-energy-v4.yaml \
+  --lm_target faithful_guard_e --pole_mode hidden \
+  --rank 8 --alpha 8 --lr 5e-4 --steps 800 --seed 7 \
+  --no-early_stop --endreg_weight 1.0
+```
+
+What to watch: the per-row setup line prints `guard=REFUSED (poles)`
+with `to_pole` / `to_mid` next to it. If it prints `guard=sub_e` on
+energy-v4 then the live pair geometry is not this fixture's and the
+board is wrong about that yaml — which is the cheap falsification, and
+it costs one setup pass rather than 800 steps. The same flag on
+gender-v4 prints `guard=no-ê` and is `faithful` exactly.
+
+`--pole_mode dual_band` is the card for anyone who wants to keep the
+v16 semantic KL: same `--lm_target faithful`, one added term, and the
+run prints how many blind dims it found. If it prints 0 the semantic
+band's row space fills the hidden width and the mode is plain
+`semantic_kl` — raise `--blind_cut` before reading anything into it.
+
+None of this changes the live default, which is still `--lm_target v9`
 / `--pole_mode hidden`.
 
 ## Why four columns are logged and never scored
