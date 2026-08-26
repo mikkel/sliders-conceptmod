@@ -282,7 +282,6 @@ def write_report(blob: dict, path: Path) -> None:
     front = blob["frontier"]
     budget = blob["pair_budget"]
     whole = blob["gain_sweep"]
-    blind = blob["blind_sweep"]
     window = blob["gain_window"]
     blind_window = blob["blind_window"]
     lo, hi = blob["live_pair_cos"]["energy-v4"]
@@ -377,8 +376,8 @@ def write_report(blob: dict, path: Path) -> None:
         "subtracts straight out of `leak_frac`. What is left deciding the sign is",
         "the shared specificity against the part of the pole content that flips:",
         "",
-        f"| | value |",
-        f"|---|---:|",
+        "| | value |",
+        "|---|---:|",
         f"| `‖c‖²` | {budget['even_sq']:.4f} |",
         f"| `‖a‖²` | {budget['odd_sq']:.4f} |",
         f"| the track, in **both** | {budget['track_in_both']:.4f} |",
@@ -522,9 +521,9 @@ def write_report(blob: dict, path: Path) -> None:
         )
     lines += [
         "",
-        f"The window where `mid ± γ·a` clears both halves at every seed is",
+        "The window where `mid ± γ·a` clears both halves at every seed is",
         f"**γ ∈ [{_f(window['low'], 'g')}, {_f(window['high'], 'g')}]** on this grid,",
-        f"and the same window for the blind-only variant is",
+        "and the same window for the blind-only variant is",
         f"**[{_f(blind_window['low'], 'g')}, {_f(blind_window['high'], 'g')}]**.",
         "It is bounded on both sides and the cell says so: below the break-even",
         f"gain {budget['break_even_gain']:.3f} the sign has not flipped yet, and far",

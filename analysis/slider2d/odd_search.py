@@ -113,8 +113,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import torch
-
 from analysis.slider2d.exam import (
     CELL_IS,
     CELLS,
