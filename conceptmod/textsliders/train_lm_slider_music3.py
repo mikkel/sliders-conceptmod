@@ -103,7 +103,6 @@ from conceptmod.textsliders.slider_targets import (
     lm_faithful_plus_neu,
     lm_faithful_plus_neu_lyric,
     lm_faithful_plus_neu_prefix,
-    lm_plus_neu_lyric_loss,
     lm_plus_neu_prefix_loss,
     lm_faithful_sub_e,
     lm_faithful_sub_e_if_unused,
