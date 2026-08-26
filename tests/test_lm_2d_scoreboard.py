@@ -2,9 +2,9 @@
 
 Re-runs the fixtures rather than reading
 ``docs/lm-2d-scoreboard/metrics.json``. Every column the live logs made
-look healthy — pair-odd cos, the ±1 collapse, the pole loss, ``p%`` — is
-accepted by the gate helpers and ignored. Nothing here changes the live
-trainer default.
+look healthy — pair-odd cos, the ±1 collapse, the pole loss, ``p%``,
+``leak_frac`` / ``same_dir``, off-caption — is accepted by the gate
+helpers and ignored. Nothing here changes the live trainer default.
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ import pytest
 
 from analysis.slider2d.exam import LIVE_EXAM, LIVE_ROW
 from analysis.slider2d.scoreboard import (
+    BIPOLAR_MIRROR_BAND,
+    BIPOLAR_MIRROR_FLOOR,
     CELL_ORDER,
     COMPILED_GARBLE_MAX,
     COMPILED_LEAK_LOCK,
@@ -20,10 +22,14 @@ from analysis.slider2d.scoreboard import (
     COMPILED_SWING_FLOOR,
     EXAM_ALIAS,
     FAILS,
+    HIGH_LEAK_RECIPES,
+    JOINT_MARK_RECIPES,
     RACE_RECIPES,
+    SAME_DIR_BAND,
     UNSCORED,
     WORKS,
     WORKS_SOME,
+    bipolar_from,
     cell_works,
     collect_scoreboard,
     compile_sheet_row,
@@ -31,12 +37,20 @@ from analysis.slider2d.scoreboard import (
     exam_cells_for,
     exam_score,
     failing_cells,
-    recipe_off_caption,
+    gates_blob,
+    in_want_leak_band,
+    joint_axes,
+    joint_chart_rows,
+    joint_hit,
+    leak_band,
+    leak_frac_chart_rows,
     leak_ok,
     live_exam_report,
     predicts_for,
+    recipe_off_caption,
     sheet_ok,
     sort_rows,
+    two_of_three,
 )
 from analysis.slider2d.sheet import leaky_cell
 from conceptmod.textsliders.train_lm_slider_music3 import (
@@ -84,6 +98,10 @@ def test_no_goodhart_column_is_an_input_to_the_compiled_score():
         compiled_verdict(cells=failing, pair_odd_cos=1.0, loss=0.0, pperc=0.0) == FAILS
     )
     assert compiled_verdict(cells=passing, pair_odd_cos=0.1) == WORKS_SOME
+    assert (
+        compiled_verdict(cells=failing, leak_frac=-1.0, same_dir=0.0) == FAILS
+    )
+    assert compiled_verdict(cells=passing, leak_frac=0.9, same_dir=1.0) == WORKS_SOME
     locked = cell_works(
         leak=0.0,
         on_sheet_kept=0.34,
@@ -92,6 +110,8 @@ def test_no_goodhart_column_is_an_input_to_the_compiled_score():
         swing_kept=0.27,
         pair_odd_cos=1.0,
         collapse=-1.0,
+        leak_frac=-1.0,
+        same_dir=0.0,
     )
     unlocked = cell_works(
         leak=0.0,
@@ -101,6 +121,8 @@ def test_no_goodhart_column_is_an_input_to_the_compiled_score():
         swing_kept=0.27,
         pair_odd_cos=0.2,
         collapse=0.2,
+        leak_frac=0.9,
+        same_dir=1.0,
     )
     assert locked is False
     assert unlocked is False
@@ -551,3 +573,126 @@ def test_off_caption_is_logged_on_pair_exam_rows_and_midpoint_is_not_a_free_zero
     assert compiled_verdict(cells=failing) == FAILS
     assert ids["faithful_even_blend"]["cells"]["exam_divergent"] is not None
     assert ids["faithful_even_blend"]["id"] != "gate_odd_even_blend_s50"
+
+
+def test_leftover_bipolar_is_wired_into_every_board_row():
+    """leak_frac / same_dir come from leftover_bipolar on the fitted student."""
+    gates = gates_blob()
+    assert gates["leak_frac_scored"] is False
+    assert gates["same_dir_scored"] is False
+    assert gates["off_caption_scored"] is False
+    assert gates["bipolar_mirror_floor"] == BIPOLAR_MIRROR_FLOOR
+    for row in board():
+        assert row.get("leak_frac") is not None, row["id"]
+        assert row.get("same_dir") is not None, row["id"]
+        assert -1.05 <= float(row["leak_frac"]) <= 1.05
+        assert 0.0 <= float(row["same_dir"]) <= 1.0
+    sheet_row = leftover()["v9_hidden"]
+    leak_frac, same_dir = bipolar_from(sheet_row)
+    assert leak_frac == pytest.approx(sheet_row["leak_frac"], abs=1e-9)
+    assert same_dir == pytest.approx(sheet_row["same_dir"], abs=1e-9)
+    assert "leak_frac" in leftover()["v6_faithful"]
+    assert leftover()["v6_faithful"]["leak_frac"] > BIPOLAR_MIRROR_FLOOR
+
+
+def test_pair_odd_midpoint_is_bipolar_and_faithful_is_not():
+    """Clean pair-odd lands near leak_frac −1; caption poles keep even motion."""
+    odd = by_id()["pair_odd_midpoint"]
+    faithful = by_id()["faithful_raw"]
+    gated = by_id()["faithful_sub_e_if_unused"]
+    assert odd["leak_frac"] == pytest.approx(-1.0, abs=0.05)
+    assert odd["same_dir"] <= 0.05
+    assert faithful["leak_frac"] > BIPOLAR_MIRROR_FLOOR
+    assert gated["leak_frac"] > BIPOLAR_MIRROR_FLOOR
+    assert abs(faithful["leak_frac"] - (-1.0)) > 0.4
+    assert abs(gated["leak_frac"] - odd["leak_frac"]) > 0.4
+    # leftover-gate clears unused ê and does not clear caption-pole even motion.
+    assert abs(gated["leftover_leak"]) <= COMPILED_LEAK_LOCK
+    assert abs(faithful["leftover_leak"]) > COMPILED_LEAK_LOCK
+    assert gated["compiled"] == WORKS
+    race = [by_id()[name] for name in sorted(RACE_RECIPES)]
+    for row in race:
+        if row["id"] == "dual_band_midpoint":
+            continue
+        assert row["leak_frac"] > BIPOLAR_MIRROR_FLOOR, row["id"]
+
+
+def test_exam_score_does_not_see_leak_frac_or_off_caption():
+    overlap = {"exam_divergent": 1.0, "exam_close": 0.5}
+    swing = {"exam_divergent": 1.0, "exam_close": 0.5}
+    assert exam_score(overlap, swing) == 0.5
+    assert exam_score.__code__.co_varnames[: exam_score.__code__.co_argcount] == (
+        "overlap",
+        "swing",
+    )
+
+
+def test_leak_frac_chart_keeps_race_and_high_leak_and_sorts_same_dir_on_top():
+    """Informative mix: leftover-gate next to hub / pair-odd, not a winner table."""
+    chart = leak_frac_chart_rows(board())
+    ids = [r["id"] for r in chart]
+    for name in RACE_RECIPES | HIGH_LEAK_RECIPES:
+        assert name in ids, name
+    assert "faithful_even_blend" in ids
+    assert ids == sorted(ids, key=lambda n: float(by_id()[n]["leak_frac"]))
+    assert float(by_id()[ids[-1]]["leak_frac"]) >= float(by_id()[ids[0]]["leak_frac"])
+    # same-dir / caption-pole at the top of the figure (last in barh order)
+    assert leak_band(by_id()[ids[-1]]["leak_frac"]) == SAME_DIR_BAND
+    assert leak_band(by_id()["pair_odd_midpoint"]["leak_frac"]) == BIPOLAR_MIRROR_BAND
+    assert leak_band(by_id()["hub"]["leak_frac"]) == BIPOLAR_MIRROR_BAND
+    missing = leak_frac_chart_rows(
+        [{"id": "no_reading", "leak_frac": None}, by_id()["hub"]]
+    )
+    assert [r["id"] for r in missing] == ["hub"]
+    # leftover-gate: unused ê gone, leak_frac still not bipolar
+    gated = by_id()["faithful_sub_e_if_unused"]
+    assert abs(gated["leftover_leak"]) <= COMPILED_LEAK_LOCK
+    assert leak_band(gated["leak_frac"]) != BIPOLAR_MIRROR_BAND
+
+
+def test_joint_overlay_keeps_high_leak_cousins_and_does_not_score():
+    """Want-box is the three logged measurements; none enter the compiled gate."""
+    chart = joint_chart_rows(board())
+    ids = {r["id"] for r in chart}
+    for name in RACE_RECIPES | HIGH_LEAK_RECIPES | JOINT_MARK_RECIPES:
+        assert name in ids, name
+    assert "faithful_even_blend" in ids
+    assert "hidden_beta1" in ids
+    # High-leak cousins without a pair-exam still appear so the overlay
+    # is not a pile of 0.994s.
+    assert "hub" in ids
+    assert by_id()["hub"]["exam_score"] is None
+    assert "caption_odd_margin" not in ids
+    # Positive same-dir is a miss; ≈ −1 that fails divergent is Goodhart.
+    assert in_want_leak_band(0.105) is False
+    assert in_want_leak_band(0.0) is True
+    assert in_want_leak_band(-0.40) is True
+    assert in_want_leak_band(-0.80) is False
+    assert in_want_leak_band(-1.0) is False
+    odd = by_id()["pair_odd_midpoint"]
+    gated = by_id()["faithful_sub_e_if_unused"]
+    raw = by_id()["faithful_raw"]
+    blend = by_id()["faithful_even_blend"]
+    assert joint_hit(odd) is False
+    assert leak_band(odd["leak_frac"]) == BIPOLAR_MIRROR_BAND
+    assert odd["cells"]["exam_divergent"] is False
+    # leftover-gate / v21 / faithful_raw pass both live pairs and sit
+    # smear-clean, but leak_frac is same-dir (outside the want band).
+    for row in (gated, raw, blend):
+        axes = joint_axes(row)
+        assert axes["exam"] is True, row["id"]
+        assert axes["off_caption"] is True, row["id"]
+        assert axes["leak_frac"] is False, row["id"]
+        assert two_of_three(row) is True, row["id"]
+        assert joint_hit(row) is False, row["id"]
+    # A missing off-caption is not a free zero.
+    assert joint_axes(by_id()["hub"])["off_caption"] is False
+    failing = dict.fromkeys(CELL_ORDER, False)
+    assert compiled_verdict(cells=failing, leak_frac=-0.4) == FAILS
+    # The data-fix row is the only recipe in (−0.80, 0] that also
+    # passes both live pairs with smear 0. leftover-gate / v21 stay
+    # same-dir. Midpoint cousins stay at the bipolar lock.
+    attrs = by_id()["faithful_attrs"]
+    assert in_want_leak_band(attrs["leak_frac"]) is True
+    assert joint_hit(attrs) is True
+    assert [r["id"] for r in board() if joint_hit(r)] == ["faithful_attrs"]
