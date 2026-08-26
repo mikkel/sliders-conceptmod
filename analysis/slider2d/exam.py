@@ -89,10 +89,14 @@ import torch
 from analysis.slider2d.field import cosine
 from analysis.slider2d.sheet import nucleus
 from conceptmod.textsliders.slider_targets import (
+    BLIND_ODD_GAIN,
     DUAL_BAND_WEIGHT,
+    leftover_bipolar,
     lm_axis_hold,
+    lm_faithful_gain,
     lm_blind_projector,
     lm_dual_band_pole_loss,
+    lm_faithful_common_agree,
     lm_faithful_guard_e,
     lm_faithful_sub_e,
     lm_faithful_sub_e_if_unused,
@@ -106,6 +110,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_slider_loss,
     lm_unit,
     lm_unrolled_semantic_pole_loss,
+    teacher_leak_frac,
 )
 
 
@@ -663,7 +668,22 @@ TEACHERS = (
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
     "faithful_guard_e",
+    "faithful_gain",
+    "faithful_common_agree",
 )
+
+
+_BLIND_CACHE: dict = {}
+
+
+def blind_projector(field: PairField, *, cut: float = 0.0):
+    """``P_blind`` for this cell's frozen head. One SVD, cached per field."""
+    key = (field, float(cut))
+    if key not in _BLIND_CACHE:
+        _BLIND_CACHE[key] = lm_blind_projector(field.readout().weight, cut=float(cut))
+    return _BLIND_CACHE[key]
+
+
 # Live race modes plus fixture-only ``unrolled_kl`` (no live --pole_mode).
 POLE_MODES = (
     "hidden",
@@ -689,6 +709,9 @@ def teacher_points(
     teacher: str = "pair_odd",
     leak_dir: torch.Tensor | None = None,
     common_beta: float = 0.0,
+    blind_gain: float = BLIND_ODD_GAIN,
+    blind_cut: float = 0.0,
+    target_scale: float = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """The two hidden states one recipe aims at, via the live functions."""
     pos, neg, neu = field.poles(row)
@@ -699,6 +722,17 @@ def teacher_points(
         )
     if mode == "faithful":
         return pos, neg
+    if mode == "faithful_gain":
+        return lm_faithful_gain(
+            pos,
+            neg,
+            neu,
+            blind_projector=blind_projector(field, cut=float(blind_cut)),
+            blind_gain=float(blind_gain),
+            target_scale=float(target_scale),
+        )
+    if mode == "faithful_common_agree":
+        return lm_faithful_common_agree(pos, neg, neu)
     if mode == "faithful_sub_e_if_unused":
         return lm_faithful_sub_e_if_unused(
             pos, neg, neu, leak_dir, slider_dir=field.short_u()
@@ -722,6 +756,9 @@ def target_geometry(
     teacher: str,
     leak_dir: torch.Tensor | None = None,
     common_beta: float = 0.0,
+    blind_gain: float = BLIND_ODD_GAIN,
+    blind_cut: float = 0.0,
+    target_scale: float = 1.0,
 ) -> dict:
     """Where the target point sits. No optimizer in the loop.
 
@@ -732,11 +769,18 @@ def target_geometry(
     ``blend_teacher``.
     """
     row = 0
-    pos, neg, _neu = field.poles(row)
+    pos, neg, neu = field.poles(row)
     mid = 0.5 * (pos + neg)
     a = field.odd(row)
     t_plus, t_minus = teacher_points(
-        field, row, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+        field,
+        row,
+        teacher=teacher,
+        leak_dir=leak_dir,
+        common_beta=common_beta,
+        blind_gain=blind_gain,
+        blind_cut=blind_cut,
+        target_scale=target_scale,
     )
     # What is left of the slider axis: the target pair's own odd part.
     kept = 0.5 * (t_plus - t_minus)
@@ -752,6 +796,10 @@ def target_geometry(
         "off_caption": to_pole,
         "to_mid": to_mid,
         "blend_teacher": bool(to_mid < to_pole),
+        # What a perfect fit on this target point would print, with no
+        # optimizer at all. The fitted ``leak_frac`` lands on it whenever
+        # the target is attainable by a shared ±1 residual.
+        "target_leak_frac": teacher_leak_frac(t_plus, t_minus, neu),
         "is_caption": str(teacher).strip().lower() == "faithful" or float(common_beta) == 1.0,
     }
 
@@ -1026,6 +1074,8 @@ def fit_exam(
     unroll_steps: int = 1,
     blind_weight: float = DUAL_BAND_WEIGHT,
     blind_cut: float = 0.0,
+    blind_gain: float = BLIND_ODD_GAIN,
+    target_scale: float = 1.0,
     steps: int = 400,
     lr: float = 0.08,
     seed: int = 0,
@@ -1049,7 +1099,14 @@ def fit_exam(
     lam = float(hold_weight) if held is not None else 0.0
     targets = [
         teacher_points(
-            field, row, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+            field,
+            row,
+            teacher=teacher,
+            leak_dir=leak_dir,
+            common_beta=common_beta,
+            blind_gain=blind_gain,
+            blind_cut=blind_cut,
+            target_scale=target_scale,
         )
         for row in range(int(field.rows))
     ]
@@ -1164,6 +1221,8 @@ def score_exam(
     unroll_steps: int = 1,
     blind_weight: float = DUAL_BAND_WEIGHT,
     blind_cut: float = 0.0,
+    blind_gain: float = BLIND_ODD_GAIN,
+    target_scale: float = 1.0,
     steps: int = 400,
     seed: int = 0,
 ) -> dict:
@@ -1178,6 +1237,8 @@ def score_exam(
         unroll_steps=unroll_steps,
         blind_weight=blind_weight,
         blind_cut=blind_cut,
+        blind_gain=blind_gain,
+        target_scale=target_scale,
         steps=steps,
         seed=seed,
     )
@@ -1206,14 +1267,27 @@ def score_exam(
         corpus=words,
     )
     geom = target_geometry(
-        field, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+        field,
+        teacher=teacher,
+        leak_dir=leak_dir,
+        common_beta=common_beta,
+        blind_gain=blind_gain,
+        blind_cut=blind_cut,
+        target_scale=target_scale,
     )
 
     a = field.odd(0)
     pos, _neg, neu = field.poles(0)
     targets = [
         teacher_points(
-            field, r, teacher=teacher, leak_dir=leak_dir, common_beta=common_beta
+            field,
+            r,
+            teacher=teacher,
+            leak_dir=leak_dir,
+            common_beta=common_beta,
+            blind_gain=blind_gain,
+            blind_cut=blind_cut,
+            target_scale=target_scale,
         )
         for r in range(int(field.rows))
     ]
@@ -1260,6 +1334,8 @@ def score_exam(
             "teacher": teacher,
             "hold_weight": float(hold_weight) if leak_dir is not None else 0.0,
             "common_beta": float(common_beta),
+            "blind_gain": float(blind_gain),
+            "target_scale": float(target_scale),
             # Pair coordinates the sheet field has no column for.
             "divergence": field.divergence(),
             "visible_share": field.visible_share(),
@@ -1268,6 +1344,7 @@ def score_exam(
             # Live log columns. Logged, never gated.
             "pair_odd_cos": cosine(d_plus, a),
             "collapse": cosine(d_plus, d_minus),
+            **leftover_bipolar(d_plus, d_minus),
             "pole_cos": cosine(d_plus, pos - neu),
             "pperc": pperc,
             "nperc": nperc,
@@ -1398,6 +1475,15 @@ def exam_reason(row: dict) -> str:
 # -- cells ---------------------------------------------------------------
 
 
+# Where the two over-drive rows are scored on the board. Both sit near
+# ``leak_frac ≈ −0.37`` on the divergent cell, which is what makes them a
+# matched pair: same buy, two different directions of "more odd". The
+# window either one survives is swept in ``analysis/slider2d/odd_search.py``
+# — these are one point on it, not a recommended live value.
+EXAM_FAITHFUL_GAIN = 1.5
+EXAM_BLIND_GAIN = 3.0
+
+
 def recipes(field: PairField) -> list[tuple[str, dict]]:
     """The live recipes this pair can express, named as the board names them."""
     e = field.declared_e()
@@ -1425,6 +1511,26 @@ def recipes(field: PairField) -> list[tuple[str, dict]]:
         (
             "faithful_guard_e",
             {"pole_mode": "hidden", "teacher": "faithful_guard_e", "leak_dir": e},
+        ),
+        (
+            "faithful_gain",
+            {
+                "pole_mode": "hidden",
+                "teacher": "faithful_gain",
+                "target_scale": EXAM_FAITHFUL_GAIN,
+            },
+        ),
+        (
+            "faithful_gain_blind",
+            {
+                "pole_mode": "hidden",
+                "teacher": "faithful_gain",
+                "blind_gain": EXAM_BLIND_GAIN,
+            },
+        ),
+        (
+            "faithful_common_agree",
+            {"pole_mode": "hidden", "teacher": "faithful_common_agree"},
         ),
         ("dual_band_poles", {"pole_mode": "dual_band", "teacher": "faithful"}),
         (

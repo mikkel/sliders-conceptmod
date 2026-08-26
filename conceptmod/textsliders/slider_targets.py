@@ -72,6 +72,11 @@ DUAL_BAND_WEIGHT = 1.0
 # its policy has no usable gradient there.
 BLIND_SPECTRAL_CUT = 0.0
 
+# Over-drive on the readout-blind half of the odd teacher
+# (``lm_blind_odd_gain``). 1.0 is the caption itself and is the default:
+# nothing here is on by default. See the module note on ``leak_frac``.
+BLIND_ODD_GAIN = 1.0
+
 # Soft hold along ê fights the full-odd teacher. λ=1 leaves energy leak
 # ~0.69 (odd·û ≈ 0.58 leftover). λ=8 is the first value that lands leak
 # ≤ 0.20 on unused-ê; +/− same-dir stays ~0 (live-good band ≲ 6%).
@@ -622,6 +627,159 @@ def lm_faithful_guard_e(
     if float(target_scale) != 1.0:
         raise ValueError("--target_scale is defined for symmetric targets only")
     return pos, neg
+
+
+def lm_pair_even_odd(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """``(c, a)`` — the even and odd halves of a declared pole pair.
+
+    ``a = ½(h₊−h₋)``, ``c = ½(h₊+h₋) − h0``. Every teacher in this module
+    is some ``h0 + β·c ± γ·a``, and :func:`leftover_bipolar` reads exactly
+    that decomposition back off the fitted residual, so the two are the
+    same coordinates seen from either end.
+    """
+    return (pos + neg) / 2.0 - neu, (pos - neg) / 2.0
+
+
+def teacher_leak_frac(
+    tgt_plus: torch.Tensor,
+    tgt_minus: torch.Tensor,
+    neu: torch.Tensor,
+) -> float:
+    """``leak_frac`` a *perfect* fit on this target pair would realize.
+
+        d± = t± − h0,  leak_frac = cos(d₊, d₋) = (‖c‖² − ‖a‖²)/(‖c‖² + ‖a‖²)
+
+    A shared ±1 residual has nothing to spend on anything but ``c`` and
+    ``a``, so on an attainable target this is not an estimate — it is the
+    number :func:`leftover_bipolar` will print, and it can be read at setup
+    from four captions with no optimizer at all. Two consequences worth
+    stating in one place:
+
+    * For a caption-faithful teacher (``t± = h±``) it is exactly
+      ``cos(h₊−h0, h₋−h0)``, the pair cosine the live trainer already logs.
+      The sign of ``leak_frac`` is then a property of the *pair*, not of
+      the loss: energy-v4 logs −0.11 … +0.14 across its three genre rows.
+    * Scaling the even half by β and the odd half by γ moves it to
+      ``(β²‖c‖² − γ²‖a‖²)/(β²‖c‖² + γ²‖a‖²)``. So ``leak_frac`` is a dial
+      on any recipe, and the only question worth asking of a candidate is
+      what the *pair exam* charges for turning it.
+    """
+    common, axis = lm_pair_even_odd(tgt_plus, tgt_minus, neu)
+    even = float(common.norm()) ** 2
+    odd = float(axis.norm()) ** 2
+    return (even - odd) / max(even + odd, 1e-12)
+
+
+def lm_faithful_gain(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    *,
+    target_scale: float = 1.0,
+    blind_gain: float = BLIND_ODD_GAIN,
+    blind_projector: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """The caption pair's own midpoint, with the axis over-driven.
+
+        a   = (pos − neg) / 2
+        â   = γ · ( a + (g − 1) · P_blind(a) )
+        mid = ½(pos + neg)
+        tgt(±1) = mid ± â
+
+    ``γ = g = 1`` is ``(pos, neg)`` exactly, which is why this is off by
+    default. ``--target_scale`` already means "scale the odd teacher", but
+    ``lm_hidden_targets`` applies it around ``h0``, which drops the whole
+    common term and lands on the midpoint trap. Applying the same scale
+    around ``mid`` keeps every bit of ``c`` and moves only the two ends.
+
+    That distinction is the whole point. A shared ±1 residual realizes
+    ``d± = c ± γa``, so :func:`leftover_bipolar` reads
+    ``leak_frac = (‖c‖² − γ²‖a‖²)/(‖c‖² + γ²‖a‖²)``: the gain buys
+    ``leak_frac`` by *lengthening the axis*, not by deleting same-direction
+    content. ``‖c‖`` is unchanged at every γ. Turning a slider up at
+    inference cannot do this — a student scaled by σ has
+    ``d± = σ(c ± a)`` and ``cos(d₊, d₋)`` is invariant to σ.
+
+    :func:`lm_blend_guard` admits this teacher at every γ > 0, structurally:
+    ``‖t₊ − pos‖ = (γ−1)‖a‖`` is below ``‖t₊ − mid‖ = γ‖a‖`` for all of
+    them, so unlike every ``sub_e`` variant it cannot drift into a blend.
+
+    ``blind_gain`` restricts the extra axis to :func:`lm_blind_projector`'s
+    band — the hidden directions a next-token KL on the semantic band
+    cannot use at all. That variant is scored on the pair-exam cell and is
+    *worse* per unit of ``leak_frac`` than scaling the whole axis, because
+    the delivery content the residual stream carries forward competes with
+    the pole's own track word. It is kept as the control that says so; the
+    live recipe is ``γ`` alone.
+
+    A gain is not a free lunch and this one is bounded on both sides:
+    below ``γ ≈ 1.01`` on energy-v4 ``leak_frac`` is still positive, and
+    far enough above it the ±1 ends are driven past anything a caption
+    reaches and the continuation garbles. Sweep it; do not assume a value.
+    """
+    axis = (pos - neg) / 2.0
+    gain = float(blind_gain)
+    if blind_projector is not None and gain != 1.0:
+        axis = axis + (gain - 1.0) * lm_blind_residual(axis, blind_projector)
+    axis = axis * float(target_scale)
+    mid = (pos + neg) / 2.0
+    return mid + axis, mid - axis
+
+
+def lm_common_agree(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+) -> torch.Tensor:
+    """The part of the common term **both** poles actually state.
+
+        u = pos − h0,  v = neg − h0
+        agree = sign(u) · min(|u|, |v|)   where u and v agree in sign, else 0
+
+    ``c = ½(u+v)`` cannot tell "both captions say this" from "one caption
+    says twice as much of it". On a close pair those are the same thing and
+    ``agree = c``. On a divergent pair they are not: the + pole's own track
+    sits in ``u`` alone, and half of it lands in ``c`` anyway, which is the
+    half of each song that makes ``½(h₊+h₋)`` a third song. This is the
+    coordinate-wise floor of the two displacements, so it keeps shared
+    specificity at full strength and drops content only one pole carries.
+
+    Coordinate-wise, not basis-free, and deliberately so — a hidden state
+    has a basis and this asks a per-feature question. It is always a
+    shrink: ``|agree| ≤ |c|`` everywhere, with equality exactly where the
+    two poles carry the same amount.
+    """
+    u = pos - neu
+    v = neg - neu
+    same = (u * v) > 0
+    floor = torch.sign(u) * torch.minimum(u.abs(), v.abs())
+    return torch.where(same, floor, torch.zeros_like(floor))
+
+
+def lm_faithful_common_agree(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    *,
+    target_scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Full pair-odd axis around the agreed common term, not the midpoint.
+
+        tgt(±1) = h0 + agree(pos, neg, h0) ± (pos − neg)/2 · target_scale
+
+    ``agree = c`` on a close pair, so this *is* the caption pair there.
+    On a divergent pair it is the caption pair minus the blend — the one
+    part of ``c`` that no single caption occupies. Distinct from
+    ``pair_odd`` (which drops all of ``c`` and lands on ``t± = h0 ± a``)
+    and from ``faithful_sub_e`` (which cuts the *odd* half instead).
+    """
+    axis = (pos - neg) / 2.0 * float(target_scale)
+    agreed = lm_common_agree(pos, neg, neu)
+    return neu + agreed + axis, neu + agreed - axis
 
 
 def lm_project_odd_axis(
