@@ -46,6 +46,7 @@ from analysis.slider2d.exam import (
 )
 from analysis.slider2d.sheet import leaky_cell
 from conceptmod.textsliders.slider_targets import (
+    COMMON_BETA_EXAM,
     UNUSED_E_OVERLAP_MAX,
     leftover_bipolar,
     lm_e_overlap_a,
@@ -54,6 +55,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_faithful_sub_e_if_unused,
     lm_hidden_targets,
     lm_unit,
+    resolve_common_beta,
 )
 from conceptmod.textsliders.train_lm_slider_music3 import parse_args
 
@@ -581,33 +583,32 @@ def test_common_beta_is_the_caption_to_pair_odd_interpolation():
 
 
 def test_leak_frac_is_leftover_bipolar_of_the_fitted_student():
-    row = cell("divergent")["pair_odd_midpoint"]
+    field = divergent_field()
+    row = score_exam(
+        "beta0", field, pole_mode="hidden", teacher="pair_odd", common_beta=0.0, steps=STEPS
+    )
     assert row["leak_frac"] == pytest.approx(row["collapse"], abs=1e-6)
     assert row["leak_frac"] == pytest.approx(-1.0, abs=0.02)
-    poles = cell("divergent")["faithful_raw"]
+    poles = score_exam(
+        "beta1", field, pole_mode="hidden", teacher="pair_odd", common_beta=1.0, steps=STEPS
+    )
     assert poles["leak_frac"] == pytest.approx(poles["collapse"], abs=1e-6)
     assert poles["leak_frac"] > 0.0
 
 
 def test_common_beta_zero_is_banned_pair_odd_and_one_is_the_raw_poles():
-    zero = cell("divergent")["pair_odd_midpoint"]
-    poles = cell("divergent")["faithful_raw"]
+    field = divergent_field()
+    zero = score_exam(
+        "beta0", field, pole_mode="hidden", teacher="pair_odd", common_beta=0.0, steps=STEPS
+    )
+    one = score_exam(
+        "beta1", field, pole_mode="hidden", teacher="pair_odd", common_beta=1.0, steps=STEPS
+    )
     assert zero["pass"] is False
     assert zero["common_beta"] == 0.0
     assert zero["leak_frac"] == pytest.approx(-1.0, abs=0.02)
-    assert poles["pass"] is True
-    assert poles["leak_frac"] >= 0.0
-    field = divergent_field()
-    one = score_exam(
-        "beta1",
-        field,
-        pole_mode="hidden",
-        teacher="pair_odd",
-        common_beta=1.0,
-        steps=STEPS,
-    )
     assert one["pass"] is True
-    assert one["leak_frac"] == pytest.approx(poles["leak_frac"], abs=0.02)
+    assert one["leak_frac"] >= 0.0
     pos, neg, neu = field.poles(0)
     teacher = leftover_bipolar(pos - neu, neg - neu)
     assert teacher["leak_frac"] >= 0.0
@@ -624,6 +625,8 @@ def test_common_beta_sweep_reports_the_smallest_divergent_pass():
     first = smallest_divergent_pass_beta(sweep)
     assert first is not None
     assert first["common_beta"] > 0.0
+    assert first["leak_frac"] < 0.0
+    assert first["exam_divergent"] is True
     for row in sweep:
         if row["exam_divergent"]:
             assert row["common_beta"] >= first["common_beta"]
@@ -650,3 +653,10 @@ def test_the_live_trainer_default_is_untouched():
     assert args.lm_target == "v9"
     assert args.pole_mode == "hidden"
     assert args.common_beta == 0.0
+    card = parse_args(["--prompts", "x.yaml", "--lm_target", "common_beta"])
+    assert card.lm_target == "common_beta"
+    assert card.pole_mode == "hidden"
+    assert 0.0 < COMMON_BETA_EXAM < 1.0
+    assert resolve_common_beta(recipe="common_beta", common_beta=0.0) == pytest.approx(
+        COMMON_BETA_EXAM
+    )

@@ -1673,17 +1673,16 @@ def visible_sweep(
 COMMON_BETA_GRID = (
     0.0,
     0.05,
+    0.08,
     0.10,
+    0.12,
     0.15,
     0.20,
     0.30,
-    0.40,
     0.50,
     0.60,
     0.70,
-    0.80,
     0.90,
-    0.95,
     1.0,
 )
 
@@ -1747,18 +1746,61 @@ def common_beta_sweep(
     return out
 
 
-def smallest_divergent_pass_beta(sweep: list[dict]) -> dict | None:
+def smallest_divergent_pass_beta(sweep: list[dict], *, clear: bool = False) -> dict | None:
     """Smallest β (most odd) that still PASSES exam_divergent.
 
     β=0 is pair-odd and is not a candidate. A hit also needs
-    ``leak_frac < 0``. ``None`` means nothing in the grid passed.
+    ``leak_frac < 0``. ``clear=True`` skips a row whose deciding
+    gate is within the published near-gate band (not seed-robust).
+    ``None`` means nothing in the grid passed.
     """
     for row in sweep:
         if float(row["common_beta"]) <= 0.0:
             continue
-        if row["exam_divergent"]:
-            return row
+        if not row["exam_divergent"]:
+            continue
+        if clear and row.get("divergent_near_gate"):
+            continue
+        return row
     return None
+
+
+def common_beta_seed_check(
+    betas: tuple[float, ...] = (0.08, 0.15, 0.60),
+    seeds: tuple[int, ...] = (0, 1, 2),
+    *,
+    steps: int = 400,
+) -> list[dict]:
+    """Divergent + close at a few β values across the exam's published seeds."""
+    out = []
+    for seed in seeds:
+        fields = {name: CELLS[name](seed=seed) for name in ("divergent", "close")}
+        for beta in betas:
+            scored = {
+                name: score_exam(
+                    f"common_beta_{beta:g}_s{seed}",
+                    field,
+                    pole_mode="hidden",
+                    teacher="pair_odd",
+                    common_beta=float(beta),
+                    steps=steps,
+                    seed=seed,
+                )
+                for name, field in fields.items()
+            }
+            out.append(
+                {
+                    "seed": int(seed),
+                    "common_beta": float(beta),
+                    "exam_divergent": bool(scored["divergent"]["pass"]),
+                    "exam_close": bool(scored["close"]["pass"]),
+                    "leak_frac": float(scored["divergent"]["leak_frac"]),
+                    "divergent_match": scored["divergent"]["roll_match_kept"],
+                    "divergent_near_gate": list(scored["divergent"]["near_gate"]),
+                    "close_match": scored["close"]["roll_match_kept"],
+                }
+            )
+    return out
 
 
 def first_below(

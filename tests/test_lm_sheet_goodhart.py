@@ -535,6 +535,7 @@ def test_the_live_default_is_still_hidden_mse_onto_the_midpoint():
     assert "faithful_sub_e" in LM_RECIPES
     assert "faithful_sub_e_if_unused" in LM_RECIPES
     assert "faithful_guard_e" in LM_RECIPES
+    assert "common_beta" in LM_RECIPES
     assert "faithful_sub_e" not in V9_RECIPES
     assert "faithful_sub_e_if_unused" not in V9_RECIPES
     assert "faithful_guard_e" not in V9_RECIPES

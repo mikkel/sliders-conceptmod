@@ -28,10 +28,12 @@ if str(_REPO) not in sys.path:
 
 from analysis.slider2d.exam import (
     COMMON_BETA_GRID,
+    common_beta_seed_check,
     common_beta_sweep,
     floatable,
     smallest_divergent_pass_beta,
 )
+from conceptmod.textsliders.slider_targets import COMMON_BETA_EXAM
 from conceptmod.textsliders.train_lm_slider_music3 import parse_args as parse_train_args
 
 
@@ -76,6 +78,7 @@ def write_report(blob: dict, path: Path) -> None:
     sweep = blob["sweep"]
     hit = blob["hit"]
     first = smallest_divergent_pass_beta(sweep)
+    clear = smallest_divergent_pass_beta(sweep, clear=True)
     train = parse_train_args(["--prompts", "x.yaml"])
     lines = [
         "# Partial keep of c: --common_beta on the pair exam",
@@ -144,6 +147,7 @@ def write_report(blob: dict, path: Path) -> None:
             "",
         ]
     else:
+        near = ", ".join(hit.get("divergent_near_gate") or []) or "none"
         lines += [
             f"Hit: **β = {hit['common_beta']:.2f}** is the smallest β that",
             f"PASSES `exam_divergent` with `leak_frac` = {hit['leak_frac']:+.3f} < 0.",
@@ -155,8 +159,47 @@ def write_report(blob: dict, path: Path) -> None:
             f"- leftover leak (unused ê): {_f(hit['leftover_leak'], '+.3f')}",
             f"- same-words: {hit['divergent_match']:.2f}",
             f"- swing kept: {hit['divergent_swing']:+.2f}",
+            f"- near-gate: {near}",
             "",
         ]
+        if clear is not None and float(clear["common_beta"]) != float(hit["common_beta"]):
+            lines += [
+                f"That first pass sits near a gate. The first **clear** seed-0 pass",
+                f"(no near-gate column) is **β = {clear['common_beta']:.2f}**,",
+                f"`leak_frac` = {clear['leak_frac']:+.3f}, exam_close",
+                f"{_pass(clear['exam_close'])}.",
+                "",
+            ]
+        card = blob.get("train_card") or {}
+        if card:
+            lines += [
+                "## Train card",
+                "",
+                f"`--lm_target common_beta --pole_mode hidden` freezes",
+                f"**β = {card['common_beta']:.2f}** (`leak_frac` = "
+                f"{card['leak_frac']:+.3f} on seed 0). That is the first β",
+                "that PASSES `exam_divergent` on seeds 0/1/2 without a",
+                "near-gate column. Equivalent: `--lm_target symmetric",
+                f"--common_beta {card['common_beta']:g} --pole_mode hidden`.",
+                "Live default stays `--lm_target v9` / `--pole_mode hidden`.",
+                "Not a live listen.",
+                "",
+            ]
+        seeds = blob.get("seed_check") or []
+        if seeds:
+            lines += [
+                "## Seed check (divergent / close)",
+                "",
+                "| seed | β | exam_divergent | exam_close | leak_frac | same-words |",
+                "|---:|---:|:---:|:---:|---:|---:|",
+            ]
+            for row in seeds:
+                lines.append(
+                    f"| {row['seed']} | {row['common_beta']:.2f} | "
+                    f"{_pass(row['exam_divergent'])} | {_pass(row['exam_close'])} | "
+                    f"{row['leak_frac']:+.3f} | {row['divergent_match']:.2f} |"
+                )
+            lines.append("")
     passing = [r for r in sweep if r["exam_divergent"] and r["leak_frac"] < 0]
     if passing and hit is not None:
         lines += [
@@ -220,9 +263,19 @@ def main(argv: list[str] | None = None) -> int:
     grid = tuple(float(b) for b in args.grid)
     sweep = common_beta_sweep(grid, steps=args.steps, seed=args.seed)
     first = smallest_divergent_pass_beta(sweep)
+    clear = smallest_divergent_pass_beta(sweep, clear=True)
     hit = None
     if first is not None and float(first["leak_frac"]) < 0.0:
         hit = first
+    seed_check = common_beta_seed_check(
+        (0.08, 0.15, float(COMMON_BETA_EXAM)),
+        (0, 1, 2),
+        steps=args.steps,
+    )
+    card_row = next(
+        (r for r in sweep if abs(float(r["common_beta"]) - float(COMMON_BETA_EXAM)) < 1e-9),
+        None,
+    )
     train = parse_train_args(["--prompts", "x.yaml"])
     blob = {
         "steps": args.steps,
@@ -230,7 +283,22 @@ def main(argv: list[str] | None = None) -> int:
         "grid": list(grid),
         "sweep": [floatable(r) for r in sweep],
         "smallest_divergent_pass": floatable(first) if first is not None else None,
+        "first_clear_divergent_pass": floatable(clear) if clear is not None else None,
         "hit": floatable(hit) if hit is not None else None,
+        "seed_check": [floatable(r) for r in seed_check],
+        "train_card": (
+            {
+                "lm_target": "common_beta",
+                "pole_mode": "hidden",
+                "common_beta": float(COMMON_BETA_EXAM),
+                "leak_frac": float(card_row["leak_frac"]) if card_row is not None else None,
+                "exam_divergent": bool(card_row["exam_divergent"]) if card_row is not None else None,
+                "exam_close": bool(card_row["exam_close"]) if card_row is not None else None,
+                "leftover_leak": card_row["leftover_leak"] if card_row is not None else None,
+            }
+            if card_row is not None
+            else None
+        ),
         "live_default": {
             "lm_target": train.lm_target,
             "pole_mode": train.pole_mode,
