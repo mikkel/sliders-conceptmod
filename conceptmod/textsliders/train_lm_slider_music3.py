@@ -20,6 +20,8 @@ subtracts leftover ê only when unused. ``--lm_target faithful_guard_e``
 subtracts leftover ê only while the cleaned target stays nearer its
 own caption than the pair midpoint. ``--lm_target faithful_plus``
 trains the + pole only (leftover-gated ``h+``; no minus MSE).
+``--lm_target faithful_plus_neu`` is UNI: student +1 fits raw ``h+``
+(never leftover-gated) and student scale 0 fits ``h0``. No minus MSE.
 ``--pole_mode semantic_kl`` is
 next-token KL on the semantic band. ``--pole_mode semantic_kl_null``
 (aliases ``semantic_kl_plus_hidden``, ``semantic_kl_pin``) adds hidden
@@ -90,9 +92,11 @@ from conceptmod.textsliders.slider_targets import (
     lm_faithful_gate_odd_sub_even,
     lm_faithful_guard_e,
     lm_faithful_plus,
+    lm_faithful_plus_neu,
     lm_faithful_sub_e,
     lm_faithful_sub_e_if_unused,
     lm_plus_loss,
+    lm_plus_neu_loss,
     lm_hold_dir,
     lm_hidden_targets,
     lm_next_token_logits,
@@ -122,6 +126,7 @@ LM_RECIPES = (
     "faithful_guard_e",
     "faithful_even_blend",
     "faithful_plus",
+    "faithful_plus_neu",
 )
 # Canonical live pole modes. ``semantic_kl_plus_hidden`` (#32) and
 # ``semantic_kl_pin`` (#29) are aliases of ``semantic_kl_null`` (#33) —
@@ -151,6 +156,7 @@ GATED_SUB_E_RECIPES = frozenset(
 )
 EVEN_BLEND_RECIPES = frozenset({"faithful_even_blend"})
 PLUS_ONLY_RECIPES = frozenset({"faithful_plus"})
+PLUS_NEU_RECIPES = frozenset({"faithful_plus_neu"})
 PAIR_ODD_RECIPES = frozenset({"pair_odd_sub_e"})
 TARGET_REPLACE = ["Qwen3Attention"]
 
@@ -179,6 +185,8 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     leftover-gates the odd part and subtracts half the leak-pair even
     leftover; not the default. ``faithful_plus`` leftover-gates the +
     caption only and drops minus MSE; not the default.
+    ``faithful_plus_neu`` is UNI: raw ``h+`` at +1 and ``h0`` at scale 0;
+    no leftover-gate, no minus MSE; not the default.
     """
     recipe = str(lm_target).strip().lower()
     if recipe not in LM_RECIPES:
@@ -423,6 +431,17 @@ def lm_train_targets(
             unused=e_unused,
         )
         return plus, minus, None, None
+    if recipe == "faithful_plus_neu":
+        plus = lm_faithful_plus_neu(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=slider_dir,
+            target_scale=target_scale,
+        )
+        # Minus is not a teacher. Raw neg is only a canary reference.
+        return plus, neg, None, None
     if recipe in PROJECT_RECIPES:
         if slider_dir is None:
             raise ValueError("lm_target=v9_project requires a declared slider_dir")
@@ -479,6 +498,9 @@ def lm_train_loss(
     blind_projector: torch.Tensor | None = None,
     blind_weight: float = DUAL_BAND_WEIGHT,
     plus_only: bool = False,
+    plus_neu: bool = False,
+    pred_zero: torch.Tensor | None = None,
+    tgt_zero: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Live pole loss: ``lm_slider_loss`` plus optional hold.
 
@@ -496,7 +518,37 @@ def lm_train_loss(
     centered readout cannot see. Not a second KL family — these are
     the already-scored race recipes.
     ``plus_only`` (``faithful_plus``) drops every minus term.
+    ``plus_neu`` (``faithful_plus_neu``) is ``MSE(+) + MSE(0)`` only.
     """
+    if plus_only and plus_neu:
+        raise ValueError("plus_only and plus_neu are mutually exclusive")
+    if plus_neu:
+        if pred_zero is None or tgt_zero is None:
+            raise ValueError("plus_neu requires pred_zero and tgt_zero")
+        mode = resolve_pole_mode(pole_mode)
+        if mode in NEEDS_READOUT and readout is None:
+            raise ValueError(f"pole_mode={mode} requires a semantic readout")
+        neu_term = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+        if mode == "hidden":
+            return neu_term
+        # Other pole modes keep UNI's MSE(0) and replace only the + term.
+        plus_term = lm_train_loss(
+            pred_plus,
+            pred_minus,
+            tgt_plus,
+            tgt_minus,
+            neu=neu,
+            slider_dir=slider_dir,
+            leak_dir=leak_dir,
+            hold_weight=0.0,
+            pole_mode=pole_mode,
+            readout=readout,
+            null_basis=null_basis,
+            blind_projector=blind_projector,
+            blind_weight=blind_weight,
+            plus_only=True,
+        )
+        return plus_term + F.mse_loss(pred_zero, tgt_zero)
     if plus_only:
         mode = resolve_pole_mode(pole_mode)
         if mode in NEEDS_READOUT and readout is None:
@@ -971,6 +1023,8 @@ def train(args: argparse.Namespace) -> Path:
             )
         elif recipe == "faithful_plus":
             hold_note = "teacher=+ caption leftover-gated; minus MSE off; hold 0"
+        elif recipe == "faithful_plus_neu":
+            hold_note = "teacher=raw + caption; scale 0 fits h0; minus MSE off; hold 0"
         else:
             hold_note = "hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd"
         print(
@@ -1082,6 +1136,12 @@ def train(args: argparse.Namespace) -> Path:
                 "faithful_plus: teacher=+ caption leftover-gated; "
                 "student +1 fits h+; no pair-odd, no h0 ± a, no minus MSE"
             )
+        elif recipe == "faithful_plus_neu":
+            print(
+                "faithful_plus_neu: teacher=raw + caption (no leftover-gate); "
+                "student +1 fits h+, student 0 fits h0; "
+                "no pair-odd, no h0 ± a, no minus MSE"
+            )
     if pole_mode == "semantic_kl":
         print("pole_mode=semantic_kl: next-token KL on the semantic band of lm_head")
     elif pole_mode == "semantic_kl_null":
@@ -1184,6 +1244,10 @@ def train(args: argparse.Namespace) -> Path:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
         elif recipe == "faithful_plus":
             dropped = " teacher=faithful_plus hold_ê=0 minus_mse=off"
+            if encoded["align"] is not None:
+                dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
+        elif recipe == "faithful_plus_neu":
+            dropped = " teacher=faithful_plus_neu raw_h+ hold_ê=0 minus_mse=off neu_mse=on"
             if encoded["align"] is not None:
                 dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
         elif encoded["align"] is not None:
@@ -1343,6 +1407,12 @@ def train(args: argparse.Namespace) -> Path:
             edrift_n = float((m_neg - data["base_margins"]).abs().mean().detach())
             pdrift_p = float(plan_pos.detach())
             pdrift_n = float(plan_neg.detach())
+            pred_zero = None
+            if recipe in PLUS_NEU_RECIPES:
+                _set_scale(network, 0.0)
+                pred_zero, _, _ = _forward_teacher_forced(
+                    lm, data["prompt_embeds"], data["frame_embeds"]
+                )
         else:
             if args.planreg_weight > 0:
                 raise ValueError("--planreg_weight requires the audio-end regularizer (its pre-roll supplies the plan)")
@@ -1355,6 +1425,10 @@ def train(args: argparse.Namespace) -> Path:
             plan_pos = plan_neg = torch.zeros((), device=device)
             edrift_p = edrift_n = 0.0
             pdrift_p = pdrift_n = 0.0
+            pred_zero = None
+            if recipe in PLUS_NEU_RECIPES:
+                _set_scale(network, 0.0)
+                pred_zero = _encode_train(lm, neu_ids, neu_mask)
 
         v_pos = pred_pos - neu_ref
         v_neg = pred_neg - neu_ref
@@ -1384,6 +1458,9 @@ def train(args: argparse.Namespace) -> Path:
             blind_projector=blind_projector,
             blind_weight=float(args.blind_weight),
             plus_only=recipe in PLUS_ONLY_RECIPES,
+            plus_neu=recipe in PLUS_NEU_RECIPES,
+            pred_zero=pred_zero,
+            tgt_zero=neu_ref if recipe in PLUS_NEU_RECIPES else None,
         )
         loss = pole + 0.5 * args.endreg_weight * (end_pos + end_neg) + args.planreg_weight * (plan_pos + plan_neg)
         opt.zero_grad(set_to_none=True)
@@ -1460,6 +1537,7 @@ def train(args: argparse.Namespace) -> Path:
         "rows": len(row_data),
         "lm_target": recipe,
         "plus_only": recipe in PLUS_ONLY_RECIPES,
+        "plus_neu": recipe in PLUS_NEU_RECIPES,
         "even_blend_scale": float(args.even_blend_scale),
         "pole_mode": pole_mode,
         "symmetric": bool(args.symmetric),
@@ -1567,7 +1645,9 @@ def parse_args(argv=None):
         "is leftover-gated h+ (raw pos when leftover ê is unused or "
         "undeclared). No pair-odd, no h0 ± a, no minus MSE. Inference "
         "may still expose a −1 fader; that fader is unconstrained. "
-        "Not the default",
+        "faithful_plus_neu: UNI. Student +1 fits raw h+ (never leftover-"
+        "gated, even if leak_* exists). Student scale 0 fits h0. No minus "
+        "MSE, no pair-odd, no h0 ± a. Not the default",
     )
     p.add_argument(
         "--even_blend_scale",

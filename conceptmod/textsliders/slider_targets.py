@@ -31,11 +31,14 @@ Formulas are copied from:
   own caption than the pair midpoint (``lm_blend_guard``). No
   ``leak_*`` → raw poles.   ``--lm_target faithful_even_blend`` leftover-
   gates the odd part and subtracts ``EVEN_BLEND_SCALE`` of leak-pair
-  even leftover (opt-in; default stays ``v9``). ``--lm_target
+  even leftover (opt-in; default stays ``v9``).   ``--lm_target
   faithful_plus`` trains the + pole only: teacher is leftover-gated
   ``h+`` (raw pos when leftover ê is unused or undeclared). No pair-odd,
   no ``h0 ± a``, no minus MSE. Inference may still expose a −1 fader;
-  that fader is unconstrained. Opt-in; default stays ``v9``.
+  that fader is unconstrained. ``--lm_target faithful_plus_neu`` is UNI:
+  student +1 fits raw ``h+`` (never leftover-gated) and student scale 0
+  fits ``h0``. No minus MSE, no pair-odd, no ``h0 ± a``. Opt-in; default
+  stays ``v9``.
   ``--pole_mode dual_band`` is KL on the
   semantic band plus hidden MSE on the centered-readout blind band
   (``P_blind`` from SVD). Neither is the default.
@@ -598,6 +601,28 @@ def lm_faithful_plus(
     return plus
 
 
+def lm_faithful_plus_neu(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+) -> torch.Tensor:
+    """UNI plus+neu teacher: raw ``h+``. Never leftover-gates.
+
+    ``--lm_target faithful_plus_neu``: student +1 fits the + caption
+    (``pos``), not a leftover-gated leftover and not ``h0 ± a``.
+    ``leak_dir`` / ``slider_dir`` are accepted so the call site can stay
+    the same as ``lm_faithful_plus``; they do not change the teacher.
+    ``neg`` is not a teacher. Scale-0 supervision is ``neu`` itself and
+    lives in ``lm_plus_neu_loss``, not here.
+    """
+    del neg, neu, leak_dir, slider_dir, target_scale
+    return pos
+
+
 def lm_blend_guard(
     tgt_plus: torch.Tensor,
     tgt_minus: torch.Tensor,
@@ -1073,6 +1098,21 @@ def lm_plus_loss(
     if hold_w > 0.0 and hold is not None:
         pole = pole + hold_w * hold
     return pole
+
+
+def lm_plus_neu_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    pred_zero: torch.Tensor,
+    tgt_zero: torch.Tensor,
+) -> torch.Tensor:
+    """UNI hidden MSE: student +1 fits ``h+``, student 0 fits ``h0``.
+
+    ``--lm_target faithful_plus_neu``: ``MSE(+) + MSE(0)`` only. No minus
+    MSE, no pair-odd, no ``h0 ± a``, no leftover-gate. ``tgt_plus`` is
+    raw pos; ``tgt_zero`` is the neutral caption.
+    """
+    return F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_zero, tgt_zero)
 
 
 def lm_slider_loss(
