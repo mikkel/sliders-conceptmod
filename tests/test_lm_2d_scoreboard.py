@@ -689,3 +689,10 @@ def test_joint_overlay_keeps_high_leak_cousins_and_does_not_score():
     assert joint_axes(by_id()["hub"])["off_caption"] is False
     failing = dict.fromkeys(CELL_ORDER, False)
     assert compiled_verdict(cells=failing, leak_frac=-0.4) == FAILS
+    # The data-fix row is the only recipe in (−0.80, 0] that also
+    # passes both live pairs with smear 0. leftover-gate / v21 stay
+    # same-dir. Midpoint cousins stay at the bipolar lock.
+    attrs = by_id()["faithful_attrs"]
+    assert in_want_leak_band(attrs["leak_frac"]) is True
+    assert joint_hit(attrs) is True
+    assert [r["id"] for r in board() if joint_hit(r)] == ["faithful_attrs"]
