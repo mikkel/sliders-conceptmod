@@ -812,6 +812,93 @@ def test_faithful_plus_neu_is_wired_and_not_the_default():
     assert float(both) > 0.0
 
 
+def test_faithful_plus_neu_prefix_is_wired_and_not_the_default():
+    from conceptmod.textsliders.train_lm_slider_music3 import (
+        PLUS_NEU_PREFIX_RECIPES,
+        PLUS_NEU_RECIPES,
+    )
+
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful_plus_neu_prefix"]
+    )
+    assert args.lm_target == "faithful_plus_neu_prefix"
+    assert args.pole_mode == "hidden"
+    assert resolve_lm_recipe(lm_target="faithful_plus_neu_prefix", symmetric=True) == (
+        "faithful_plus_neu_prefix"
+    )
+    assert "faithful_plus_neu_prefix" in PLUS_NEU_RECIPES
+    assert PLUS_NEU_PREFIX_RECIPES == frozenset({"faithful_plus_neu_prefix"})
+    hold, anchor = resolve_lm_loss_weights(
+        "faithful_plus_neu_prefix",
+        hold_weight=None,
+        anchor_weight=None,
+        leak_declared=True,
+    )
+    assert hold == 0.0
+    assert anchor == 0.0
+    pos, neg, neu = _ungated_pair()
+    plus, minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful_plus_neu_prefix")
+    assert torch.allclose(plus, pos)
+    leftover = torch.tensor([0.0, 1.0])
+    still_raw, _, _, _ = lm_train_targets(
+        pos,
+        neg,
+        neu,
+        recipe="faithful_plus_neu_prefix",
+        slider_dir=E_SLIDER,
+        leak_dir=leftover,
+    )
+    assert torch.allclose(still_raw, pos)
+    pred_plus = plus + 0.1
+    pred_minus = minus
+    pred_zero = neu + 0.2
+    pref = torch.zeros(3, pos.numel())
+    tgt_pref = torch.zeros(3, pos.numel())
+    base = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        plus,
+        minus,
+        plus_neu=True,
+        plus_neu_prefix=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pred_plus_prefix=pref,
+        tgt_neu_prefix=tgt_pref,
+        pole_mode="hidden",
+    )
+    moved_prefix = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        plus,
+        minus,
+        plus_neu=True,
+        plus_neu_prefix=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pred_plus_prefix=pref + 1.0,
+        tgt_neu_prefix=tgt_pref,
+        pole_mode="hidden",
+    )
+    uni = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        plus,
+        minus,
+        plus_neu=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pole_mode="hidden",
+    )
+    assert float(moved_prefix) > float(base)
+    assert float(base) == pytest.approx(float(uni), abs=1e-7)
+    src = Path("conceptmod/textsliders/train_lm_slider_music3.py").read_text()
+    assert '"plus_neu_prefix": recipe in PLUS_NEU_PREFIX_RECIPES' in src
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+    assert bare.pole_mode == "hidden"
+
+
 def test_help_lists_faithful_plus_neu_and_keeps_v9_hidden_default():
     import io
     from contextlib import redirect_stdout

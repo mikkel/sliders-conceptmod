@@ -315,6 +315,7 @@ def write_markdown(
         "## Related cells (not this scale)",
         "",
         "- [lm-plus-exam.md](lm-plus-exam.md) — plus-only cover / off-caption.",
+        "- [lm-lyric-recall.md](lm-lyric-recall.md) — +1 yaml-lyric survival (not this scale).",
         "- [lm-pair-exam.md](lm-pair-exam.md) — bipolar continuation gates.",
         "- [lm-even-leftover.md](lm-even-leftover.md) — leftover-sheet `leak_frac`.",
         "- [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — compiled bipolar board.",

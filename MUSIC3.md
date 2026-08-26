@@ -169,7 +169,10 @@ drops minus MSE; it lives on a separate scale
 `exam_score`, `leak_frac`, or the compiled bipolar board. UNI
 (`--lm_target faithful_plus_neu`) trains raw `h+` at +1 and `h0` at
 scale 0 (no leftover-gate, no minus MSE) and is ranked on
-[docs/lm-plus-neu-exam.md](docs/lm-plus-neu-exam.md). Default stays
+[docs/lm-plus-neu-exam.md](docs/lm-plus-neu-exam.md). That last-hidden
+card can sit in the cover / neu_hold want-box and still shred yaml
+lyrics; `+1 lyric_recall` and `--lm_target faithful_plus_neu_prefix`
+live on [docs/lm-lyric-recall.md](docs/lm-lyric-recall.md). Default stays
 `--lm_target v9` / `--pole_mode hidden`.
 
 **Retrain the LM halves after this lands.** TF is still the caption-BPM
