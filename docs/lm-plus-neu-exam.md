@@ -52,6 +52,8 @@ fits that + caption. Student scale 0 fits `h0`. No pair-odd, no
 `h0 ± a`, no minus MSE. Sidecar records `lm_target` and `plus_neu`.
 Default stays `--lm_target v9` / `--pole_mode hidden`.
 `faithful_plus` is unchanged (still plus-only, still the garble card).
+Last-token UNI is the gender / tempo card. Whole-prefix hold and
+lyric-token hold live on [lm-lyric-hold.md](lm-lyric-hold.md).
 
 ```bash
 CUDA_VISIBLE_DEVICES=N python conceptmod/textsliders/train_lm_slider_music3.py \
@@ -161,6 +163,7 @@ or −1 off-caption above the 0.05 suggestion.
 
 - [lm-plus-exam.md](lm-plus-exam.md) — plus-only cover / off-caption.
 - [lm-lyric-recall.md](lm-lyric-recall.md) — existing-metric OOD + `faithful_plus_neu` bug hunt.
+- [lm-lyric-hold.md](lm-lyric-hold.md) — grit lyrics vs gender_move scoreboard.
 - [lm-pair-exam.md](lm-pair-exam.md) — bipolar continuation gates.
 - [lm-even-leftover.md](lm-even-leftover.md) — leftover-sheet `leak_frac`.
 - [lm-2d-scoreboard.md](lm-2d-scoreboard.md) — compiled bipolar board.

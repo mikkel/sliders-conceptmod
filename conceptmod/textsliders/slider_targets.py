@@ -40,7 +40,10 @@ Formulas are copied from:
   fits ``h0``. Last-hidden MSE only — the LoRA still rewrites the lyric
   prefix. ``--lm_target faithful_plus_neu_prefix`` is UNI plus a prefix
   hold: +1 last hidden → raw ``h+``, +1 prefix hidden → encode(neu)
-  prefix (not encode(pos) prefix), scale 0 → ``h0``. No minus teacher.
+  prefix (not encode(pos) prefix), scale 0 → ``h0``. That pins Vocal
+  Details too. ``--lm_target faithful_plus_neu_lyric`` is UNI plus a
+  lyric-token hold: +1 lyric hiddens → encode(neu) yaml ``lyrics``
+  span only. Vocal Details / metadata stay free. No minus teacher.
   Opt-in; default stays ``v9``.
   ``--pole_mode dual_band`` is KL on the
   semantic band plus hidden MSE on the centered-readout blind band
@@ -621,7 +624,8 @@ def lm_faithful_plus_neu(
     the same as ``lm_faithful_plus``; they do not change the teacher.
     ``neg`` is not a teacher. Scale-0 supervision is ``neu`` itself and
     lives in ``lm_plus_neu_loss``, not here. Prefix-hold lives in
-    ``lm_plus_neu_prefix_loss`` (``faithful_plus_neu_prefix``); this
+    ``lm_plus_neu_prefix_loss`` (``faithful_plus_neu_prefix``) and
+    ``lm_plus_neu_lyric_loss`` (``faithful_plus_neu_lyric``); this
     function is still the last-token + teacher.
     """
     del neg, neu, leak_dir, slider_dir, target_scale
@@ -643,6 +647,33 @@ def lm_faithful_plus_neu_prefix(
     + teacher as ``faithful_plus_neu``. The prefix hold (student +1
     prefix → encode(neu) prefix) is a sequence loss, not a different
     last-hidden point. ``leak_dir`` / leftover-gate never apply.
+    """
+    return lm_faithful_plus_neu(
+        pos,
+        neg,
+        neu,
+        leak_dir,
+        slider_dir=slider_dir,
+        target_scale=target_scale,
+    )
+
+
+def lm_faithful_plus_neu_lyric(
+    pos: torch.Tensor,
+    neg: torch.Tensor,
+    neu: torch.Tensor,
+    leak_dir: torch.Tensor | None = None,
+    *,
+    slider_dir: torch.Tensor | None = None,
+    target_scale: float = 1.0,
+) -> torch.Tensor:
+    """UNI lyric-hold last-token teacher: still raw ``h+``.
+
+    ``--lm_target faithful_plus_neu_lyric`` keeps the same last-token
+    + teacher as ``faithful_plus_neu``. The lyric hold (student +1
+    yaml-lyrics tokens → encode(neu) lyrics) is a sequence loss, not
+    a different last-hidden point. Vocal Details is not held.
+    ``leak_dir`` / leftover-gate never apply.
     """
     return lm_faithful_plus_neu(
         pos,
@@ -1165,6 +1196,27 @@ def lm_plus_neu_prefix_loss(
     """
     last = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
     return last + float(prefix_weight) * F.mse_loss(pred_plus_prefix, tgt_neu_prefix)
+
+
+def lm_plus_neu_lyric_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    pred_zero: torch.Tensor,
+    tgt_zero: torch.Tensor,
+    pred_plus_lyric: torch.Tensor,
+    tgt_neu_lyric: torch.Tensor,
+    *,
+    lyric_weight: float = 1.0,
+) -> torch.Tensor:
+    """UNI + lyric-token hold: last-token ``h+`` / ``h0``, lyrics → encode(neu).
+
+    ``--lm_target faithful_plus_neu_lyric``: ``MSE(last +) + MSE(last 0)
+    + MSE(lyric + → encode(neu) lyric)``. Lyric tensors are the yaml
+    ``lyrics`` span only — not Vocal Details / metadata. ``tgt_plus``
+    is raw last-token ``h+``. No minus teacher, no leftover-gate.
+    """
+    last = lm_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+    return last + float(lyric_weight) * F.mse_loss(pred_plus_lyric, tgt_neu_lyric)
 
 
 def lm_project_last_delta_off_lyric(

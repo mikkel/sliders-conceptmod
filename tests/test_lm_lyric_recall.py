@@ -30,6 +30,7 @@ from analysis.slider2d.lyric_recall import (
     lyric_exam_table,
     lyric_rank,
     lyric_recall,
+    lyric_span,
     lyric_verdict,
     off_lyric,
     ref_plus_sequence,
@@ -37,6 +38,7 @@ from analysis.slider2d.lyric_recall import (
 )
 from conceptmod.textsliders.slider_targets import (
     lm_faithful_plus_neu,
+    lm_faithful_plus_neu_lyric,
     lm_faithful_plus_neu_prefix,
     lm_plus_neu_loss,
     lm_plus_neu_prefix_loss,
@@ -85,6 +87,7 @@ def test_help_lists_prefix_target_and_keeps_v9_hidden_default():
             parse_args(["--help"])
     help_text = buf.getvalue()
     assert "faithful_plus_neu_prefix" in help_text
+    assert "faithful_plus_neu_lyric" in help_text
     assert "faithful_plus_neu" in help_text
     assert "v9" in help_text
     bare = parse_args(["--prompts_file", "prompts.yaml"])
@@ -97,8 +100,10 @@ def test_prefix_teacher_is_still_raw_h_plus():
     pos, neg, neu = field.poles(0)
     raw = lm_faithful_plus_neu(pos, neg, neu, None)
     prefix = lm_faithful_plus_neu_prefix(pos, neg, neu, None)
+    lyric = lm_faithful_plus_neu_lyric(pos, neg, neu, None)
     assert torch.allclose(raw, pos)
     assert torch.allclose(prefix, pos)
+    assert torch.allclose(lyric, pos)
 
 
 def test_prefix_loss_is_last_plus_zero_plus_prefix():
@@ -133,12 +138,14 @@ def test_lyric_recall_is_yaml_lyrics_not_plus_caption():
     assert head.index("slam") not in bag
     assert lyric_recall(field, pref, 0) == pytest.approx(1.0)
     assert off_lyric(field, pref, 0) == pytest.approx(0.0)
-    assert sung_line(field, pref) == [head.index("lyric0")] * len(pref)
+    ly = lyric_span(pref)
+    assert sung_line(field, ly) == [head.index("lyric0")] * len(ly)
 
 
-def test_scored_columns_are_lyric_recall_cover_neu_hold():
+def test_scored_columns_are_lyric_recall_cover_neu_hold_gender_move():
     row = by_name("divergent")["faithful_plus_neu"]
     assert "lyric_recall" in row and "cover" in row and "neu_hold" in row
+    assert "gender_move" in row
     assert "lyric_recall_zero" in row and "lyric_recall_ref_plus" in row
     assert "leak_frac" not in row
     assert "exam_score" not in row
@@ -196,25 +203,29 @@ def test_prefix_hold_lifts_lyric_recall_and_keeps_cover():
         assert "lyric" in prefix["sings_lyric"]
 
 
-def test_rank_is_lyric_recall_then_cover():
+def test_rank_is_want_box_then_grit_lyric_then_gender_move():
     ranked = lyric_rank(table())
     names = [r["name"] for r in ranked]
-    assert names[0] == "faithful_plus_neu_prefix"
-    assert ranked[0]["in_box"] is True
+    assert "faithful_plus_neu_lyric" in names
+    assert "faithful_plus_neu_prefix" in names
     for earlier, later in zip(ranked, ranked[1:]):
-        if abs(earlier["lyric_recall"] - later["lyric_recall"]) > 1e-9:
-            assert earlier["lyric_recall"] >= later["lyric_recall"]
+        if earlier["want_box"] != later["want_box"]:
+            assert earlier["want_box"] >= later["want_box"]
             continue
-        if abs(earlier["cover"] - later["cover"]) > 1e-9:
-            assert earlier["cover"] >= later["cover"]
+        if abs((earlier["lyric_recall_grit"] or 0) - (later["lyric_recall_grit"] or 0)) > 1e-9:
+            assert (earlier["lyric_recall_grit"] or 0) >= (later["lyric_recall_grit"] or 0)
+            continue
+        if abs((earlier["gender_move"] or 0) - (later["gender_move"] or 0)) > 1e-9:
+            assert (earlier["gender_move"] or 0) >= (later["gender_move"] or 0)
 
 
-def test_recipes_are_the_five_comparisons():
+def test_recipes_include_lyric_hold_and_baselines():
     names = [c["name"] for c in LYRIC_RECIPES]
     assert names == [
         "faithful_plus_neu",
         "faithful_plus",
         "faithful_plus_neu_prefix",
+        "faithful_plus_neu_lyric",
         "leftover_gate_bipolar",
         "pair_odd_midpoint",
     ]
@@ -273,6 +284,30 @@ def test_verdict_includes_existing_ood():
     assert verdict["existing_ood"]["only_prefix_lyric_sheet"] is True
 
 
+def test_want_box_splits_uni_prefix_and_lyric_hold():
+    verdict = lyric_verdict(table())
+    assert verdict["uni_hits_gender_misses_grit"] is True
+    assert verdict["prefix_hits_grit_misses_gender"] is True
+    assert verdict["lyric_hits_both"] is True
+    uni = by_name("close")["faithful_plus_neu"]
+    prefix = by_name("close")["faithful_plus_neu_prefix"]
+    lyric = by_name("close")["faithful_plus_neu_lyric"]
+    grit_uni = by_name("divergent")["faithful_plus_neu"]
+    grit_prefix = by_name("divergent")["faithful_plus_neu_prefix"]
+    grit_lyric = by_name("divergent")["faithful_plus_neu_lyric"]
+    assert uni["gender_move"] >= 0.85
+    assert grit_uni["lyric_recall"] < 0.85
+    assert grit_prefix["lyric_recall"] >= 0.85
+    assert prefix["gender_move"] < 0.85
+    assert grit_lyric["lyric_recall"] >= 0.85
+    assert lyric["gender_move"] >= 0.85
+    assert grit_lyric["cover"] >= PLUS_COVER_MIN
+    assert lyric["neu_hold"] >= PLUS_NEU_HOLD_MIN
+    ranked = lyric_rank(table())
+    assert ranked[0]["name"] == "faithful_plus_neu_lyric"
+    assert ranked[0]["want_box"] is True
+
+
 def test_sequence_last_hidden_is_causal_in_prefix():
     field = divergent_field()
     residual = SequenceResidual.create(field)
@@ -284,4 +319,4 @@ def test_sequence_last_hidden_is_causal_in_prefix():
     )
     assert not torch.allclose(last, last_clean, atol=1e-5)
     assert float(ATTEND) > 0.0
-    assert pref.shape[0] == lyric_embeds(field, 0).shape[0]
+    assert lyric_span(pref).shape[0] == lyric_embeds(field, 0).shape[0]
