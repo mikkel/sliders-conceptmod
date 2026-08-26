@@ -352,10 +352,14 @@ def test_the_passing_recipes_stay_on_the_caption_side():
     }
     modes = {leaky()[name]["pole_mode"] for name in winners}
     assert modes == {"hidden", "semantic_kl", "dual_band"}
+    field = leaky_field()
     for name in winners:
         row = leaky()[name]
         assert row["teacher"].startswith("faithful") or row["teacher"] == "caption_odd_margin"
-        assert row["off_caption"] < 1.0
+        target = teacher_sheet_row(
+            name, field, teacher=row["teacher"], leak_dir=field.leak_e()
+        )
+        assert target["off_caption"] < 1.0
 
 
 def test_a_caption_target_without_e_cleaning_still_leaks():
