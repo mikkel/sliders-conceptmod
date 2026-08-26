@@ -166,7 +166,10 @@ board and the next card (`gender-lm-v19`: `--lm_target faithful
 Plus-only (`--lm_target faithful_plus`) trains leftover-gated `h+` and
 drops minus MSE; it lives on a separate scale
 ([docs/lm-plus-exam.md](docs/lm-plus-exam.md)) and is not folded into
-`exam_score`, `leak_frac`, or the compiled bipolar board. Default stays
+`exam_score`, `leak_frac`, or the compiled bipolar board. UNI
+(`--lm_target faithful_plus_neu`) trains raw `h+` at +1 and `h0` at
+scale 0 (no leftover-gate, no minus MSE) and is ranked on
+[docs/lm-plus-neu-exam.md](docs/lm-plus-neu-exam.md). Default stays
 `--lm_target v9` / `--pole_mode hidden`.
 
 **Retrain the LM halves after this lands.** TF is still the caption-BPM

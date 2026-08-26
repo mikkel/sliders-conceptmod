@@ -718,6 +718,118 @@ def test_faithful_plus_is_wired_and_not_the_default():
     assert float(both) > float(base)
 
 
+def test_faithful_plus_neu_is_wired_and_not_the_default():
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful_plus_neu"]
+    )
+    assert args.lm_target == "faithful_plus_neu"
+    assert args.pole_mode == "hidden"
+    assert resolve_lm_recipe(lm_target="faithful_plus_neu", symmetric=True) == (
+        "faithful_plus_neu"
+    )
+    hold, anchor = resolve_lm_loss_weights(
+        "faithful_plus_neu",
+        hold_weight=None,
+        anchor_weight=None,
+        leak_declared=True,
+    )
+    assert hold == 0.0
+    assert anchor == 0.0
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+    assert bare.pole_mode == "hidden"
+    src = Path("conceptmod/textsliders/train_lm_slider_music3.py").read_text()
+    assert '"lm_target": recipe' in src
+    assert '"plus_neu": recipe in PLUS_NEU_RECIPES' in src
+    pos, neg, neu = _ungated_pair()
+    plus, minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful_plus_neu")
+    assert torch.allclose(plus, pos)
+    pair_odd = lm_hidden_targets(pos, neg, neu, target_mode="symmetric")
+    assert not torch.allclose(plus, pair_odd[0])
+    leftover = torch.tensor([0.0, 1.0])
+    still_raw, _, _, _ = lm_train_targets(
+        pos,
+        neg,
+        neu,
+        recipe="faithful_plus_neu",
+        slider_dir=E_SLIDER,
+        leak_dir=leftover,
+    )
+    assert torch.allclose(still_raw, pos)
+    gated, _, _, _ = lm_train_targets(
+        pos,
+        neg,
+        neu,
+        recipe="faithful_plus",
+        slider_dir=E_SLIDER,
+        leak_dir=leftover,
+    )
+    want = lm_faithful_sub_e(pos, neg, neu, leftover, slider_dir=E_SLIDER)
+    assert torch.allclose(gated, want[0])
+    assert not torch.allclose(still_raw, gated)
+    pred_plus = plus + 0.1
+    pred_minus = minus
+    pred_zero = neu + 0.2
+    base = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        plus,
+        minus,
+        plus_neu=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pole_mode="hidden",
+    )
+    moved_minus = lm_train_loss(
+        pred_plus,
+        pred_minus + 3.0,
+        plus,
+        minus,
+        plus_neu=True,
+        pred_zero=pred_zero,
+        tgt_zero=neu,
+        pole_mode="hidden",
+    )
+    moved_zero = lm_train_loss(
+        pred_plus,
+        pred_minus,
+        plus,
+        minus,
+        plus_neu=True,
+        pred_zero=pred_zero + 1.0,
+        tgt_zero=neu,
+        pole_mode="hidden",
+    )
+    plus_only = lm_train_loss(
+        pred_plus, pred_minus, plus, minus, plus_only=True, pole_mode="hidden"
+    )
+    both = lm_train_loss(
+        pred_plus, pred_minus + 3.0, plus, minus, plus_only=False, pole_mode="hidden"
+    )
+    assert float(base) == pytest.approx(float(moved_minus), abs=1e-7)
+    assert float(moved_zero) > float(base)
+    assert float(base) > float(plus_only)
+    assert float(both) > 0.0
+
+
+def test_help_lists_faithful_plus_neu_and_keeps_v9_hidden_default():
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with pytest.raises(SystemExit):
+        with redirect_stdout(buf):
+            parse_args(["--help"])
+    help_text = buf.getvalue()
+    assert "--lm_target" in help_text
+    assert "faithful_plus_neu" in help_text
+    assert "faithful_plus" in help_text
+    assert "v9" in help_text
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+    assert bare.pole_mode == "hidden"
+
+
 def test_help_lists_faithful_plus_and_keeps_v9_hidden_default():
     import io
     from contextlib import redirect_stdout
