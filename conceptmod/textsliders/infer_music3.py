@@ -157,6 +157,7 @@ def infer(args: argparse.Namespace) -> list[Path]:
     if meta.get("plus_neu") or str(meta.get("lm_target") or "") in {
         "faithful_plus_neu",
         "faithful_plus_neu_prefix",
+        "faithful_plus_neu_roles",
         "faithful_plus_neu_lyric",
     }:
         print(
