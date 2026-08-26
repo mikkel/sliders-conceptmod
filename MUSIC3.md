@@ -169,10 +169,14 @@ drops minus MSE; it lives on a separate scale
 `exam_score`, `leak_frac`, or the compiled bipolar board. UNI
 (`--lm_target faithful_plus_neu`) trains raw `h+` at +1 and `h0` at
 scale 0 (no leftover-gate, no minus MSE) and is ranked on
-[docs/lm-plus-neu-exam.md](docs/lm-plus-neu-exam.md). That last-hidden
-card can sit in the cover / neu_hold want-box and still shred yaml
-lyrics. Existing-metric OOD (sheet `lyric_mass` / continuation vs the
-lyric sheet) and the `faithful_plus_neu` implementation hunt live on
+[docs/lm-plus-neu-exam.md](docs/lm-plus-neu-exam.md). That last-token
+card keeps gender / tempo but can shred yaml lyrics on grit. Whole-prefix
+hold (`--lm_target faithful_plus_neu_prefix`) is the grit / distortion /
+joy medicine — it also pins Vocal Details to the ungendered neu caption.
+Lyric-token hold (`--lm_target faithful_plus_neu_lyric`) holds only the
+yaml `lyrics` span so gender can still move. Those three sit on
+[docs/lm-lyric-hold.md](docs/lm-lyric-hold.md). Existing-metric OOD
+(sheet `lyric_mass` / continuation vs the lyric sheet) lives on
 [docs/lm-lyric-recall.md](docs/lm-lyric-recall.md). Default stays
 `--lm_target v9` / `--pole_mode hidden`.
 

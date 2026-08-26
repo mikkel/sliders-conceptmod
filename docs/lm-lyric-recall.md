@@ -115,8 +115,18 @@ CUDA_VISIBLE_DEVICES=N python conceptmod/textsliders/train_lm_slider_music3.py \
 v4 yaml is not rewritten. Infer plus+neu with the **neutral**
 caption + LoRA, not the + caption.
 
+## 4. Lyric-token hold (one-recipe candidate)
+
+`--lm_target faithful_plus_neu` = last-token UNI (gender / tempo).
+`--lm_target faithful_plus_neu_prefix` = whole-prefix hold (grit /
+distortion / joy). `--lm_target faithful_plus_neu_lyric` holds only
+the yaml `lyrics` span so Vocal Details can still flip woman. Ranked
+on [lm-lyric-hold.md](lm-lyric-hold.md). Default stays
+`--lm_target v9` / `--pole_mode hidden`.
+
 ## Related cells
 
+- [lm-lyric-hold.md](lm-lyric-hold.md) — grit lyrics vs gender_move scoreboard.
 - [lm-plus-neu-exam.md](lm-plus-neu-exam.md) — last-hidden cover / neu_hold / off-caption.
 - [lm-plus-exam.md](lm-plus-exam.md) — plus-only cover / off-caption.
 - [lm-pair-exam.md](lm-pair-exam.md) — bipolar continuation / same_words / off_corpus / coherence.

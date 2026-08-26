@@ -26,7 +26,10 @@ MSE only. No minus MSE, no minus endreg, early-stop on c+/p% only.
 Last real token must be ``<|audio_start|>``. Infer with the yaml
 neutral caption + LoRA (not the + caption).
 ``--lm_target faithful_plus_neu_prefix`` also holds the +1 prefix
-hidden to encode(neu) (yaml lyrics), not encode(pos).
+hidden to encode(neu) (yaml lyrics), not encode(pos). That pins
+Vocal Details too. ``--lm_target faithful_plus_neu_lyric`` holds
+only the yaml ``lyrics`` token span so gender / other prefix
+concepts can still move.
 ``--pole_mode semantic_kl`` is
 next-token KL on the semantic band. ``--pole_mode semantic_kl_null``
 (aliases ``semantic_kl_plus_hidden``, ``semantic_kl_pin``) adds hidden
@@ -98,6 +101,7 @@ from conceptmod.textsliders.slider_targets import (
     lm_faithful_guard_e,
     lm_faithful_plus,
     lm_faithful_plus_neu,
+    lm_faithful_plus_neu_lyric,
     lm_faithful_plus_neu_prefix,
     lm_plus_neu_prefix_loss,
     lm_faithful_sub_e,
@@ -135,6 +139,7 @@ LM_RECIPES = (
     "faithful_plus",
     "faithful_plus_neu",
     "faithful_plus_neu_prefix",
+    "faithful_plus_neu_lyric",
 )
 # Canonical live pole modes. ``semantic_kl_plus_hidden`` (#32) and
 # ``semantic_kl_pin`` (#29) are aliases of ``semantic_kl_null`` (#33) —
@@ -164,8 +169,12 @@ GATED_SUB_E_RECIPES = frozenset(
 )
 EVEN_BLEND_RECIPES = frozenset({"faithful_even_blend"})
 PLUS_ONLY_RECIPES = frozenset({"faithful_plus"})
-PLUS_NEU_RECIPES = frozenset({"faithful_plus_neu", "faithful_plus_neu_prefix"})
+PLUS_NEU_RECIPES = frozenset(
+    {"faithful_plus_neu", "faithful_plus_neu_prefix", "faithful_plus_neu_lyric"}
+)
 PLUS_NEU_PREFIX_RECIPES = frozenset({"faithful_plus_neu_prefix"})
+PLUS_NEU_LYRIC_RECIPES = frozenset({"faithful_plus_neu_lyric"})
+PLUS_NEU_HOLD_RECIPES = PLUS_NEU_PREFIX_RECIPES | PLUS_NEU_LYRIC_RECIPES
 PAIR_ODD_RECIPES = frozenset({"pair_odd_sub_e"})
 TARGET_REPLACE = ["Qwen3Attention"]
 
@@ -198,6 +207,9 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
     last-hidden MSE only; no leftover-gate, no minus MSE; not the default.
     ``faithful_plus_neu_prefix`` is UNI plus a prefix hold: +1 prefix
     hidden fits encode(neu) prefix (yaml lyrics), not encode(pos).
+    ``faithful_plus_neu_lyric`` is UNI plus a lyric-token hold: +1
+    yaml ``lyrics`` tokens fit encode(neu) lyrics. Vocal Details is
+    not held.
     """
     recipe = str(lm_target).strip().lower()
     if recipe not in LM_RECIPES:
@@ -463,6 +475,16 @@ def lm_train_targets(
             target_scale=target_scale,
         )
         return plus, neg, None, None
+    if recipe == "faithful_plus_neu_lyric":
+        plus = lm_faithful_plus_neu_lyric(
+            pos,
+            neg,
+            neu,
+            leak_dir,
+            slider_dir=slider_dir,
+            target_scale=target_scale,
+        )
+        return plus, neg, None, None
     if recipe in PROJECT_RECIPES:
         if slider_dir is None:
             raise ValueError("lm_target=v9_project requires a declared slider_dir")
@@ -545,6 +567,7 @@ def lm_train_loss(
     ``plus_only`` (``faithful_plus``) drops every minus term.
     ``plus_neu`` (``faithful_plus_neu``) is ``MSE(+) + MSE(0)`` only.
     ``plus_neu_prefix`` adds ``MSE(prefix + → encode(neu) prefix)``.
+    Lyric-hold uses the same flag with a yaml-lyrics mask.
     """
     if plus_only and plus_neu:
         raise ValueError("plus_only and plus_neu are mutually exclusive")
@@ -792,6 +815,32 @@ def _gather_last_hidden(hidden: torch.Tensor, attention_mask: torch.Tensor) -> t
     return hidden.gather(1, gather.clamp(min=0)).squeeze(1)
 
 
+def _special_token_id(tokenizer, token: str):
+    """Tokenizer id for a special token, or None if the tokenizer cannot say."""
+    if tokenizer is None:
+        return None
+    convert = getattr(tokenizer, "convert_tokens_to_ids", None)
+    if convert is None:
+        return None
+    tid = convert(token)
+    if tid is None:
+        return None
+    try:
+        tid = int(tid)
+    except (TypeError, ValueError):
+        return None
+    if tid < 0:
+        return None
+    unk = getattr(tokenizer, "unk_token_id", None)
+    if unk is not None:
+        try:
+            if tid == int(unk):
+                return None
+        except (TypeError, ValueError):
+            pass
+    return tid
+
+
 def _audio_start_token_id(tokenizer):
     """Tokenizer id for ``<|audio_start|>``, or None if the tokenizer cannot say."""
     if tokenizer is None:
@@ -809,6 +858,79 @@ def _audio_start_token_id(tokenizer):
     if tid < 0:
         return None
     return tid
+
+
+def _lyric_token_mask(
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    tokenizer,
+    lyrics: str,
+    *,
+    where: str,
+) -> torch.Tensor:
+    """Mask over yaml ``lyrics`` tokens only (between lyrics_start/end).
+
+    Fail closed on empty lyrics or a span the tokenized prompt does not
+    contain. Does not mark Vocal Details / caption / metadata tokens.
+    """
+    if not str(lyrics or "").strip():
+        raise RuntimeError(
+            f"{where}: empty lyrics; lyric-hold cannot locate a yaml lyrics span"
+        )
+    start_id = _special_token_id(tokenizer, _LYRICS_START)
+    end_id = _special_token_id(tokenizer, _LYRICS_END)
+    if start_id is None or end_id is None or start_id == end_id:
+        raise RuntimeError(
+            f"{where}: tokenizer cannot name {_LYRICS_START}/{_LYRICS_END}; "
+            "lyric-hold cannot locate the yaml lyrics span"
+        )
+    mask = torch.zeros_like(attention_mask)
+    for batch in range(input_ids.size(0)):
+        start_pos = end_pos = None
+        for index in range(input_ids.size(1)):
+            if int(attention_mask[batch, index]) == 0:
+                continue
+            tid = int(input_ids[batch, index])
+            if start_pos is None and tid == start_id:
+                start_pos = index
+            elif start_pos is not None and end_pos is None and tid == end_id:
+                end_pos = index
+                break
+        if start_pos is None or end_pos is None or end_pos <= start_pos + 1:
+            raise RuntimeError(
+                f"{where}: yaml lyrics span not found between "
+                f"{_LYRICS_START} and {_LYRICS_END}"
+            )
+        mask[batch, start_pos + 1 : end_pos] = attention_mask[batch, start_pos + 1 : end_pos]
+    if int(mask.sum()) <= 0:
+        raise RuntimeError(f"{where}: yaml lyrics span is empty after masking")
+    return mask
+
+
+def _assert_lyric_span(
+    neu_ids: torch.Tensor,
+    neu_mask: torch.Tensor,
+    pos_ids: torch.Tensor,
+    pos_mask: torch.Tensor,
+    tokenizer,
+    lyrics: str,
+    *,
+    where: str,
+) -> torch.Tensor:
+    """Locate the yaml lyrics span on neu and pos. Return the neu mask."""
+    neu_lyric = _lyric_token_mask(
+        neu_ids, neu_mask, tokenizer, lyrics, where=f"{where} neu"
+    )
+    pos_lyric = _lyric_token_mask(
+        pos_ids, pos_mask, tokenizer, lyrics, where=f"{where} pos"
+    )
+    neu_toks = neu_ids[0][neu_lyric[0].bool()]
+    pos_toks = pos_ids[0][pos_lyric[0].bool()]
+    if not torch.equal(neu_toks, pos_toks):
+        raise RuntimeError(
+            f"{where}: yaml lyrics tokens differ between neu and pos prompts"
+        )
+    return neu_lyric
 
 
 def _assert_last_token_is_audio_start(
@@ -1188,6 +1310,11 @@ def train(args: argparse.Namespace) -> Path:
                 "teacher=raw + last hidden; +1 prefix → encode(neu); "
                 "scale 0 fits h0; minus MSE off; hold 0"
             )
+        elif recipe == "faithful_plus_neu_lyric":
+            hold_note = (
+                "teacher=raw + last hidden; +1 lyrics → encode(neu) lyrics; "
+                "Vocal Details free; scale 0 fits h0; minus MSE off; hold 0"
+            )
         else:
             hold_note = "hold (h(±1)−h0)·ê_⊥û, ê_⊥=ê−(ê·û)û; teacher stays pair-odd"
         print(
@@ -1217,12 +1344,24 @@ def train(args: argparse.Namespace) -> Path:
             neu_ref = _encode_static(lm, *tokens["neutral"])
             neu_hidden = None
             neu_prefix_mask = None
-            if recipe in PLUS_NEU_PREFIX_RECIPES:
+            if recipe in PLUS_NEU_HOLD_RECIPES:
                 neu_full = _encode_full(lm, *tokens["neutral"])
-                _last, neu_hidden, neu_prefix_mask = _split_prefix_last(
-                    neu_full, tokens["neutral"][1]
-                )
-                del _last
+                if recipe in PLUS_NEU_LYRIC_RECIPES:
+                    neu_prefix_mask = _assert_lyric_span(
+                        tokens["neutral"][0],
+                        tokens["neutral"][1],
+                        tokens["positive"][0],
+                        tokens["positive"][1],
+                        tokenizer,
+                        lyrics,
+                        where=f"row {index}",
+                    )
+                    neu_hidden = neu_full
+                else:
+                    _last, neu_hidden, neu_prefix_mask = _split_prefix_last(
+                        neu_full, tokens["neutral"][1]
+                    )
+                    del _last
         target_cos = F.cosine_similarity(pos_tgt - neu_ref, neg_tgt - neu_ref, dim=-1).mean().item()
         align = None
         if slider_dir is not None:
@@ -1326,6 +1465,15 @@ def train(args: argparse.Namespace) -> Path:
                 "faithful_plus_neu_prefix: teacher=raw + last hidden "
                 "(no leftover-gate); student +1 last fits h+, "
                 "student +1 prefix fits encode(neu) prefix (yaml lyrics), "
+                "student 0 fits h0; no pair-odd, no h0 ± a, no minus MSE, "
+                "no minus endreg; early_stop on c+/p% only"
+            )
+        elif recipe == "faithful_plus_neu_lyric":
+            print(
+                "faithful_plus_neu_lyric: teacher=raw + last hidden "
+                "(no leftover-gate); student +1 last fits h+, "
+                "student +1 yaml lyrics fit encode(neu) lyrics, "
+                "Vocal Details / metadata are not held, "
                 "student 0 fits h0; no pair-odd, no h0 ± a, no minus MSE, "
                 "no minus endreg; early_stop on c+/p% only"
             )
@@ -1440,6 +1588,13 @@ def train(args: argparse.Namespace) -> Path:
         elif recipe == "faithful_plus_neu_prefix":
             dropped = (
                 " teacher=faithful_plus_neu_prefix raw_h+ prefix→encode(neu) "
+                "hold_ê=0 minus_mse=off neu_mse=on"
+            )
+            if encoded["align"] is not None:
+                dropped += f" odd·û/||odd||={encoded['align']:.3f} (probe)"
+        elif recipe == "faithful_plus_neu_lyric":
+            dropped = (
+                " teacher=faithful_plus_neu_lyric raw_h+ lyrics→encode(neu) "
                 "hold_ê=0 minus_mse=off neu_mse=on"
             )
             if encoded["align"] is not None:
@@ -1624,16 +1779,19 @@ def train(args: argparse.Namespace) -> Path:
                 pred_zero, _, hid_zero = _forward_teacher_forced(
                     lm, data["prompt_embeds"], data["frame_embeds"]
                 )
-                if recipe in PLUS_NEU_PREFIX_RECIPES:
+                if recipe in PLUS_NEU_HOLD_RECIPES:
                     prompt_len = int(data["prompt_embeds"].shape[1])
                     pred_plus_prefix = hid_pos[:, :prompt_len]
-                    prefix_mask = torch.ones(
-                        pred_plus_prefix.shape[:2],
-                        dtype=torch.long,
-                        device=pred_plus_prefix.device,
-                    )
-                    if prompt_len > 0:
-                        prefix_mask[:, prompt_len - 1] = 0
+                    if recipe in PLUS_NEU_LYRIC_RECIPES:
+                        prefix_mask = data.get("neu_prefix_mask")
+                    else:
+                        prefix_mask = torch.ones(
+                            pred_plus_prefix.shape[:2],
+                            dtype=torch.long,
+                            device=pred_plus_prefix.device,
+                        )
+                        if prompt_len > 0:
+                            prefix_mask[:, prompt_len - 1] = 0
                     _ = hid_zero
         else:
             if args.planreg_weight > 0:
@@ -1641,11 +1799,15 @@ def train(args: argparse.Namespace) -> Path:
             _set_scale(network, 1.0)
             pred_plus_prefix = None
             prefix_mask = None
-            if recipe in PLUS_NEU_PREFIX_RECIPES:
+            if recipe in PLUS_NEU_HOLD_RECIPES:
                 hid_pos = _encode_full(lm, neu_ids, neu_mask)
-                pred_pos, pred_plus_prefix, prefix_mask = _split_prefix_last(
+                pred_pos, pred_plus_prefix, split_mask = _split_prefix_last(
                     hid_pos, neu_mask
                 )
+                if recipe in PLUS_NEU_LYRIC_RECIPES:
+                    prefix_mask = data.get("neu_prefix_mask")
+                else:
+                    prefix_mask = split_mask
             else:
                 pred_pos = _encode_train(lm, neu_ids, neu_mask)
 
@@ -1699,7 +1861,7 @@ def train(args: argparse.Namespace) -> Path:
             plus_neu=recipe in PLUS_NEU_RECIPES,
             pred_zero=pred_zero,
             tgt_zero=neu_ref if recipe in PLUS_NEU_RECIPES else None,
-            plus_neu_prefix=recipe in PLUS_NEU_PREFIX_RECIPES,
+            plus_neu_prefix=recipe in PLUS_NEU_HOLD_RECIPES,
             pred_plus_prefix=pred_plus_prefix,
             tgt_neu_prefix=data.get("neu_hidden"),
             prefix_mask=prefix_mask if prefix_mask is not None else data.get("neu_prefix_mask"),
@@ -1796,6 +1958,7 @@ def train(args: argparse.Namespace) -> Path:
         "plus_only": recipe in PLUS_ONLY_RECIPES,
         "plus_neu": recipe in PLUS_NEU_RECIPES,
         "plus_neu_prefix": recipe in PLUS_NEU_PREFIX_RECIPES,
+        "plus_neu_lyric": recipe in PLUS_NEU_LYRIC_RECIPES,
         "even_blend_scale": float(args.even_blend_scale),
         "pole_mode": pole_mode,
         "symmetric": bool(args.symmetric),
@@ -1908,6 +2071,10 @@ def parse_args(argv=None):
         "MSE only. faithful_plus_neu_prefix: UNI plus a prefix hold. Student "
         "+1 last hidden fits raw h+, +1 prefix hidden fits encode(neu) "
         "prefix (yaml lyrics, not encode(pos) prefix), scale 0 fits h0. "
+        "Pins Vocal Details too. faithful_plus_neu_lyric: UNI plus a "
+        "lyric-token hold. Student +1 last hidden fits raw h+, +1 yaml "
+        "lyrics tokens fit encode(neu) lyrics only, Vocal Details / "
+        "metadata stay free, scale 0 fits h0. "
         "No minus MSE, no pair-odd, no h0 ± a. Not the default",
     )
     p.add_argument(

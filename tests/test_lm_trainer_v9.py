@@ -899,6 +899,54 @@ def test_faithful_plus_neu_prefix_is_wired_and_not_the_default():
     assert bare.pole_mode == "hidden"
 
 
+def test_faithful_plus_neu_lyric_is_wired_and_not_the_default():
+    from conceptmod.textsliders.train_lm_slider_music3 import (
+        PLUS_NEU_HOLD_RECIPES,
+        PLUS_NEU_LYRIC_RECIPES,
+        PLUS_NEU_PREFIX_RECIPES,
+        PLUS_NEU_RECIPES,
+    )
+
+    args = parse_args(
+        ["--prompts_file", "prompts.yaml", "--lm_target", "faithful_plus_neu_lyric"]
+    )
+    assert args.lm_target == "faithful_plus_neu_lyric"
+    assert args.pole_mode == "hidden"
+    assert resolve_lm_recipe(lm_target="faithful_plus_neu_lyric", symmetric=True) == (
+        "faithful_plus_neu_lyric"
+    )
+    assert "faithful_plus_neu_lyric" in PLUS_NEU_RECIPES
+    assert PLUS_NEU_LYRIC_RECIPES == frozenset({"faithful_plus_neu_lyric"})
+    assert PLUS_NEU_PREFIX_RECIPES == frozenset({"faithful_plus_neu_prefix"})
+    assert PLUS_NEU_HOLD_RECIPES == PLUS_NEU_PREFIX_RECIPES | PLUS_NEU_LYRIC_RECIPES
+    hold, anchor = resolve_lm_loss_weights(
+        "faithful_plus_neu_lyric",
+        hold_weight=None,
+        anchor_weight=None,
+        leak_declared=True,
+    )
+    assert hold == 0.0
+    assert anchor == 0.0
+    pos, neg, neu = _ungated_pair()
+    plus, minus, _, _ = lm_train_targets(pos, neg, neu, recipe="faithful_plus_neu_lyric")
+    assert torch.allclose(plus, pos)
+    leftover = torch.tensor([0.0, 1.0])
+    still_raw, _, _, _ = lm_train_targets(
+        pos,
+        neg,
+        neu,
+        recipe="faithful_plus_neu_lyric",
+        slider_dir=E_SLIDER,
+        leak_dir=leftover,
+    )
+    assert torch.allclose(still_raw, pos)
+    src = Path("conceptmod/textsliders/train_lm_slider_music3.py").read_text()
+    assert '"plus_neu_lyric": recipe in PLUS_NEU_LYRIC_RECIPES' in src
+    bare = parse_args(["--prompts_file", "prompts.yaml"])
+    assert bare.lm_target == "v9"
+    assert bare.pole_mode == "hidden"
+
+
 def test_help_lists_faithful_plus_neu_and_keeps_v9_hidden_default():
     import io
     from contextlib import redirect_stdout
@@ -910,6 +958,7 @@ def test_help_lists_faithful_plus_neu_and_keeps_v9_hidden_default():
     help_text = buf.getvalue()
     assert "--lm_target" in help_text
     assert "faithful_plus_neu" in help_text
+    assert "faithful_plus_neu_lyric" in help_text
     assert "faithful_plus" in help_text
     assert "v9" in help_text
     bare = parse_args(["--prompts_file", "prompts.yaml"])
@@ -1348,7 +1397,9 @@ def test_plus_neu_skips_minus_endreg_and_minus_early_stop():
     assert _endreg_uses_minus("faithful_plus") is True
     assert _endreg_uses_minus("faithful_plus_neu") is False
     assert _endreg_uses_minus("faithful_plus_neu_prefix") is False
+    assert _endreg_uses_minus("faithful_plus_neu_lyric") is False
     assert _minus_pole_used("faithful_plus_neu") is False
+    assert _minus_pole_used("faithful_plus_neu_lyric") is False
     src = Path("conceptmod/textsliders/train_lm_slider_music3.py").read_text()
     assert "if _minus_pole_used(recipe):" in src
     assert "plus_neu=recipe in PLUS_NEU_RECIPES" in src
