@@ -28,7 +28,7 @@ import re
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
@@ -322,6 +322,108 @@ def _cpu_noise(shape, seed: int, device) -> torch.Tensor:
     return torch.randn(shape, generator=g, device="cpu").to(device=device)
 
 
+def _read_guidance_scale(obj) -> float | None:
+    """Read CFG from a guider, ``guider.config``, or a mapping."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        value = obj.get("guidance_scale")
+        return float(value) if value is not None else None
+    value = getattr(obj, "guidance_scale", None)
+    if value is not None and not callable(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _set_guidance_scale(obj, value: float) -> bool:
+    """Write CFG onto a guider / config. Prefer ``register_to_config``."""
+    if obj is None:
+        return False
+    value = float(value)
+    if isinstance(obj, dict):
+        obj["guidance_scale"] = value
+        return True
+    register = getattr(obj, "register_to_config", None)
+    if callable(register):
+        try:
+            register(guidance_scale=value)
+            if _read_guidance_scale(obj) is not None:
+                return True
+        except Exception:
+            pass
+    try:
+        setattr(obj, "guidance_scale", value)
+        return True
+    except (TypeError, AttributeError):
+        return False
+
+
+def apply_anima_guider_cfg(pipe, cfg: float) -> Callable[[], None]:
+    """Set ModularPipeline CFG on the guider, not a rejected kwarg.
+
+    Live Anima logs ``Unexpected input 'guidance_scale' … ignored`` if we
+    pass ``guidance_scale=`` to ``pipe(...)``. The working pattern is
+    ``guider.config.guidance_scale`` (and any real field the guider
+    exposes), then ``pipe(prompt=...)`` without that kwarg.
+
+    Fail closed: do not silently sample at CFG 1.
+    """
+    cfg = float(cfg)
+    guider = getattr(pipe, "guider", None)
+    if guider is None:
+        raise RuntimeError(
+            f"Anima ModularPipeline has no guider; cannot apply CFG {cfg:g}. "
+            "Set guider.config.guidance_scale. Do not pass guidance_scale= "
+            "(ignored). Do not silently sample at CFG 1."
+        )
+    snapshots: list[tuple[Any, float]] = []
+    applied = False
+    config = getattr(guider, "config", None)
+    for obj in (config, guider):
+        if obj is None:
+            continue
+        prev = _read_guidance_scale(obj)
+        if _set_guidance_scale(obj, cfg):
+            if prev is not None:
+                snapshots.append((obj, prev))
+            applied = True
+    for extra_name in ("guidance", "cfg"):
+        extra = getattr(guider, extra_name, None)
+        if isinstance(extra, (int, float)):
+            prev = float(extra)
+            try:
+                setattr(guider, extra_name, cfg)
+                snapshots.append((extra_name, prev))
+                applied = True
+            except (TypeError, AttributeError):
+                pass
+    readback = _read_guidance_scale(config)
+    if readback is None:
+        readback = _read_guidance_scale(guider)
+    if not applied or readback is None or abs(readback - cfg) > 1e-5:
+        raise RuntimeError(
+            f"Anima ModularPipeline CFG {cfg:g} could not be applied "
+            f"(readback={readback!r}). Set guider.config.guidance_scale; "
+            "top-level guidance_scale= is ignored. Do not silently sample "
+            "at CFG 1."
+        )
+
+    def _restore() -> None:
+        for obj, prev in snapshots:
+            if isinstance(obj, str):
+                try:
+                    setattr(guider, obj, prev)
+                except (TypeError, AttributeError):
+                    pass
+                continue
+            _set_guidance_scale(obj, prev)
+
+    return _restore
+
+
 def _call_modular_pipe(
     pipe,
     prompt: str,
@@ -334,18 +436,18 @@ def _call_modular_pipe(
     device,
     latent_shape=None,
 ):
-    """Same ``pipe(prompt=...)`` path as live infer. PEFT stays on transformer."""
+    """Same ``pipe(prompt=...)`` path as live infer. PEFT stays on transformer.
+
+    CFG is applied on the guider (``guider.config.guidance_scale``). Do
+    **not** pass ``guidance_scale=`` — Anima ModularPipeline ignores it.
+    """
     dummy_h = int(height)
     dummy_w = int(width)
     # Dummy stay cheap; live uses the train resolution.
     if type(pipe).__name__ == "FakeAnimaModularPipe":
         dummy_h = min(dummy_h, 64)
         dummy_w = min(dummy_w, 64)
-    guider = getattr(pipe, "guider", None)
-    prev_cfg = None
-    if guider is not None and hasattr(guider, "guidance_scale"):
-        prev_cfg = guider.guidance_scale
-        guider.guidance_scale = float(cfg)
+    restore = apply_anima_guider_cfg(pipe, cfg)
     kwargs: dict[str, Any] = {
         "prompt": prompt,
         "height": dummy_h,
@@ -358,13 +460,9 @@ def _call_modular_pipe(
     else:
         kwargs["generator"] = torch.Generator(device="cpu").manual_seed(int(seed))
     try:
-        try:
-            result = pipe(guidance_scale=float(cfg), **kwargs)
-        except TypeError:
-            result = pipe(**kwargs)
+        result = pipe(**kwargs)
     finally:
-        if prev_cfg is not None:
-            guider.guidance_scale = prev_cfg
+        restore()
     return _extract_images(result)
 
 
@@ -433,6 +531,7 @@ def emit_inprocess_samples(
                     "seed": seed,
                     "sample_steps": steps,
                     "cfg": cfg,
+                    "cfg_via": "guider.config.guidance_scale",
                     "height": int(arr.shape[0]),
                     "width": int(arr.shape[1]),
                     "method": "peft_pipe_prompt",

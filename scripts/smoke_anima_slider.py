@@ -43,7 +43,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from conceptmod.textsliders.anima_slider import live_train_card, live_train_command
+from conceptmod.textsliders.anima_slider import (
+    live_train_card,
+    live_train_command,
+    stock_teacher_smoke_captions,
+)
 from conceptmod.textsliders.train_lora_anima import main as train_main
 
 
@@ -55,6 +59,9 @@ def main(argv: list[str] | None = None) -> dict:
     print()
     print("=== Live train command ===")
     print(live_train_command())
+    print()
+    print("=== Stock teacher smoke (no Hub; live weights required to render) ===")
+    print(json.dumps(stock_teacher_smoke_captions(), indent=2))
     print()
     print("=== Dummy smoke (no Hub, no GPU) ===")
     sidecar = train_main(

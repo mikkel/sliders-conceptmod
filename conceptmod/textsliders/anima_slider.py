@@ -53,6 +53,21 @@ _NOISE_STD_HI = 82.0
 _NOISE_CORR_MAX = 0.15
 
 
+# v3 captions: closed-mouth neu vs hard-smile plus. Stock Anima already
+# soft-smiles on a bare "a woman sitting on a chair", so UNI plus= vs
+# that neu had almost no teacher gap. + is CFG teacher only; student +1
+# stays on neu/infer (#62 analog).
+WOMAN_NEU = "a woman sitting on a chair, neutral expression, closed mouth"
+WOMAN_PLUS = (
+    "a woman sitting on a chair, big smile showing teeth, happy joyful expression"
+)
+MAN_NEU = "a man reading at a table, neutral expression, closed mouth"
+MAN_PLUS = (
+    "a man reading at a table, big smile showing teeth, happy joyful expression"
+)
+DEFAULT_CONCEPT_WORDS = "smiling, smile, happy, joyful, teeth"
+
+
 @dataclass
 class AnimaSliderRow:
     target: str
@@ -65,6 +80,7 @@ class AnimaSliderRow:
     resolution: int = DEFAULT_RESOLUTION
     batch_size: int = 1
     pins: list[str] = field(default_factory=list)
+    concept_words: str = ""
 
     @property
     def has_minus_canary(self) -> bool:
@@ -81,6 +97,7 @@ class AnimaPromptsMeta:
     plus_label: str = ""
     minus_label: str = ""
     recommended_range: list[float] = field(default_factory=lambda: [-2.0, 2.0])
+    concept_words: str = ""
 
 
 def word_tokens(text: str) -> list[str]:
@@ -88,16 +105,30 @@ def word_tokens(text: str) -> list[str]:
     return _TOKEN_RE.findall((text or "").lower())
 
 
+def parse_concept_words(raw: str | Iterable[str] | None) -> list[str]:
+    """Split declared concept_words. Never held to encode(neu)."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = [p.strip() for p in raw.replace(",", " ").split() if p.strip()]
+    else:
+        parts = [str(p).strip() for p in raw if str(p).strip()]
+    return word_tokens(" ".join(parts))
+
+
 def unused_vocab(
     target: str,
     neutral: str,
     attributes: Iterable[str] | None = None,
     extra_pins: Iterable[str] | None = None,
+    concept_words: str | Iterable[str] | None = None,
 ) -> set[str]:
     """Subject, composition, and pinned attributes — never concept words."""
     vocab = set(word_tokens(target)) | set(word_tokens(neutral))
     for item in list(attributes or []) + list(extra_pins or []):
         vocab.update(word_tokens(str(item)))
+    for tok in parse_concept_words(concept_words):
+        vocab.discard(tok)
     return vocab
 
 
@@ -273,6 +304,7 @@ def _as_row(item: dict) -> AnimaSliderRow:
         resolution=int(item.get("resolution", DEFAULT_RESOLUTION)),
         batch_size=int(item.get("batch_size", 1)),
         pins=pins,
+        concept_words=str(item.get("concept_words") or ""),
     )
 
 
@@ -287,6 +319,7 @@ def load_anima_prompts(path: Path | str) -> tuple[list[AnimaSliderRow], AnimaPro
         rng = raw.get("recommended_range")
         if isinstance(rng, (list, tuple)) and len(rng) == 2:
             meta.recommended_range = [float(rng[0]), float(rng[1])]
+        meta.concept_words = str(raw.get("concept_words") or "")
         raw = raw.get("rows", raw.get("prompts"))
     if not isinstance(raw, list) or not raw:
         raise ValueError(f"anima prompts file is empty: {path}")
@@ -294,13 +327,21 @@ def load_anima_prompts(path: Path | str) -> tuple[list[AnimaSliderRow], AnimaPro
     for item in raw:
         if not isinstance(item, dict):
             raise ValueError(f"each anima prompt must be a mapping: {item!r}")
+        row_concept = str(item.get("concept_words") or meta.concept_words)
         for expanded in expand_attributes_anima(item):
+            expanded.setdefault("concept_words", row_concept)
             rows.append(_as_row(expanded))
     return rows, meta
 
 
 def row_token_plan(row: AnimaSliderRow) -> dict[str, Any]:
-    unused = unused_vocab(row.target, row.neutral, row.attributes, row.pins)
+    unused = unused_vocab(
+        row.target,
+        row.neutral,
+        row.attributes,
+        row.pins,
+        concept_words=row.concept_words,
+    )
     pos_tokens = word_tokens(row.positive)
     neu_tokens = word_tokens(row.neutral)
     return {
@@ -405,6 +446,27 @@ def assert_sample_gate(records: Sequence[dict[str, Any]]) -> None:
         )
 
 
+def stock_teacher_smoke_captions() -> dict[str, Any]:
+    """Same-seed stock Anima neu vs plus. No Hub. Docs / smoke only.
+
+    Before trusting a slider, stock neu must look clearly less smiley
+    than stock plus. If both already grin, UNI has almost no teacher gap.
+    """
+    return {
+        "woman": {"neu": WOMAN_NEU, "plus": WOMAN_PLUS},
+        "man": {"neu": MAN_NEU, "plus": MAN_PLUS},
+        "concept_words": DEFAULT_CONCEPT_WORDS,
+        "same_seed": True,
+        "cfg_via": "guider.config.guidance_scale",
+        "note": (
+            "stock neu must look clearly less smiley than stock plus "
+            "(same seed). + is CFG teacher only; student +1 stays on "
+            "neu/infer (#62 analog). Do not pass guidance_scale= to "
+            "ModularPipeline — it is ignored."
+        ),
+    }
+
+
 def live_train_card(
     *,
     name: str = "smile-anima",
@@ -444,6 +506,7 @@ def live_train_card(
             "pipe(prompt=...); fail if scale 0 is RGB noise or if scale "
             "0.25 is noise while 0 is fine"
         ),
+        "stock_teacher_smoke": stock_teacher_smoke_captions(),
         "recipe": "uni_plus_neu + unused_token_hold",
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
     }
