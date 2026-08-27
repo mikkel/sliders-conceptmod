@@ -2432,7 +2432,18 @@ def expand_attributes_sana(row: dict) -> list[dict]:
 
 
 def sana_concept_token_ids(concept_words: str | Iterable[str], tokenize_fn) -> set[int]:
-    return zimage_concept_token_ids(concept_words, tokenize_fn)
+    """Bare word ids plus leading-space BPE pieces (Gemma/Sana).
+
+    Standalone ``old`` is not the same id as `` old`` inside ``an old person``.
+    """
+    ids = zimage_concept_token_ids(concept_words, tokenize_fn)
+    if isinstance(concept_words, str):
+        words = [w.strip() for w in concept_words.split(",") if w.strip()]
+    else:
+        words = [str(w).strip() for w in concept_words if str(w).strip()]
+    for word in words:
+        ids.update(int(t) for t in tokenize_fn(" " + word))
+    return ids
 
 
 def sana_unused_token_hold(

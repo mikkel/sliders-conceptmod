@@ -29,9 +29,10 @@ import json
 import os
 import random
 import sys
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable, Sequence
 
 import torch
 import torch.nn as nn
@@ -292,8 +293,15 @@ class _LiveSana:
         if tokenizer is None:
             raise RuntimeError("Sana pipeline has no tokenizer")
         encoded = tokenizer(text, add_special_tokens=False)
-        ids = encoded["input_ids"] if isinstance(encoded, dict) else encoded
-        if ids and isinstance(ids[0], list):
+        ids = getattr(encoded, "input_ids", None)
+        if ids is None:
+            if isinstance(encoded, Mapping):
+                ids = encoded["input_ids"]
+            else:
+                ids = encoded
+        if hasattr(ids, "tolist"):
+            ids = ids.tolist()
+        if ids and isinstance(ids[0], (list, tuple)):
             ids = ids[0]
         return [int(t) for t in ids]
 
@@ -333,6 +341,31 @@ class _LiveSana:
             with torch.no_grad():
                 return self._forward(model, z, timestep, embeds)
         return self._forward(model, z, timestep, embeds)
+
+
+def resolve_sana_concept_ids(
+    plus_ids: Sequence[int],
+    neu_ids: Sequence[int],
+    concept_words: str | Iterable[str],
+    tokenize_fn: Callable[[str], list[int]],
+) -> set[int]:
+    """Declared concept ids, or the plus−neu support split if BPE missed.
+
+    Gemma/Sana pieces for a word in a sentence often differ from the bare
+    word. ``sana_concept_token_ids`` already adds ``" " + word``. If those
+    ids still miss the + prompt, use ``set(plus) - set(neu)``. Fail only
+    when that fallback is empty.
+    """
+    concept_ids = sana_concept_token_ids(concept_words, tokenize_fn)
+    plus = {int(t) for t in plus_ids}
+    banned = {int(t) for t in concept_ids}
+    if banned and any(tid in banned for tid in plus):
+        return banned
+    fallback = plus - {int(t) for t in neu_ids}
+    if fallback:
+        return fallback
+    zimage_require_concept_in_prompt(plus_ids, concept_ids)
+    return banned
 
 
 def _dummy_bundle(
@@ -471,7 +504,9 @@ def train(args: argparse.Namespace) -> Path:
         emb_uncond = _encode("").to(device)
         ids_pos = _ids(prompt.positive)
         ids_neu = _ids(prompt.neutral)
-        concept_ids = sana_concept_token_ids(prompt.concept_words, tokenize_fn)
+        concept_ids = resolve_sana_concept_ids(
+            ids_pos, ids_neu, prompt.concept_words, tokenize_fn
+        )
         if network is not None:
             _set_lora_multiplier(network, 0.0)
         with torch.no_grad():
@@ -487,7 +522,6 @@ def train(args: argparse.Namespace) -> Path:
 
         token_hold = None
         try:
-            zimage_require_concept_in_prompt(ids_pos, concept_ids)
             token_hold = sana_unused_token_hold(
                 emb_pos, emb_neu, ids_pos, ids_neu, concept_ids
             )
