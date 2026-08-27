@@ -22,6 +22,7 @@ from analysis.slider2d.exam import (
     LIVE_PAIR_COS,
     LIVE_ROW,
     close_field,
+    common_beta_sweep,
     divergence_sweep,
     divergent_field,
     exam_cell,
@@ -35,7 +36,9 @@ from analysis.slider2d.exam import (
     rollouts,
     score_exam,
     shared_from_probe_cos,
+    smallest_divergent_pass_beta,
     target_geometry,
+    teacher_points,
     teacher_rollouts,
     teacher_self_match,
     unused_e_field,
@@ -43,12 +46,16 @@ from analysis.slider2d.exam import (
 )
 from analysis.slider2d.sheet import leaky_cell
 from conceptmod.textsliders.slider_targets import (
+    COMMON_BETA_EXAM,
     UNUSED_E_OVERLAP_MAX,
+    leftover_bipolar,
     lm_e_overlap_a,
     lm_faithful_sub_e,
     lm_faithful_guard_e,
     lm_faithful_sub_e_if_unused,
+    lm_hidden_targets,
     lm_unit,
+    resolve_common_beta,
 )
 from conceptmod.textsliders.train_lm_slider_music3 import parse_args
 
@@ -551,6 +558,85 @@ def test_the_kl_loss_is_solved_across_the_whole_visible_sweep():
     assert reach > close_field().visible_share()
 
 
+# -- common_beta: partial keep of c --------------------------------------
+
+
+def test_common_beta_is_the_caption_to_pair_odd_interpolation():
+    """tgt = (1−β)·(h0 ± a) + β·h± is lm_hidden_targets(symmetric, β)."""
+    field = divergent_field()
+    pos, neg, neu = field.poles(0)
+    for beta in (0.0, 0.3, 0.7, 1.0):
+        plus, minus = lm_hidden_targets(
+            pos, neg, neu, target_mode="symmetric", common_beta=beta
+        )
+        axis = (pos - neg) / 2.0
+        want_plus = (1.0 - beta) * (neu + axis) + beta * pos
+        want_minus = (1.0 - beta) * (neu - axis) + beta * neg
+        assert torch.allclose(plus, want_plus, atol=1e-6)
+        assert torch.allclose(minus, want_minus, atol=1e-6)
+        got = teacher_points(field, 0, teacher="pair_odd", common_beta=beta)
+        assert torch.allclose(got[0], plus, atol=1e-6)
+        assert torch.allclose(got[1], minus, atol=1e-6)
+    raw = teacher_points(field, 0, teacher="pair_odd", common_beta=1.0)
+    assert torch.allclose(raw[0], pos, atol=1e-6)
+    assert torch.allclose(raw[1], neg, atol=1e-6)
+
+
+def test_leak_frac_is_leftover_bipolar_of_the_fitted_student():
+    field = divergent_field()
+    row = score_exam(
+        "beta0", field, pole_mode="hidden", teacher="pair_odd", common_beta=0.0, steps=STEPS
+    )
+    assert row["leak_frac"] == pytest.approx(row["collapse"], abs=1e-6)
+    assert row["leak_frac"] == pytest.approx(-1.0, abs=0.02)
+    poles = score_exam(
+        "beta1", field, pole_mode="hidden", teacher="pair_odd", common_beta=1.0, steps=STEPS
+    )
+    assert poles["leak_frac"] == pytest.approx(poles["collapse"], abs=1e-6)
+    assert poles["leak_frac"] > 0.0
+
+
+def test_common_beta_zero_is_banned_pair_odd_and_one_is_the_raw_poles():
+    field = divergent_field()
+    zero = score_exam(
+        "beta0", field, pole_mode="hidden", teacher="pair_odd", common_beta=0.0, steps=STEPS
+    )
+    one = score_exam(
+        "beta1", field, pole_mode="hidden", teacher="pair_odd", common_beta=1.0, steps=STEPS
+    )
+    assert zero["pass"] is False
+    assert zero["common_beta"] == 0.0
+    assert zero["leak_frac"] == pytest.approx(-1.0, abs=0.02)
+    assert one["pass"] is True
+    assert one["leak_frac"] >= 0.0
+    pos, neg, neu = field.poles(0)
+    teacher = leftover_bipolar(pos - neu, neg - neu)
+    assert teacher["leak_frac"] >= 0.0
+
+
+def test_common_beta_sweep_reports_the_smallest_divergent_pass():
+    """Do not stop at β=1. The published claim is the first pass, and its sign."""
+    sweep = common_beta_sweep((0.0, 0.5, 1.0), steps=200)
+    assert sweep[0]["exam_divergent"] is False
+    assert sweep[0]["leak_frac"] < -0.9
+    assert sweep[-1]["exam_divergent"] is True
+    leaks = [r["leak_frac"] for r in sweep]
+    assert leaks[0] < leaks[1] < leaks[-1]
+    first = smallest_divergent_pass_beta(sweep)
+    assert first is not None
+    assert first["common_beta"] > 0.0
+    assert first["leak_frac"] < 0.0
+    assert first["exam_divergent"] is True
+    for row in sweep:
+        if row["exam_divergent"]:
+            assert row["common_beta"] >= first["common_beta"]
+            break
+    # Unused ê lives in a, not c. This dial does not eat leftover leak.
+    for row in sweep:
+        assert row["leftover_leak"] is not None
+        assert abs(row["leftover_leak"]) > 0.15
+
+
 # -- guardrails ----------------------------------------------------------
 
 
@@ -567,3 +653,10 @@ def test_the_live_trainer_default_is_untouched():
     assert args.lm_target == "v9"
     assert args.pole_mode == "hidden"
     assert args.common_beta == 0.0
+    card = parse_args(["--prompts", "x.yaml", "--lm_target", "common_beta"])
+    assert card.lm_target == "common_beta"
+    assert card.pole_mode == "hidden"
+    assert 0.0 < COMMON_BETA_EXAM < 1.0
+    assert resolve_common_beta(recipe="common_beta", common_beta=0.0) == pytest.approx(
+        COMMON_BETA_EXAM
+    )
