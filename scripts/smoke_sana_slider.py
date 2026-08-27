@@ -18,7 +18,7 @@ device          cuda:0
 Live command (Modal / RunPod — first GPU look):
 
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_sana.py \\
-  --name age-sana \\
+  --name happy-sana \\
   --prompts_file conceptmod/textsliders/data/prompts-sana.yaml \\
   --model_id Efficient-Large-Model/Sana_600M_512px_diffusers \\
   --train_method xattn \\
@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> dict:
             "--steps",
             "2",
             "--name",
-            "age-sana-smoke",
+            "happy-sana-smoke",
             "--prompts_file",
             str(_REPO_ROOT / "conceptmod/textsliders/data/prompts-sana.yaml"),
             "--save_dir",

@@ -79,6 +79,7 @@ def test_sana_parse_defaults_are_the_live_card():
     assert args.lr == SANA_DEFAULT_LR == 2e-5
     assert args.steps == SANA_DEFAULT_STEPS == 500
     assert args.control_prompt == SANA_CONTROL_PROMPT
+    assert args.name == "happy-sana"
     assert args.dummy is False
 
 
@@ -96,6 +97,7 @@ def test_live_card_and_command_document_the_gpu_look():
     }
     cmd = sana_live_train_command()
     assert "train_lora_sana.py" in cmd
+    assert "--name happy-sana" in cmd
     assert "Efficient-Large-Model/Sana_600M_512px_diffusers" in cmd
     assert "--train_method xattn" in cmd
     assert "--resolution 512" in cmd
@@ -159,48 +161,49 @@ def test_attributes_pin_unused_on_pos_and_neu():
     rows = expand_attributes_sana(
         {
             "target": "a person",
-            "positive": "an old person",
+            "positive": "a happy person",
             "neutral": "a person",
-            "negative": "a young person",
+            "negative": "a sad person",
             "attributes": ["male", "female"],
         }
     )
     assert len(rows) == 2
-    assert rows[0]["positive"] == "male an old person"
+    assert rows[0]["positive"] == "male a happy person"
     assert rows[0]["neutral"] == "male a person"
-    assert rows[1]["positive"] == "female an old person"
+    assert rows[1]["positive"] == "female a happy person"
     assert rows[1]["neutral"] == "female a person"
-    assert rows[0]["negative"] == "male a young person"
+    assert rows[0]["negative"] == "male a sad person"
 
 
 def test_yaml_loads_positive_neutral_pins_and_fruit_bowl():
     prompts, meta = load_prompts(PROMPTS)
-    assert meta.plus_label == "Old"
-    assert meta.concept_words == "old, elderly, aged"
+    assert meta.plus_label == "Happy"
+    assert meta.minus_label == "Sad"
+    assert meta.concept_words == "happy, smiling, joyful"
     assert meta.control_prompt == "a bowl of fruit on a table"
     assert all(p.positive and p.neutral for p in prompts)
     assert any(p.positive.startswith("male ") for p in prompts)
     assert any(p.positive.startswith("female ") for p in prompts)
-    assert all("old" in p.positive for p in prompts)
-    assert all("old" not in p.neutral for p in prompts)
+    assert all("happy" in p.positive for p in prompts)
+    assert all("happy" not in p.neutral for p in prompts)
 
 
 def test_unused_hold_skips_concept_words():
-    plus_ids = dummy_tokenize("male an old person")
+    plus_ids = dummy_tokenize("male a happy person")
     neu_ids = dummy_tokenize("male a person")
-    concept = sana_concept_token_ids("old, elderly, aged", dummy_tokenize)
-    assert dummy_tokenize("old")[0] in concept
+    concept = sana_concept_token_ids("happy, smiling, joyful", dummy_tokenize)
+    assert dummy_tokenize("happy")[0] in concept
     unused = zimage_unused_token_positions(plus_ids, concept)
     held_tokens = [plus_ids[i] for i in unused]
-    assert dummy_tokenize("old")[0] not in held_tokens
+    assert dummy_tokenize("happy")[0] not in held_tokens
     assert dummy_tokenize("male")[0] in held_tokens
     assert dummy_tokenize("person")[0] in held_tokens
 
     dim = 4
     plus_emb = torch.zeros(len(plus_ids), dim)
     neu_emb = torch.zeros(len(neu_ids), dim)
-    old_at = plus_ids.index(dummy_tokenize("old")[0])
-    plus_emb[old_at] = torch.tensor([9.0, 9.0, 9.0, 9.0])
+    happy_at = plus_ids.index(dummy_tokenize("happy")[0])
+    plus_emb[happy_at] = torch.tensor([9.0, 9.0, 9.0, 9.0])
     hold = sana_unused_token_hold(plus_emb, neu_emb, plus_ids, neu_ids, concept)
     assert float(hold) == pytest.approx(0.0, abs=1e-8)
     plus_emb[plus_ids.index(dummy_tokenize("male")[0])] = 1.0
@@ -210,7 +213,7 @@ def test_unused_hold_skips_concept_words():
 
 def test_hold_fails_closed_without_concept_words():
     plus_ids = dummy_tokenize("male a person")
-    concept = sana_concept_token_ids("old", dummy_tokenize)
+    concept = sana_concept_token_ids("happy", dummy_tokenize)
     with pytest.raises(SanaHoldError, match="not found"):
         zimage_require_concept_in_prompt(plus_ids, concept)
     with pytest.raises(SanaHoldError, match="required"):
@@ -218,33 +221,33 @@ def test_hold_fails_closed_without_concept_words():
 
 
 def test_sana_hold_accepts_leading_space_bpe_concept_piece():
-    """Gemma/Sana: standalone `old` is not the id used inside `an old person`."""
-    bare_old = 101
-    spaced_old = 202
-    other = {"an": 11, "a": 12, "person": 13}
+    """Gemma/Sana: standalone `happy` is not the id used inside `a happy person`."""
+    bare_happy = 101
+    spaced_happy = 202
+    other = {"a": 12, "person": 13}
 
     def fake_tokenize(text: str) -> list[int]:
-        if text == "old":
-            return [bare_old]
-        if text == " old":
-            return [spaced_old]
-        if text == "an old person":
-            return [other["an"], spaced_old, other["person"]]
+        if text == "happy":
+            return [bare_happy]
+        if text == " happy":
+            return [spaced_happy]
+        if text == "a happy person":
+            return [other["a"], spaced_happy, other["person"]]
         if text == "a person":
             return [other["a"], other["person"]]
         raise AssertionError(f"unexpected tokenize({text!r})")
 
-    plus, neu = "an old person", "a person"
+    plus, neu = "a happy person", "a person"
     plus_ids = fake_tokenize(plus)
     neu_ids = fake_tokenize(neu)
-    declared = sana_concept_token_ids("old", fake_tokenize)
-    assert bare_old in declared
-    assert spaced_old in declared
-    assert bare_old not in plus_ids
-    assert spaced_old in plus_ids
+    declared = sana_concept_token_ids("happy", fake_tokenize)
+    assert bare_happy in declared
+    assert spaced_happy in declared
+    assert bare_happy not in plus_ids
+    assert spaced_happy in plus_ids
 
-    concept = resolve_sana_concept_ids(plus_ids, neu_ids, "old", fake_tokenize)
-    assert spaced_old in concept
+    concept = resolve_sana_concept_ids(plus_ids, neu_ids, "happy", fake_tokenize)
+    assert spaced_happy in concept
     dim = 4
     plus_emb = torch.zeros(len(plus_ids), dim)
     neu_emb = torch.zeros(len(neu_ids), dim)
@@ -253,29 +256,29 @@ def test_sana_hold_accepts_leading_space_bpe_concept_piece():
 
 
 def test_sana_hold_falls_back_to_plus_minus_neu_support():
-    """If even ` old` misses the + prompt, use set(plus) - set(neu)."""
-    in_prompt_old = 303
+    """If even ` happy` misses the + prompt, use set(plus) - set(neu)."""
+    in_prompt_happy = 303
 
     def fake_tokenize(text: str) -> list[int]:
-        if text == "old":
+        if text == "happy":
             return [101]
-        if text == " old":
+        if text == " happy":
             return [202]
-        if text == "an old person":
-            return [11, in_prompt_old, 13]
+        if text == "a happy person":
+            return [11, in_prompt_happy, 13]
         if text == "a person":
             return [12, 13]
         raise AssertionError(f"unexpected tokenize({text!r})")
 
-    plus_ids = fake_tokenize("an old person")
+    plus_ids = fake_tokenize("a happy person")
     neu_ids = fake_tokenize("a person")
-    declared = sana_concept_token_ids("old", fake_tokenize)
-    assert in_prompt_old not in declared
+    declared = sana_concept_token_ids("happy", fake_tokenize)
+    assert in_prompt_happy not in declared
     with pytest.raises(SanaHoldError, match="not found"):
         zimage_require_concept_in_prompt(plus_ids, declared)
 
-    concept = resolve_sana_concept_ids(plus_ids, neu_ids, "old", fake_tokenize)
-    assert concept == {11, in_prompt_old}
+    concept = resolve_sana_concept_ids(plus_ids, neu_ids, "happy", fake_tokenize)
+    assert concept == {11, in_prompt_happy}
     hold = sana_unused_token_hold(
         torch.zeros(len(plus_ids), 4),
         torch.zeros(len(neu_ids), 4),
@@ -285,7 +288,7 @@ def test_sana_hold_falls_back_to_plus_minus_neu_support():
     )
     assert float(hold) == pytest.approx(0.0, abs=1e-8)
     with pytest.raises(SanaHoldError, match="not found"):
-        resolve_sana_concept_ids([1, 2], [1, 2], "old", lambda _t: [999])
+        resolve_sana_concept_ids([1, 2], [1, 2], "happy", lambda _t: [999])
 
 
 def test_refuses_foreign_backends():
@@ -417,6 +420,8 @@ def test_docs_publish_the_live_train_command():
     assert "--sample_steps 20" in doc
     assert "--sample_guidance 4.5" in doc
     assert "a bowl of fruit on a table" in doc
+    assert "happy-sana" in doc
+    assert "happy, smiling, joyful" in doc
     assert "lyric-hold" in doc
     assert "v(z, t, c) − v(z, t, '')" in doc or "v(z, t, c) - v(z, t, '')" in doc
     readme = Path("README.md").read_text()

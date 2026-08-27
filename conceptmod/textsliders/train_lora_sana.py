@@ -88,6 +88,10 @@ DUMMY_VOCAB = {
     "fruit": 13,
     "on": 14,
     "table": 15,
+    "happy": 16,
+    "sad": 17,
+    "smiling": 18,
+    "joyful": 19,
 }
 
 
@@ -627,7 +631,7 @@ def train(args: argparse.Namespace) -> Path:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--name", type=str, default="age-sana")
+    parser.add_argument("--name", type=str, default="happy-sana")
     parser.add_argument(
         "--train_method",
         type=str,

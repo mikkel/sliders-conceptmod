@@ -19,7 +19,7 @@ train:
   sample_steps: 20
   sample_guidance: 4.5
 save:
-  name: "age-sana"
+  name: "happy-sana"
   path: "models/sana-slider"
   per_steps: 100
   precision: "bfloat16"

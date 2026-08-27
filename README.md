@@ -89,7 +89,7 @@ prompt. **Does not change Music 3 defaults.** Live train card:
 
 ```
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_sana.py \
-  --name age-sana --prompts_file conceptmod/textsliders/data/prompts-sana.yaml \
+  --name happy-sana --prompts_file conceptmod/textsliders/data/prompts-sana.yaml \
   --train_method xattn --resolution 512 --sample_steps 20 --sample_guidance 4.5 \
   --control_prompt "a bowl of fruit on a table" \
   --steps 500 --lr 2e-5 --seed 7 --device 0

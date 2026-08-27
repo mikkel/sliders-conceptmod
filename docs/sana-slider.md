@@ -23,8 +23,10 @@ Sana has no lyric span. The image analog of UNI is:
 
 Unused yaml `attributes` are prefixed onto every caption so gender (or
 whatever leftover) is pinned both ways. Unused prompt tokens / pins
-hold to `encode(neu)`. Declared `concept_words` (`old, elderly, aged`)
-are **not** held — those are the slider.
+hold to `encode(neu)`. Declared `concept_words` (`happy, smiling, joyful`)
+are **not** held — those are the slider. Happy is the example concept
+because age/old-face renders wander into uncanny artifacts; the UNI
+analog is unchanged.
 
 Fail closed if the + prompt does not contain any concept-word tokens.
 
@@ -63,7 +65,7 @@ First GPU look (Modal / RunPod). Do **not** run this in CI.
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_sana.py \
-  --name age-sana \
+  --name happy-sana \
   --prompts_file conceptmod/textsliders/data/prompts-sana.yaml \
   --model_id Efficient-Large-Model/Sana_600M_512px_diffusers \
   --train_method xattn \
@@ -78,7 +80,7 @@ Optional LoRA (same UNI / CFG card):
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_sana.py \
-  --name age-sana-lora \
+  --name happy-sana-lora \
   --lora 8 --train_method xattn \
   --resolution 512 --sample_steps 20 --sample_guidance 4.5 \
   --control_prompt "a bowl of fruit on a table"
