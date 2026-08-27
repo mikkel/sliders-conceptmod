@@ -59,6 +59,10 @@ Formulas are copied from:
   ``--lm_target v9_project`` is the old slider-level project+hold
   onto û; ``v9_always`` never gates.
 - Encoder MSE in ``train_encoder_music3.py``
+- Z-Image Turbo UNI analog in ``train_lora_zimage.py``: +1 → +
+  concept prompt, scale 0 → neu, no minus teacher, unused prompt
+  tokens held to encode(neu). Velocity-space CFG geometry is
+  ``v(z,t,c) − v(z,t,'')``. Opt-in; Music 3 defaults stay put.
 
 No Hub, no GPU, no model weights.
 """
@@ -1911,3 +1915,191 @@ def expand_attributes_music3(row: dict) -> list[dict]:
                 item[key] = f"{prefix} {value}"
         rows.append(item)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Z-Image Turbo (ZiT) image-slider UNI analog
+# ---------------------------------------------------------------------------
+# Opt-in ``train_lora_zimage.py``. Not Music 3 lyric-hold. Not Anima / Krea / H3.
+# Teacher is velocity-space UNI:
+#   +1 → v(z, t, + concept)
+#   scale 0 → v(z, t, neu)
+#   no minus teacher (canary only)
+# Unused prompt tokens hold to encode(neu); concept words are not held.
+# CFG geometry from conceptmod ``backends/zimage.py``:
+#   v(z, t, c) − v(z, t, '')
+# Default sample guidance is 0, so CFG is off and the teacher is raw v.
+
+
+class ZImageHoldError(ValueError):
+    """Concept words missing from the + prompt. Fail closed."""
+
+
+def zimage_cfg_delta(vel_c: torch.Tensor, vel_uncond: torch.Tensor) -> torch.Tensor:
+    """Velocity-space CFG increment: ``v(z,t,c) − v(z,t,'')``."""
+    return vel_c - vel_uncond
+
+
+def zimage_cfg(
+    vel_c: torch.Tensor, vel_uncond: torch.Tensor, guidance: float
+) -> torch.Tensor:
+    """conceptmod zimage ``_cfg``: ``v + g * (v − v_u)``. ``g=0`` is raw ``v``."""
+    if guidance and float(guidance) > 0.0:
+        return vel_c + float(guidance) * (vel_c - vel_uncond)
+    return vel_c
+
+
+def zimage_uni_teachers(
+    vel_pos: torch.Tensor,
+    vel_neu: torch.Tensor,
+    vel_uncond: torch.Tensor | None = None,
+    *,
+    guidance: float = 0.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """UNI teachers: +1 is the + concept velocity, 0 is neu.
+
+    When ``guidance > 0`` both poles go through :func:`zimage_cfg`.
+    ``vel_uncond`` is required then. Minus is never a teacher.
+    """
+    if vel_uncond is None:
+        return vel_pos, vel_neu
+    return (
+        zimage_cfg(vel_pos, vel_uncond, guidance),
+        zimage_cfg(vel_neu, vel_uncond, guidance),
+    )
+
+
+def zimage_uni_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    pred_zero: torch.Tensor,
+    tgt_zero: torch.Tensor,
+    *,
+    pred_unused: torch.Tensor | None = None,
+    tgt_unused: torch.Tensor | None = None,
+    unused_weight: float = 1.0,
+    unused_token_hold: torch.Tensor | None = None,
+    token_hold_weight: float = 1.0,
+) -> torch.Tensor:
+    """UNI velocity MSE: +1 → +, 0 → neu. Optional unused hold.
+
+    No minus MSE. ``pred_unused`` is student +1 on the unused / neu
+    prompt (should stay ``v_neu``). Token hold is unused prompt
+    tokens → encode(neu); concept words are not in that term.
+    """
+    loss = F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_zero, tgt_zero)
+    if pred_unused is not None and tgt_unused is not None and float(unused_weight) > 0.0:
+        loss = loss + float(unused_weight) * F.mse_loss(pred_unused, tgt_unused)
+    if unused_token_hold is not None and float(token_hold_weight) > 0.0:
+        loss = loss + float(token_hold_weight) * unused_token_hold
+    return loss
+
+
+def zimage_canary_minus(
+    pred_minus: torch.Tensor, vel_neg: torch.Tensor
+) -> dict[str, float | bool]:
+    """Unscored −1 canary. Never a teacher."""
+    overlap = F.cosine_similarity(
+        pred_minus.flatten().unsqueeze(0), vel_neg.flatten().unsqueeze(0)
+    ).squeeze()
+    return {
+        "scored": False,
+        "minus_overlap_neg": float(overlap),
+    }
+
+
+def expand_attributes_zimage(row: dict) -> list[dict]:
+    """Pin unused attributes onto target / positive / neutral (and canary neg).
+
+    Same prefixing as Music 3, but the minus caption is canary-only.
+    """
+    attributes = row.get("attributes")
+    if not attributes:
+        return [dict(row)]
+    rows = []
+    for attribute in attributes:
+        prefix = str(attribute).strip()
+        if not prefix:
+            continue
+        item = dict(row)
+        for key in ("target", "positive", "negative", "neutral"):
+            value = row.get(key)
+            if value:
+                item[key] = f"{prefix} {value}"
+        rows.append(item)
+    return rows or [dict(row)]
+
+
+def zimage_concept_token_ids(
+    concept_words: str | Iterable[str],
+    tokenize_fn,
+) -> set[int]:
+    """Token ids for declared concept words. Empty words are skipped."""
+    if isinstance(concept_words, str):
+        words = [w.strip() for w in concept_words.split(",") if w.strip()]
+    else:
+        words = [str(w).strip() for w in concept_words if str(w).strip()]
+    ids: set[int] = set()
+    for word in words:
+        ids.update(int(t) for t in tokenize_fn(word))
+    return ids
+
+
+def zimage_unused_token_positions(
+    token_ids: Sequence[int], concept_ids: Iterable[int]
+) -> list[int]:
+    """Positions whose tokens are not concept words."""
+    banned = {int(t) for t in concept_ids}
+    return [i for i, tid in enumerate(token_ids) if int(tid) not in banned]
+
+
+def zimage_require_concept_in_prompt(
+    token_ids: Sequence[int], concept_ids: Iterable[int]
+) -> None:
+    """Fail closed when the + prompt has no concept-word tokens."""
+    banned = {int(t) for t in concept_ids}
+    if not banned:
+        raise ZImageHoldError("concept_words are required")
+    if not any(int(t) in banned for t in token_ids):
+        raise ZImageHoldError("concept words were not found in the + prompt")
+
+
+def zimage_gather_unused(
+    hidden: torch.Tensor, token_ids: Sequence[int], concept_ids: Iterable[int]
+) -> torch.Tensor:
+    """Unused-token slice of a ``[T, H]`` or ``[B, T, H]`` embed."""
+    positions = zimage_unused_token_positions(token_ids, concept_ids)
+    if not positions:
+        raise ZImageHoldError("unused prompt span is empty")
+    idx = torch.tensor(positions, device=hidden.device, dtype=torch.long)
+    if hidden.dim() == 2:
+        return hidden.index_select(0, idx)
+    if hidden.dim() == 3:
+        return hidden.index_select(1, idx)
+    raise ZImageHoldError(f"embeds must be [T, H] or [B, T, H], got {tuple(hidden.shape)}")
+
+
+def zimage_unused_token_hold(
+    pred_plus_embeds: torch.Tensor,
+    neu_embeds: torch.Tensor,
+    plus_ids: Sequence[int],
+    neu_ids: Sequence[int],
+    concept_ids: Iterable[int],
+    *,
+    fail_closed: bool = True,
+) -> torch.Tensor:
+    """MSE unused +1 tokens → encode(neu). Concept words are not held.
+
+    Lengths may differ (``an old person`` vs ``a person``). Same-length
+    unused spans are token-wise; otherwise pooled. Fail closed if
+    concept words are missing from the + prompt.
+    """
+    if fail_closed:
+        zimage_require_concept_in_prompt(plus_ids, concept_ids)
+    pred = zimage_gather_unused(pred_plus_embeds, plus_ids, concept_ids)
+    tgt = zimage_gather_unused(neu_embeds, neu_ids, concept_ids)
+    pred_flat = pred.reshape(-1, pred.shape[-1])
+    tgt_flat = tgt.reshape(-1, tgt.shape[-1])
+    if pred_flat.shape[0] == tgt_flat.shape[0]:
+        return F.mse_loss(pred_flat, tgt_flat)
+    return F.mse_loss(pred_flat.mean(0), tgt_flat.mean(0))

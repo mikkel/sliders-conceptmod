@@ -1,0 +1,30 @@
+# Z-Image Turbo age slider — UNI analog (opt-in).
+#
+# plus = old, neu = person. Negative is a canary only (no minus teacher).
+# attributes pin unused gender so the axis is age, not male/female.
+# concept_words are not held; unused prompt tokens hold to encode(neu).
+#
+# Infer +1 with the neutral caption + LoRA, not the + caption.
+plus_label: Old
+minus_label: Young
+recommended_range: [0.0, 2.0]
+concept_words: "old, elderly, aged"
+rows:
+  - target: "a person"
+    positive: "an old person"
+    negative: "a young person"
+    neutral: "a person"
+    attributes: ["male", "female"]
+    action: enhance
+    guidance_scale: 0.0
+    resolution: 768
+    batch_size: 1
+  - target: "a portrait of a person"
+    positive: "a portrait of an old person"
+    negative: "a portrait of a young person"
+    neutral: "a portrait of a person"
+    attributes: ["male", "female"]
+    action: enhance
+    guidance_scale: 0.0
+    resolution: 768
+    batch_size: 1
