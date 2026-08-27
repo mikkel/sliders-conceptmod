@@ -1,0 +1,20 @@
+prompts_file: "conceptmod/textsliders/data/prompts-h3.yaml"
+pretrained_model:
+  name_or_path: "MiniMaxAI/MiniMax-H3"
+  subfolder: "FL2VA"
+network:
+  type: "lora"
+  rank: 8
+  alpha: 8.0
+  training_method: "lora"
+train:
+  precision: "bfloat16"
+  iterations: 500
+  lr: 0.0001
+  recipe: "h3_uni"
+save:
+  name: "age-h3-uni"
+  path: "models/age-h3-uni"
+logging:
+  use_wandb: false
+  verbose: false

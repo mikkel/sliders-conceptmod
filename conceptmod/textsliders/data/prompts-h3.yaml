@@ -1,0 +1,12 @@
+# H3 UNI image slider. Unused attributes are pinned on both poles.
+# Concept words (old) are free; unused tokens (male / female) hold to encode(neu).
+- target: person
+  positive: old person
+  neutral: person
+  unconditional: ""
+  attributes:
+    - male
+    - female
+  action: enhance
+  guidance_scale: 1.0
+  resolution: 768
