@@ -87,7 +87,4 @@ keep slider-detail without unused mix / BPM / gender riding along.
 See [lm-hold-overlap.md](lm-hold-overlap.md) for hold-ê when ê is
 not unused gender (live energy leak captions that *are* energy).
 Operator takeaway is in MUSIC3.md “Caption geometry, not a trainer leak”.
-See [lm-live-signature.md](lm-live-signature.md) for c+ vs slider-cos
-columns, high-D tiny-ê_⊥, synonym pin, leftover-only ê λ sweep, and
-``pair_odd_sub_e`` on leaky energy poles.
 
