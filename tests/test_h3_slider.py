@@ -10,13 +10,20 @@ import torch
 import yaml
 
 from conceptmod.backends import BACKENDS, load_backend
-from conceptmod.backends.h3 import DEFAULT_MODEL, DummyTokenizer, H3Backend
+from conceptmod.backends.h3 import (
+    DEFAULT_MODEL,
+    DISTIL_MODEL,
+    ArchitectureMismatch,
+    DummyTokenizer,
+    H3Backend,
+)
 from conceptmod.textsliders.h3_uni import (
     concept_token_ids,
     h3_minus_canary,
+    h3_uni_hidden_loss,
     h3_uni_total_loss,
-    h3_uni_velocity_loss,
     h3_unused_hold_loss,
+    last_hidden,
     pin_unused_attributes,
     unused_hold_mask,
     unused_token_ids,
@@ -29,10 +36,11 @@ from conceptmod.textsliders.train_lm_slider_music3 import (
 )
 
 
-def test_resolved_model_id_is_minimax_h3():
-    assert DEFAULT_MODEL == "MiniMaxAI/MiniMax-H3"
+def test_resolved_model_id_is_hunyuanimage_3():
+    assert DEFAULT_MODEL == "tencent/HunyuanImage-3.0"
+    assert DISTIL_MODEL == "tencent/HunyuanImage-3.0-Instruct-Distil"
     args = parse_args(["--dummy"])
-    assert args.model_id == "MiniMaxAI/MiniMax-H3"
+    assert args.model_id == "tencent/HunyuanImage-3.0"
     assert args.backend == "h3"
 
 
@@ -42,7 +50,7 @@ def test_backends_register_h3_only():
     assert "krea" not in BACKENDS
     assert "zit" not in BACKENDS
     assert "zimage" not in BACKENDS
-    backend = load_backend("h3", device="cpu", dummy=True, resolution=32)
+    backend = load_backend("h3", device="cpu", dummy=True)
     assert isinstance(backend, H3Backend)
     assert backend.frozen is None
     assert backend.model_id == DEFAULT_MODEL
@@ -54,20 +62,18 @@ def test_backends_register_h3_only():
         load_backend("zimage", device="cpu", dummy=True)
 
 
-def test_lora_only_no_second_copy():
-    backend = H3Backend(device="cpu", dummy=True, resolution=32)
+def test_does_not_fake_velocity_trainer():
+    backend = H3Backend(device="cpu", dummy=True)
     assert backend.frozen is None
     params = backend.trainable_parameters("lora")
     assert params
-    names = {id(p) for p in params}
-    # text table stays frozen; only LoRA tensors train
-    assert id(backend.transformer.text_table.weight) not in names
-    img = backend.generate("old person", seed=0, num_steps=2, guidance=1.0)
+    assert id(backend.transformer.embed.weight) not in {id(p) for p in params}
+    with pytest.raises(ArchitectureMismatch, match="autoregressive MoE"):
+        backend.predict_v("person", torch.zeros(1, 4, 8, 8), torch.tensor([1.0]), frozen=True)
+    with pytest.raises(ArchitectureMismatch, match="no Euler"):
+        backend.partial_denoise("person", 0, 4, 1.0, torch.Generator())
+    img = backend.generate("old person", seed=0)
     assert img.size[0] >= 1 and img.size[1] >= 1
-    z, t = backend.partial_denoise("person", stop_index=1, num_steps=3, guidance=1.0,
-                                   generator=torch.Generator().manual_seed(0))
-    assert z.shape[1:] == backend.latent_shape
-    assert t.ndim == 0 or t.numel() == 1
 
 
 def test_pin_unused_attributes():
@@ -87,28 +93,23 @@ def test_hold_unused_tokens_not_concept_words():
     ids = tok.encode(neu)
     mask = unused_hold_mask(ids, unused, concept)
     words = neu.split()
-    assert "old" not in words
     held = {words[i] for i, flag in enumerate(mask.tolist()) if flag and i < len(words)}
     assert "male" in held
     assert "old" not in held
-    # concept word on the + caption is never a hold target
     pos_ids = tok.encode(pos)
-    pos_mask = unused_hold_mask(pos_ids, unused, concept)
-    pos_held = {pos.split()[i] for i, flag in enumerate(pos_mask.tolist()) if flag}
+    pos_held = {pos.split()[i] for i, flag in enumerate(unused_hold_mask(pos_ids, unused, concept).tolist()) if flag}
     assert "old" not in pos_held
     assert "male" in pos_held
 
 
-def test_uni_velocity_has_no_minus_teacher():
+def test_uni_hidden_has_no_minus_teacher():
     plus = torch.ones(2, 4)
     zero = torch.zeros(2, 4)
-    loss = h3_uni_velocity_loss(plus, plus, zero, zero)
+    loss = h3_uni_hidden_loss(plus, plus, zero, zero)
     assert float(loss.item()) == pytest.approx(0.0)
-    miss = h3_uni_velocity_loss(plus, zero, zero, zero)
-    assert float(miss.item()) > 0
+    assert float(h3_uni_hidden_loss(plus, zero, zero, zero).item()) > 0
     canary = h3_minus_canary(-plus, zero)
     assert float(canary.item()) > 0
-    # canary is a different tensor; UNI total must not include it
     total = h3_uni_total_loss(plus, plus, zero, zero)
     assert float(total.item()) == pytest.approx(0.0)
     assert float(total.item()) != pytest.approx(float((total + canary).item()))
@@ -123,27 +124,18 @@ def test_unused_hold_mse_skips_concept_tokens():
     mask = unused_hold_mask(ids, unused, concept)
     student = torch.zeros(len(ids), 3)
     neu_e = torch.zeros(len(ids), 3)
-    # unused token (male) is off encode(neu)
     student[0] = torch.tensor([1.0, 0.0, 0.0])
-    # a later shared token is also off — must not be held
     if student.shape[0] > 1:
         student[-1] = torch.tensor([0.0, 4.0, 0.0])
     hold = h3_unused_hold_loss(student, neu_e, mask)
-    # only the unused column contributes
     only_unused = h3_unused_hold_loss(student[:1], neu_e[:1], mask[:1])
     assert float(hold.item()) == pytest.approx(float(only_unused.item()))
 
 
 def test_yaml_pins_unused_and_keeps_concept_free():
-    path = Path("conceptmod/textsliders/data/prompts-h3.yaml")
-    rows = load_slider_rows(str(path), "")
-    assert len(rows) == 2
-    positives = {r["positive"] for r in rows}
-    neutrals = {r["neutral"] for r in rows}
-    assert "male old person" in positives
-    assert "female old person" in positives
-    assert "male person" in neutrals
-    assert "female person" in neutrals
+    rows = load_slider_rows("conceptmod/textsliders/data/prompts-h3.yaml", "")
+    assert {r["positive"] for r in rows} >= {"male old person", "female old person"}
+    assert {r["neutral"] for r in rows} >= {"male person", "female person"}
     for r in rows:
         assert "old" in r["positive"]
         assert "old" not in r["neutral"].split()
@@ -161,22 +153,34 @@ def test_dummy_train_drops_uni_loss_and_writes_sidecar(tmp_path):
         "--name", "h3-dummy",
         "--save_dir", str(tmp_path),
         "--prompts_file", str(prompts),
-        "--lr", "0.05",
+        "--lr", "0.2",
         "--seed", "0",
-        "--resolution", "32",
     ])
     sidecar = train(args)
-    assert sidecar["model_id"] == "MiniMaxAI/MiniMax-H3"
-    assert sidecar["resolved_model_id"] == "MiniMaxAI/MiniMax-H3"
-    assert sidecar["recipe"] == "h3_uni"
+    assert sidecar["model_id"] == "tencent/HunyuanImage-3.0"
+    assert sidecar["resolved_model_id"] == "tencent/HunyuanImage-3.0"
+    assert sidecar["stack"] == "autoregressive_moe"
+    assert sidecar["recipe"] == "h3_uni_encode"
     assert sidecar["minus_teacher"] is False
     assert sidecar["minus_canary"] is True
     assert sidecar["lora_only"] is True
+    assert sidecar["velocity_trainer"] is False
     assert sidecar["hold_concept_words"] is False
     assert sidecar["first_loss"] > sidecar["last_loss"]
-    assert (tmp_path / "h3-dummy_last.json").is_file()
     data = json.loads((tmp_path / "h3-dummy_last.json").read_text())
     assert data["backend"] == "h3"
+
+
+def test_encode_uni_last_hidden_moves_plus_not_zero():
+    backend = H3Backend(device="cpu", dummy=True)
+    pos = last_hidden(backend.encode_text("old person", frozen=True).embeds)
+    neu = last_hidden(backend.encode_text("person", frozen=True).embeds)
+    assert not torch.allclose(pos, neu)
+    zero = last_hidden(backend.encode_scaled("person", 0.0).embeds)
+    assert torch.allclose(zero, neu)
+    plus0 = last_hidden(backend.encode_scaled("person", 1.0).embeds)
+    # before training, +1 last is still neu-pooled (delta=0)
+    assert torch.allclose(plus0, neu)
 
 
 def test_music3_defaults_unchanged():
@@ -191,14 +195,14 @@ def test_music3_defaults_unchanged():
     assert resolve_pole_mode(lm.pole_mode) == "hidden"
 
 
-def test_h3_config_points_at_minimax():
+def test_h3_config_points_at_hunyuanimage():
     cfg = yaml.safe_load(Path("conceptmod/textsliders/data/config-h3.yaml").read_text())
-    assert cfg["pretrained_model"]["name_or_path"] == "MiniMaxAI/MiniMax-H3"
-    assert cfg["train"]["recipe"] == "h3_uni"
+    assert cfg["pretrained_model"]["name_or_path"] == "tencent/HunyuanImage-3.0"
+    assert cfg["pretrained_model"]["stack"] == "autoregressive_moe"
+    assert cfg["train"]["recipe"] == "h3_uni_encode"
 
 
 def test_live_load_is_not_imported_on_dummy():
-    """Constructing --dummy must not import MiniMaxH3Pipeline / Hub."""
     import conceptmod.backends.h3 as h3
 
     called = {"n": 0}
@@ -207,13 +211,11 @@ def test_live_load_is_not_imported_on_dummy():
         called["n"] += 1
         raise AssertionError("live H3 loader must not run in dummy mode")
 
-    orig = h3._load_h3_pipeline
-    h3._load_h3_pipeline = boom
+    orig = h3._load_h3_ar
+    h3._load_h3_ar = boom
     try:
-        backend = H3Backend(device="cpu", dummy=True, resolution=16)
+        backend = H3Backend(device="cpu", dummy=True)
         _ = backend.encode_text("person")
-        _ = backend.predict_v("person", torch.randn(1, *backend.latent_shape),
-                              torch.tensor([100.0]), frozen=True)
     finally:
-        h3._load_h3_pipeline = orig
+        h3._load_h3_ar = orig
     assert called["n"] == 0

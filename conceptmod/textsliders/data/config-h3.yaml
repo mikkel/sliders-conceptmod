@@ -1,7 +1,7 @@
 prompts_file: "conceptmod/textsliders/data/prompts-h3.yaml"
 pretrained_model:
-  name_or_path: "MiniMaxAI/MiniMax-H3"
-  subfolder: "FL2VA"
+  name_or_path: "tencent/HunyuanImage-3.0"
+  stack: "autoregressive_moe"
 network:
   type: "lora"
   rank: 8
@@ -11,7 +11,7 @@ train:
   precision: "bfloat16"
   iterations: 500
   lr: 0.0001
-  recipe: "h3_uni"
+  recipe: "h3_uni_encode"
 save:
   name: "age-h3-uni"
   path: "models/age-h3-uni"

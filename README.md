@@ -5,6 +5,11 @@ shipped sliders, GPU pitfalls) and [slider_pipeline/README.md](slider_pipeline/R
 (paired recipe-comparison runbook). Listen sets live in `eval/listen/`. Use the
 `minimax-music3` conda env and **do not** `pip install -r requirements.txt`.
 
+**HunyuanImage-3.0 (H3) image slider (opt-in, this PR):** see
+[docs/h3-image-slider.md](docs/h3-image-slider.md). H3 is Tencent's 80B MoE
+autoregressive model (`tencent/HunyuanImage-3.0`), not a flow-matching DiT.
+Default Music 3 trainers are unchanged.
+
 ###  [Project Website](https://sliders.baulab.info) | [Arxiv Preprint](https://arxiv.org/pdf/2311.12092.pdf) | [Trained Sliders](https://sliders.baulab.info/weights/xl_sliders/) | [Colab Demo](https://colab.research.google.com/github/rohitgandikota/sliders/blob/main/demo_concept_sliders.ipynb) <br>
 Official code implementation of "Concept Sliders: LoRA Adaptors for Precise Control in Diffusion Models"
 

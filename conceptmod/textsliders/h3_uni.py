@@ -1,14 +1,13 @@
-"""UNI analog for H3 image sliders — not Music 3 lyric-hold.
+"""UNI analog for H3 image sliders — AR encode, not Music 3 lyric-hold.
 
-Recipe (yaml slider, unused attributes pinned):
+HunyuanImage-3.0 is autoregressive MoE. UNI lives on ``encode`` /
+last hidden, not a fake flow-matching velocity.
 
-* student +1 → frozen velocity / encode of the **+ concept** prompt
-* student scale 0 → frozen velocity / encode of the **neutral** prompt
+* student +1 last hidden → ``encode(pos)`` last hidden
+* student scale 0 last hidden → ``encode(neu)`` last hidden
 * no minus teacher (minus MSE is a logged canary only)
-* hold **unused** prompt tokens to ``encode(neu)``
+* hold unused prompt tokens to ``encode(neu)``
 * do **not** hold concept words (tokens in + that are absent from neu)
-
-CPU-pure. No Hub, no GPU, no H3 weights.
 """
 
 from __future__ import annotations
@@ -47,12 +46,7 @@ def _pin_phrase(prompt: str, attr: str) -> str:
     return f"{attr} {prompt}"
 
 
-def concept_token_ids(
-    tokenizer,
-    positive: str,
-    neutral: str,
-) -> set[int]:
-    """Tokens that appear in + and not in neu — the concept words."""
+def concept_token_ids(tokenizer, positive: str, neutral: str) -> set[int]:
     pos = set(_encode_ids(tokenizer, positive))
     neu = set(_encode_ids(tokenizer, neutral))
     return pos - neu
@@ -70,32 +64,35 @@ def unused_hold_mask(
     unused_ids: Iterable[int],
     concept_ids: Iterable[int],
 ) -> torch.Tensor:
-    """True at unused-attribute tokens that are not concept words."""
     unused = set(int(x) for x in unused_ids)
     concept = set(int(x) for x in concept_ids)
-    flags = []
-    for tid in token_ids:
-        t = int(tid)
-        flags.append(bool(t in unused and t not in concept))
+    flags = [bool(int(tid) in unused and int(tid) not in concept) for tid in token_ids]
     if not flags:
         return torch.zeros(0, dtype=torch.bool)
     return torch.tensor(flags, dtype=torch.bool)
 
 
-def h3_uni_velocity_loss(
+def last_hidden(embeds: torch.Tensor) -> torch.Tensor:
+    if embeds.dim() == 3:
+        return embeds[:, -1]
+    return embeds[-1]
+
+
+def h3_uni_hidden_loss(
     pred_plus: torch.Tensor,
     tgt_plus: torch.Tensor,
     pred_zero: torch.Tensor,
     tgt_zero: torch.Tensor,
 ) -> torch.Tensor:
-    """``MSE(+ → v_pos) + MSE(0 → v_neu)``. No minus term."""
+    """``MSE(+ → encode(pos)) + MSE(0 → encode(neu))``. No minus term."""
     return F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_zero, tgt_zero)
 
 
-def h3_minus_canary(
-    pred_minus: torch.Tensor,
-    tgt_minus: torch.Tensor,
-) -> torch.Tensor:
+# Back-compat alias used by earlier velocity drafts; same algebra.
+h3_uni_velocity_loss = h3_uni_hidden_loss
+
+
+def h3_minus_canary(pred_minus: torch.Tensor, tgt_minus: torch.Tensor) -> torch.Tensor:
     """Logged only. Never added to the train loss."""
     return F.mse_loss(pred_minus, tgt_minus)
 
@@ -107,11 +104,7 @@ def h3_unused_hold_loss(
     *,
     hold_weight: float = 1.0,
 ) -> torch.Tensor:
-    """MSE of unused-token hidden to ``encode(neu)``. Concept words free.
-
-    ``student_embeds`` / ``neu_embeds`` are ``[T, D]`` or ``[B, T, D]``.
-    Empty mask → 0 (nothing to hold).
-    """
+    """MSE of unused-token hidden to ``encode(neu)``. Concept words free."""
     if hold_mask.numel() == 0 or not bool(hold_mask.any()):
         return student_embeds.reshape(-1)[:1].sum() * 0.0
     if student_embeds.dim() == 3:
@@ -122,9 +115,7 @@ def h3_unused_hold_loss(
     mask = mask[:n]
     if not bool(mask.any()):
         return student_embeds.reshape(-1)[:1].sum() * 0.0
-    pred = student_embeds[:n][mask]
-    tgt = neu_embeds[:n][mask]
-    return float(hold_weight) * F.mse_loss(pred, tgt)
+    return float(hold_weight) * F.mse_loss(student_embeds[:n][mask], neu_embeds[:n][mask])
 
 
 def h3_uni_total_loss(
@@ -138,7 +129,7 @@ def h3_uni_total_loss(
     *,
     hold_weight: float = 1.0,
 ) -> torch.Tensor:
-    loss = h3_uni_velocity_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+    loss = h3_uni_hidden_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
     if student_embeds is not None and neu_embeds is not None and hold_mask is not None:
         loss = loss + h3_unused_hold_loss(
             student_embeds, neu_embeds, hold_mask, hold_weight=hold_weight,

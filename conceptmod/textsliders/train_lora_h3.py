@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Opt-in H3 image-slider trainer (UNI analog). Music 3 defaults unchanged.
+"""Opt-in H3 image-slider trainer (UNI on AR encode). Music 3 unchanged.
 
-Live card uses MiniMaxAI/MiniMax-H3. ``--dummy`` is the CI / CPU path:
-no Hub, no GPU, no H3 weights.
+Live card: ``tencent/HunyuanImage-3.0`` (AR/MoE). Not a velocity DiT.
+``--dummy`` is the CI / CPU path: no Hub, no GPU, no H3 weights.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from conceptmod.textsliders.h3_uni import (
     concept_token_ids,
     h3_minus_canary,
     h3_uni_total_loss,
+    last_hidden,
     pin_unused_attributes,
     unused_hold_mask,
     unused_token_ids,
@@ -48,7 +49,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--steps", type=int, default=500)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--device", type=str, default="cuda:0")
-    p.add_argument("--resolution", type=int, default=768)
+    p.add_argument("--resolution", type=int, default=1024)
     p.add_argument("--hold_weight", type=float, default=1.0)
     p.add_argument("--save_dir", type=str, default=None)
     p.add_argument(
@@ -74,8 +75,7 @@ def load_slider_rows(prompts_file: str, cli_attributes: str) -> list[dict]:
             attrs = [a.strip() for a in attrs.split(",") if a.strip()]
         if cli_attributes:
             attrs = list(attrs) + [a.strip() for a in cli_attributes.split(",") if a.strip()]
-        # de-dupe, keep order
-        seen = set()
+        seen: set[str] = set()
         uniq = []
         for a in attrs:
             key = a.lower()
@@ -114,58 +114,45 @@ def build_backend(args: argparse.Namespace) -> H3Backend:
 
 
 @torch.no_grad()
-def _canary(backend, row, z, t) -> float:
-    """Minus student vs frozen uncond/neg. Logged, not trained."""
-    neg = row.get("unconditional") or ""
-    pred = backend.predict_v_scaled(row["neutral"], z, t, scale=-1.0)
-    tgt = backend.predict_v(neg, z, t, frozen=True)
+def _canary(backend: H3Backend, row: dict) -> float:
+    pred = last_hidden(backend.encode_scaled(row["neutral"], scale=-1.0).embeds)
+    tgt = last_hidden(backend.encode_text(row.get("unconditional") or "", frozen=True).embeds)
     return float(h3_minus_canary(pred, tgt).item())
 
 
 def train(args: argparse.Namespace, backend: H3Backend | None = None) -> dict:
     rows = load_slider_rows(args.prompts_file, args.attributes)
     backend = backend or build_backend(args)
-    tokenizer = getattr(backend.pipe, "tokenizer", None)
+    tokenizer = backend.pipe.tokenizer
     params = backend.trainable_parameters("lora")
     opt = torch.optim.Adam(params, lr=float(args.lr))
-    rng = torch.Generator(device=backend.device)
-    rng.manual_seed(int(args.seed))
+    torch.manual_seed(int(args.seed))
 
     history = []
     for step in range(int(args.steps)):
         row = rows[step % len(rows)]
-        z = torch.randn(
-            (1, *backend.latent_shape),
-            generator=rng,
-            device=backend.device,
-            dtype=torch.float32,
-        )
-        t = torch.tensor([500.0], device=backend.device)
-        tgt_plus = backend.predict_v(row["positive"], z, t, frozen=True)
-        tgt_zero = backend.predict_v(row["neutral"], z, t, frozen=True)
-        pred_plus = backend.predict_v_scaled(row["neutral"], z, t, scale=1.0)
-        pred_zero = backend.predict_v_scaled(row["neutral"], z, t, scale=0.0)
+        tgt_plus = last_hidden(backend.encode_text(row["positive"], frozen=True).embeds)
+        tgt_zero = last_hidden(backend.encode_text(row["neutral"], frozen=True).embeds)
+        student_plus = backend.encode_scaled(row["neutral"], scale=1.0)
+        student_zero = backend.encode_scaled(row["neutral"], scale=0.0)
+        pred_plus = last_hidden(student_plus.embeds)
+        pred_zero = last_hidden(student_zero.embeds)
 
-        student_embeds = neu_embeds = hold_mask = None
-        if tokenizer is not None:
-            neu_text = backend.encode_text(row["neutral"], frozen=True)
-            student_text = backend.encode_text(row["neutral"], frozen=False)
-            ids = tokenizer.encode(row["neutral"], add_special_tokens=False)
-            concept = concept_token_ids(tokenizer, row["positive"], row["neutral"])
-            unused = unused_token_ids(tokenizer, row["attributes"])
-            hold_mask = unused_hold_mask(ids, unused, concept)
-            student_embeds = student_text.embeds
-            neu_embeds = neu_text.embeds
+        ids = tokenizer.encode(row["neutral"], add_special_tokens=False)
+        concept = concept_token_ids(tokenizer, row["positive"], row["neutral"])
+        unused = unused_token_ids(tokenizer, row["attributes"])
+        hold_mask = unused_hold_mask(ids, unused, concept)
+        neu_embeds = backend.encode_text(row["neutral"], frozen=True).embeds
 
         loss = h3_uni_total_loss(
             pred_plus, tgt_plus, pred_zero, tgt_zero,
-            student_embeds, neu_embeds, hold_mask,
+            student_plus.embeds, neu_embeds, hold_mask,
             hold_weight=float(args.hold_weight),
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
-        canary = _canary(backend, row, z.detach(), t)
+        canary = _canary(backend, row)
         rec = {
             "step": step,
             "loss": float(loss.detach().item()),
@@ -183,15 +170,17 @@ def train(args: argparse.Namespace, backend: H3Backend | None = None) -> dict:
     sidecar = {
         "name": args.name,
         "backend": "h3",
-        "model_id": DEFAULT_MODEL if args.model_id == DEFAULT_MODEL else args.model_id,
-        "resolved_model_id": args.model_id,
-        "recipe": "h3_uni",
+        "model_id": args.model_id,
+        "resolved_model_id": DEFAULT_MODEL,
+        "stack": "autoregressive_moe",
+        "recipe": "h3_uni_encode",
         "plus_neu": True,
         "minus_teacher": False,
         "minus_canary": True,
         "hold": "unused_tokens_to_encode_neu",
         "hold_concept_words": False,
         "lora_only": True,
+        "velocity_trainer": False,
         "rank": args.rank,
         "alpha": args.alpha,
         "lr": args.lr,
