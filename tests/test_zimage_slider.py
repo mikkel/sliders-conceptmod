@@ -55,6 +55,8 @@ def test_zit_parse_defaults_are_the_live_card():
     assert args.resolution == 768
     assert args.sample_steps == 8
     assert args.sample_guidance == 0.0
+    assert args.unused_weight == 0.0
+    assert args.token_hold_weight == 0.0
     assert args.dummy is False
 
 
@@ -99,6 +101,35 @@ def test_uni_loss_is_plus_and_zero_only():
     assert float(moved_zero) > 0.0
     assert float(moved_plus) > 0.0
     _ = other
+
+
+def test_uni_loss_unused_and_token_hold_off_by_default():
+    pred_plus = torch.tensor([1.0, 0.0])
+    tgt_plus = torch.tensor([1.0, 0.0])
+    pred_zero = torch.tensor([0.0, 0.0])
+    tgt_zero = torch.tensor([0.0, 0.0])
+    pred_unused = torch.tensor([9.0, 9.0])
+    base = zimage_uni_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+    ignored = zimage_uni_loss(
+        pred_plus,
+        tgt_plus,
+        pred_zero,
+        tgt_zero,
+        pred_unused=pred_unused,
+        tgt_unused=tgt_zero,
+        unused_token_hold=pred_plus.new_tensor(4.0),
+    )
+    assert float(ignored) == pytest.approx(float(base), abs=1e-8)
+    forced = zimage_uni_loss(
+        pred_plus,
+        tgt_plus,
+        pred_zero,
+        tgt_zero,
+        pred_unused=pred_unused,
+        tgt_unused=tgt_zero,
+        unused_weight=1.0,
+    )
+    assert float(forced) > float(base)
 
 
 def test_canary_minus_is_unscored():
@@ -205,8 +236,21 @@ def test_dummy_train_never_imports_hub(tmp_path, monkeypatch):
     assert meta["resolution"] == 768
     assert meta["sample_guidance"] == 0.0
     assert meta["teacher"]["minus"] == "canary only"
+    assert meta["teacher"]["student"] == "train and infer both use the neutral caption at +1"
+    assert "infer path" in meta["teacher"]["unused_hold"]
     assert "lyric" not in meta["teacher"]["unused_hold"]
     assert meta["canary"]["scored"] is False
+
+
+def test_trainer_student_plus_is_neu_not_pos():
+    """Train +1 on neu (match infer). Concept teacher still uses + caption."""
+    src = Path("conceptmod/textsliders/train_lora_zimage.py").read_text()
+    assert "pred_plus = _student(1.0, emb_neu)" in src
+    assert "pred_zero = _student(0.0, emb_neu)" in src
+    assert "pred_plus = _student(1.0, emb_pos)" not in src
+    assert "pred_unused = _student(1.0, emb_neu)" not in src
+    assert "zimage_uni_teachers" in src
+    assert "vel_pos" in src
 
 
 def test_trainer_source_is_zit_only():
@@ -231,5 +275,8 @@ def test_docs_publish_the_live_train_command():
     assert "--sample_steps 8" in doc
     assert "--sample_guidance 0.0" in doc
     assert "lyric-hold" in doc
+    assert "neu (infer path)" in doc
+    assert "cancelled the" in doc
+    assert "infer path" in doc
     assert "Anima" in doc
     assert "v(z, t, c) − v(z, t, '')" in doc or "v(z, t, c) - v(z, t, '')" in doc

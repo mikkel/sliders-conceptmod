@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Opt-in Z-Image Turbo (ZiT) image-slider trainer.
 
-UNI analog — not Music 3 lyric-hold, not Anima / Krea / H3:
+UNI analog — Music 3 lyric-hold analog for images, not Music 3 itself,
+not Anima / Krea / H3:
 
-- +1 → + concept prompt velocity
-- scale 0 → neutral prompt velocity
+- teachers: +1 is the + concept velocity; 0 is ``v(neu)``
+- student +1 and 0 both run on the **neutral** caption (the infer path)
 - no minus teacher (canary only)
-- hold unused prompt tokens to encode(neu); do not hold concept words
+- unused velocity hold (MSE(+1, neu) → ``v(neu)``) is off — it cancelled infer
+- frozen-embed token hold is off by default (no grad into LoRA)
 
 Velocity-space CFG geometry from conceptmod ``backends/zimage.py``:
 
@@ -45,6 +47,7 @@ from conceptmod.textsliders.slider_targets import (
     zimage_cfg,
     zimage_cfg_delta,
     zimage_concept_token_ids,
+    zimage_require_concept_in_prompt,
     zimage_uni_loss,
     zimage_uni_teachers,
     zimage_unused_token_hold,
@@ -374,31 +377,40 @@ def train(args: argparse.Namespace) -> Path:
             if prompt.negative:
                 vel_neg = _predict(_encode(prompt.negative).to(device), z, t).float()
 
-        token_hold = None
+        # Fail-closed: concept still comes from the + caption for teachers.
         try:
-            token_hold = zimage_unused_token_hold(
-                emb_pos, emb_neu, ids_pos, ids_neu, concept_ids
-            )
+            zimage_require_concept_in_prompt(ids_pos, concept_ids)
         except ZImageHoldError as exc:
             if not dummy:
                 raise
-            print(f"dummy skip token hold: {exc}", flush=True)
+            print(f"dummy skip concept-in-plus check: {exc}", flush=True)
+
+        token_hold = None
+        if float(args.token_hold_weight) > 0.0:
+            try:
+                token_hold = zimage_unused_token_hold(
+                    emb_pos, emb_neu, ids_pos, ids_neu, concept_ids
+                )
+            except ZImageHoldError as exc:
+                if not dummy:
+                    raise
+                print(f"dummy skip token hold: {exc}", flush=True)
 
         def _student(scale: float, embeds: torch.Tensor) -> torch.Tensor:
             network.set_lora_slider(scale)
             with network:
                 return _predict(embeds, z, t).float()
 
-        pred_plus = _student(1.0, emb_pos)
+        # Infer path: +1 and 0 both run on the neutral caption.
+        pred_plus = _student(1.0, emb_neu)
         pred_zero = _student(0.0, emb_neu)
-        pred_unused = _student(1.0, emb_neu)
+        # Do not MSE student(+1, neu) → v(neu): that cancelled the infer path.
+        # unused_weight stays for an explicit later control-prompt hold.
         loss = zimage_uni_loss(
             pred_plus,
             tgt_plus,
             pred_zero,
             tgt_zero,
-            pred_unused=pred_unused,
-            tgt_unused=tgt_zero,
             unused_weight=float(args.unused_weight),
             unused_token_hold=token_hold,
             token_hold_weight=float(args.token_hold_weight),
@@ -444,10 +456,11 @@ def train(args: argparse.Namespace) -> Path:
         "recommended_range": meta.recommended_range,
         "concept_words": meta.concept_words,
         "teacher": {
-            "plus": "+ concept prompt velocity",
-            "zero": "neutral prompt velocity",
+            "plus": "student +1 on neu caption → CFG(+ concept) teacher",
+            "zero": "student 0 on neu caption → v(neu)",
             "minus": "canary only",
-            "unused_hold": "unused prompt tokens → encode(neu); concept words not held",
+            "student": "train and infer both use the neutral caption at +1",
+            "unused_hold": "off by default; unused velocity hold cancelled the infer path",
             "cfg": "v(z,t,c) - v(z,t,'')",
         },
         "canary": last_canary,
@@ -475,8 +488,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sample_steps", type=int, default=8)
     parser.add_argument("--sample_guidance", type=float, default=0.0)
     parser.add_argument("--guidance", type=float, default=None, help="override yaml guidance_scale")
-    parser.add_argument("--unused_weight", type=float, default=1.0)
-    parser.add_argument("--token_hold_weight", type=float, default=1.0)
+    parser.add_argument(
+        "--unused_weight",
+        type=float,
+        default=0.0,
+        help="optional unused/control velocity hold; off by default (do not MSE +1+neu → v_neu)",
+    )
+    parser.add_argument(
+        "--token_hold_weight",
+        type=float,
+        default=0.0,
+        help="optional frozen-embed unused-token hold; off by default (no LoRA grad)",
+    )
     parser.add_argument("--model_id", type=str, default=DEFAULT_MODEL_ID)
     parser.add_argument("--config_file", type=str, default=str(DEFAULT_CONFIG))
     parser.add_argument("--prompts_file", type=str, default=str(DEFAULT_PROMPTS))
