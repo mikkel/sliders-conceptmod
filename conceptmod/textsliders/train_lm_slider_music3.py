@@ -45,9 +45,7 @@ next-token KL on the semantic band. ``--pole_mode semantic_kl_null``
 MSE on ``ker(lm_head)``. ``--pole_mode hidden_kl`` is full hidden MSE
 plus a 0.001× semantic KL. ``--pole_mode dual_band`` is semantic KL
 plus hidden MSE on the centered-readout blind band. None of those is
-the default. ``--lm_target common_beta`` keeps a frozen slice of ``c``
-(``tgt = (1−β)·(h0 ± a) + β·h±``, default β from the pair-exam hit)
-and is not the live default.
+the default.
 
 Old short-û project+hold is ``--lm_target v9_project`` (slider-level
 gate) or ``--lm_target v9_always``. Published Hub floor is
@@ -93,7 +91,6 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from conceptmod.textsliders.slider_targets import (
-    COMMON_BETA_EXAM,
     DUAL_BAND_WEIGHT,
     LEAK_HOLD_WEIGHT,
     SLIDER_ALIGN_MIN,
@@ -131,7 +128,6 @@ from conceptmod.textsliders.slider_targets import (
     lm_plus_neu_loss,
     lm_hold_dir,
     lm_hidden_targets,
-    resolve_common_beta,
     lm_next_token_logits,
     lm_odd_align,
     lm_ortho_hold,
@@ -153,7 +149,6 @@ LM_RECIPES = (
     "v9_always",
     "hub",
     "symmetric",
-    "common_beta",
     "faithful",
     "faithful_sub_e",
     "faithful_sub_e_if_unused",
@@ -264,11 +259,6 @@ def resolve_lm_recipe(*, lm_target: str, symmetric: bool) -> str:
         )
     if recipe == "symmetric" and not symmetric:
         raise ValueError("lm_target=symmetric requires --symmetric")
-    if recipe == "common_beta" and not symmetric:
-        raise ValueError(
-            "lm_target=common_beta is pair-odd + frozen β; "
-            "use --lm_target faithful --no-symmetric for raw poles"
-        )
     return recipe
 
 
@@ -1480,12 +1470,7 @@ def train(args: argparse.Namespace) -> Path:
         if blind_projector is not None:
             blind_projector = blind_projector.to(device=device, dtype=torch.float32)
 
-    beta = resolve_common_beta(recipe=recipe, common_beta=args.common_beta)
-    if recipe == "common_beta":
-        print(
-            f"lm_target=common_beta: tgt = (1−β)·(h0 ± a) + β·h± with "
-            f"β={beta:g} (pair-exam seed-robust hit; default {COMMON_BETA_EXAM:g})"
-        )
+    beta = float(args.common_beta)
     slider_dir = None
     leak_dir = None
     leak_pos_h = leak_neg_h = None
@@ -2440,8 +2425,6 @@ def parse_args(argv=None):
         "teacher. v9_project: old slider-level |odd·û| gate. "
         "v9_always: old always-project. hub: published leakage_floor "
         "blend-back (still leaks). symmetric / faithful: old poles. "
-        "common_beta: pair-odd + frozen β from the pair-exam hit "
-        f"(default --common_beta {COMMON_BETA_EXAM:g}; not the live default). "
         "faithful_sub_e: real poles with leftover ê subtracted from the "
         "odd part only (midpoint stays ½(h++h−); needs leak_*). "
         "faithful_sub_e_if_unused: subtract leftover ê only when "
@@ -2596,9 +2579,7 @@ def parse_args(argv=None):
         "--common_beta",
         type=float,
         default=0.0,
-        help="blend back β·c on symmetric / common_beta / hub targets "
-        f"(common_beta defaults to {COMMON_BETA_EXAM:g} when left at 0). "
-        "ignored by v9 (κ=0)",
+        help="blend back beta*(midpoint - neutral) on symmetric/hub targets; ignored by v9 (κ=0)",
     )
     p.add_argument(
         "--target_scale",

@@ -56,10 +56,8 @@ Formulas are copied from:
   ``--pole_mode dual_band`` is KL on the
   semantic band plus hidden MSE on the centered-readout blind band
   (``P_blind`` from SVD). Neither is the default.
-  ``--lm_target common_beta`` keeps a frozen slice of ``c``
-  (``tgt = (1−β)·(h0 ± a) + β·h±``, default ``COMMON_BETA_EXAM``)
-  and is not the live default. ``--lm_target v9_project`` is the old
-  slider-level project+hold onto û; ``v9_always`` never gates.
+  ``--lm_target v9_project`` is the old slider-level project+hold
+  onto û; ``v9_always`` never gates.
 - Encoder MSE in ``train_encoder_music3.py``
 - Z-Image Turbo UNI analog in ``train_lora_zimage.py``: +1 → +
   concept prompt, scale 0 → neu, no minus teacher, unused prompt
@@ -96,13 +94,6 @@ SLIDER_ALIGN_MIN = 0.50
 # Subtract only below this floor. ``||ê_⊥||/||a||`` does not separate
 # those clusters (unused ~0.87, divergent ~0.78) and is not the gate.
 UNUSED_E_OVERLAP_MAX = 0.50
-
-# Partial keep of c. ``tgt = (1−β)·(h0 ± a) + β·h±``. β=0 is banned
-# pair-odd; β=1 is the raw poles (leak_frac ≥ 0 on energy-v4). The pair
-# exam's first seed-robust (seeds 0/1/2) divergent pass with leak_frac < 0
-# is 0.60. ``--lm_target common_beta`` freezes that; ``--lm_target v9``
-# still ignores ``--common_beta``. Not a live listen.
-COMMON_BETA_EXAM = 0.60
 
 # Weight on the blind-band term of ``lm_dual_band_pole_loss``. The pair-exam
 # cell is flat in this over 0.5 … 32 (six doublings), because the term's job
@@ -256,13 +247,6 @@ def resolve_lm_target_mode(
     if mode not in ("faithful", "symmetric"):
         raise ValueError(f"target_mode must be faithful or symmetric, got {target_mode!r}")
     return mode
-
-
-def resolve_common_beta(*, recipe: str, common_beta: float) -> float:
-    """β for ``lm_hidden_targets``. ``common_beta`` recipe defaults to the exam hit."""
-    if str(recipe).strip().lower() == "common_beta" and abs(float(common_beta)) < 1e-12:
-        return float(COMMON_BETA_EXAM)
-    return float(common_beta)
 
 
 def lm_hidden_targets(

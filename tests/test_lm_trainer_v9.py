@@ -15,7 +15,6 @@ import yaml
 from analysis.slider2d.field import E_SLIDER, Field2D
 from analysis.slider2d.mismatch import LIVE_GENDER_V1_ALIGN, MismatchField2D
 from conceptmod.textsliders.slider_targets import (
-    COMMON_BETA_EXAM,
     DUAL_BAND_WEIGHT,
     EVEN_BLEND_SCALE,
     LEAK_HOLD_WEIGHT,
@@ -31,7 +30,6 @@ from conceptmod.textsliders.slider_targets import (
     lm_faithful_guard_e,
     lm_faithful_sub_e,
     lm_hidden_targets,
-    resolve_common_beta,
     lm_hold_dir,
     lm_next_token_logits,
     lm_ortho_hold,
@@ -128,16 +126,6 @@ def test_bare_parse_defaults_to_v9_and_symmetric():
     assert energy_v16.lm_target == "faithful_sub_e"
     assert energy_v16.pole_mode == "semantic_kl"
     assert resolve_lm_recipe(lm_target="faithful_sub_e", symmetric=True) == "faithful_sub_e"
-    card = parse_args(["--prompts_file", "prompts.yaml", "--lm_target", "common_beta"])
-    assert card.lm_target == "common_beta"
-    assert card.pole_mode == "hidden"
-    assert card.common_beta == 0.0
-    assert resolve_lm_recipe(lm_target="common_beta", symmetric=True) == "common_beta"
-    assert resolve_common_beta(recipe="common_beta", common_beta=0.0) == pytest.approx(
-        COMMON_BETA_EXAM
-    )
-    assert resolve_common_beta(recipe="common_beta", common_beta=0.3) == pytest.approx(0.3)
-    assert resolve_common_beta(recipe="v9", common_beta=0.0) == 0.0
     faith_hold, faith_anchor = resolve_lm_loss_weights(
         "faithful_sub_e", hold_weight=None, anchor_weight=None, leak_declared=True
     )
@@ -158,31 +146,12 @@ def test_v9_requires_symmetric_polarity():
         resolve_lm_recipe(lm_target="v9_project", symmetric=False)
     with pytest.raises(ValueError, match="polarity step"):
         resolve_lm_recipe(lm_target="pair_odd_sub_e", symmetric=False)
-    with pytest.raises(ValueError, match="frozen"):
-        resolve_lm_recipe(lm_target="common_beta", symmetric=False)
     assert resolve_lm_recipe(lm_target="faithful_sub_e", symmetric=False) == "faithful_sub_e"
     assert resolve_lm_recipe(lm_target="faithful", symmetric=False) == "faithful"
     assert (
         resolve_lm_recipe(lm_target="faithful_sub_e_if_unused", symmetric=False)
         == "faithful_sub_e_if_unused"
     )
-
-
-def test_common_beta_recipe_is_the_exam_interpolation():
-    field = Field2D()
-    pos, neg, neu = field.embed("energetic", 0.5), field.embed("calm", 0.5), field.embed("song", 0.5)
-    plus, minus, anc_p, anc_m = lm_train_targets(
-        pos, neg, neu, recipe="common_beta", common_beta=COMMON_BETA_EXAM
-    )
-    want_p, want_m = lm_hidden_targets(
-        pos, neg, neu, target_mode="symmetric", common_beta=COMMON_BETA_EXAM
-    )
-    assert torch.allclose(plus, want_p, atol=1e-6)
-    assert torch.allclose(minus, want_m, atol=1e-6)
-    assert anc_p is None and anc_m is None
-    assert not torch.allclose(plus, pos, atol=1e-3)
-    odd_p, _odd_m, _a, _b = lm_train_targets(pos, neg, neu, recipe="v9", common_beta=0.0)
-    assert not torch.allclose(plus, odd_p, atol=1e-3)
 
 
 def test_axis_is_declared_not_plus_minus_or_row_odd():
