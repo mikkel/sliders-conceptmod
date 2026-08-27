@@ -191,44 +191,6 @@ Published Hub floor is `--lm_target hub` and still leaks — not the default.
 The live graph has no separate hold embedding. Hold is the residual
 orthogonal to the encoded declared pair, matching the 2-D math.
 
-## Caption geometry, not a trainer leak (August 2026)
-
-The CPU 2-D suite ([docs/2d-analysis.md](docs/2d-analysis.md)) shows
-`--attributes male,female` cancel gender leak on a toy field whose unused
-axis is exactly that prefix. Shipped TF yamls never write that attribute,
-and multi-row averaging already destroys TF style sliders (recipe A/B
-below). **Do not add `--attributes` to transformer sliders, and do not
-change `--loss nmse --target_mode axis` to chase the 2-D leak number.**
-
-The real second axis on energy (and distortion) is **BPM sitting inside
-`pos − neg`**. [docs/tf-leak.md](docs/tf-leak.md) measures energy vs tempo
-bag-of-words cosine **0.000** — they share no distinctive adjectives —
-but the shipped energy pair is `BPM: 168` vs `BPM: 52` (Δ 116). Tempo is
-`180` vs `48` (Δ 132). Default `nmse`/`axis` is doing what it is told:
-it fits `pos − neg`. `pole`, `nmse_ortho`, and `gain_penalty` leave BPM
-in the odd teacher (leak stays 0.41–0.47). Gender prefixes cannot fix
-this either — they do not change the BPM numbers.
-
-The leak vanishes on `prompts-cand-energy-v1.yaml` (BPM pinned at 110,
-same default loss). If the catalog should be orthogonal sliders, **retrain
-energy TF on that pair** with the dust defaults and compare against
-energy-slider-v2 through the pipeline. Distortion is the same class
-(`BPM: 140` vs `88` plus `aggressive`). `--target_mode pole` with
-`--bidirectional` is already refused as ill-posed.
-
-Formulas live in `conceptmod/textsliders/slider_targets.py`.
-`train_lora_music3.py` imports `music3_slider_loss` from there. CPU
-suites (no Hub, no GPU, no Music 3 weights):
-
-```bash
-PYTHONPATH=. pytest tests/test_2d_slider_geometry.py tests/test_tf_leak.py -q
-PYTHONPATH=. python analysis/slider2d/run_analysis.py --out docs/2d-analysis
-PYTHONPATH=. python analysis/tf_leak/run_leak.py --out docs/tf-leak
-```
-
-Render / probe / calibrate scripts are indexed in
-[docs/scripts.md](docs/scripts.md).
-
 ## v3 recipe (August 2026)
 
 Four trainer bugs were found and fixed; v3 sliders (`models/*-v3/`) use:
@@ -924,8 +886,7 @@ $PY scripts/slider_pipeline.py onboard --prompts_file ... --cache_dir ... \
 processes. The pipeline interpreter path is hardcoded to the
 `minimax-music3` env in `slider_pipeline/stages.py`.
 
-One-off trainings (a shipped slider, an LM half) stay manual. Render /
-probe / calibrate entrypoints: [docs/scripts.md](docs/scripts.md).
+One-off trainings (a shipped slider, an LM half) stay manual.
 
 New transformer slider — defaults *are* the dust recipe; pin seed + paths:
 

@@ -105,6 +105,3 @@ PYTHONPATH=. pytest tests/test_tf_leak.py tests/test_2d_slider_geometry.py -q
 
 No Hub, no GPU, no Music 3 weights. Leak suite ~9 s CPU; both suites
 ~23 s. GPU trainers were not rewritten.
-
-Operator takeaway: MUSIC3.md “Caption geometry, not a trainer leak”.
-Script index: [scripts.md](scripts.md).

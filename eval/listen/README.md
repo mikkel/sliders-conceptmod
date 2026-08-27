@@ -96,18 +96,6 @@ v2 family (attention-only despite `_full_` in the filename — see MUSIC3.md):
 `models/dust-tf-v1/dust-tf-v1_last.json` is the promoted full-target sidecar
 (222 modules, `--loss nmse`, lr `2e-3`). The `.safetensors` is not in git.
 
-Studio-path drop-ins (baked `B`, sidecar `unit_scale: 1.0`) live beside those
-files on disk, not in git: `energy_unit_last.safetensors` and
-`triphop-tf-v4/triphop-tf-v4_unit_last.safetensors`. Render those with
-`scripts/render_shipped_slider.py`, not `generate_listen.py` at face-value
-`unit_scale`. The in-git energy sidecar still records `unit_scale: 2.010`
-from velocity calibration.
-
-The shipped energy pair also moves BPM (`168` vs `52`). That is inside
-`pos − neg`, not a trainer leak — see [docs/tf-leak.md](../../docs/tf-leak.md).
-The fixed-BPM candidate is `prompts-cand-energy-v1.yaml` (BPM 110). Distortion
-is the same class (`140` vs `88`). Do not add `--attributes` to TF retrains.
-
 Transformer sliders: rank-8 LoRA, 500 steps. v2 hosts `MiniMaxMusic3Attention`
 only; dust-tf-v1 hosts attention + block FF + proj. Gender: rank-8 LoRA on
 `Qwen3Attention`, 800 steps. All trained and rendered on GPU 0.

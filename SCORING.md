@@ -169,14 +169,3 @@ contract (identity defined against arrangement-preserving features, null from
 re-rolled plans) must be frozen before any LM optimization loop starts. Until
 then LM halves are judged by the axis probe, training metrics, ending A/B, and
 ears only.
-
-## Amendment 7 — energy/distortion BPM is a caption problem (2026-08-24)
-
-G0 already says an unscoreable or entangled axis is a **prompt** problem, not
-a training problem. CPU measurement in [docs/tf-leak.md](docs/tf-leak.md):
-default `--loss nmse --target_mode axis` fits `pos − neg`; the shipped energy
-pair puts `BPM: 168` vs `BPM: 52` on that odd axis (Δ 116). `pole` /
-`nmse_ortho` / `gain_penalty` / gender `--attributes` leave the BPM there
-(leak 0.41–0.47). The leak is zero on `prompts-cand-energy-v1.yaml` (BPM
-pinned 110). Do not open a recipe search to “fix” it; recertify G0 on a
-fixed-BPM pair if the catalog should be orthogonal.
