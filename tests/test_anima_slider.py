@@ -93,7 +93,7 @@ def test_anima_cli_defaults_match_live_card():
     assert card["control_prompt"] == "a bowl of fruit on a table"
     assert card["sample_scales"] == list(DEFAULT_SAMPLE_SCALES)
     assert card["sample_seed"] == 42
-    assert "peft" in card["sample_gate"]
+    assert "PEFT" in card["sample_gate"]
     assert card["device"] == "cuda:0"
     assert card["music3_default_untouched"] == {
         "lm_target": "v9",
