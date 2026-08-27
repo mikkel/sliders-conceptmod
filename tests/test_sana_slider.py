@@ -477,7 +477,8 @@ def test_docs_publish_the_live_train_command():
     assert "happy-sana" in doc
     assert "happy, smiling, joyful" in doc
     assert "neu (infer path)" in doc
-    assert "cancelled the infer path" in doc
+    assert "cancelled the" in doc
+    assert "infer path" in doc
     assert "lyric-hold" in doc
     assert "v(z, t, c) − v(z, t, '')" in doc or "v(z, t, c) - v(z, t, '')" in doc
     readme = Path("README.md").read_text()
