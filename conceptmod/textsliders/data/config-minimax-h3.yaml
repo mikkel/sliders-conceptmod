@@ -1,0 +1,42 @@
+prompts_file: "conceptmod/textsliders/data/prompts-minimax-h3.yaml"
+pretrained_model:
+  name_or_path: "MiniMaxAI/MiniMax-H3"
+  variant: "FL2VA"
+  workflow: "t2va"
+  task_index: "FL2VA/model_index.json"
+  stack: "omni_transformer_flow"
+  cfg_distilled: true
+network:
+  type: "lierla"
+  rank: 8
+  alpha: 8.0
+  training_method: "attn"
+  target: "MiniMaxH3Attention"
+  linears:
+    - to_q
+    - to_k
+    - to_v
+    - to_out.0
+  train_adaln: false
+train:
+  recipe: "minimax_h3_uni_velocity"
+  precision: "bfloat16"
+  iterations: 500
+  lr: 0.0001
+  optimizer: "AdamW"
+  short_side: 768
+  guidance: 0
+  freeze:
+    - text_encoder
+    - visual_vae
+    - audio_vae
+    - processor
+    - tokenizer
+save:
+  name: "age-minimax-h3-uni"
+  path: "./models"
+  per_steps: 100
+  precision: "float32"
+logging:
+  use_wandb: false
+  verbose: false
