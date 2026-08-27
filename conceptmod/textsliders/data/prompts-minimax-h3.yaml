@@ -1,0 +1,11 @@
+# MiniMax-H3 UNI slider rows (FL2VA t2va). Unused attributes are pinned
+# on both poles; yaml negative / unconditional is a canary only.
+- target: person
+  positive: old person
+  neutral: person
+  unconditional: young person
+  negative: young person
+  attributes:
+    - male
+    - female
+  action: enhance
