@@ -154,6 +154,10 @@ def write_report(results: list[MethodResult], geo: dict, blob: dict, path: Path)
         f"slider **{hub_ax['slider']}**, leak **{hub_ax['leak']}**,",
         f"collapse **{hub_ax['collapse']}** — same leak as `--symmetric`.",
         "",
+        "Released Hub v9 weights (not this field's `lm_v9` default) are that",
+        "`lm_v9_hub` recipe. Sidecar flags and the per-slider map live in",
+        "[hub-v9-released-2d.md](hub-v9-released-2d.md).",
+        "",
         "| method | slider | leak | ±1 collapse | slider cos | leak ratio | ±1 cos |",
         "|---|---|---|---|---:|---:|---:|",
     ]
