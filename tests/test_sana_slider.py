@@ -43,6 +43,7 @@ from conceptmod.textsliders.train_lora_sana import (
     dummy_tokenize,
     load_prompts,
     parse_args,
+    resolve_sana_concept_ids,
     train,
 )
 from conceptmod.textsliders.train_lm_slider_music3 import parse_args as parse_lm
@@ -214,6 +215,77 @@ def test_hold_fails_closed_without_concept_words():
         zimage_require_concept_in_prompt(plus_ids, concept)
     with pytest.raises(SanaHoldError, match="required"):
         zimage_require_concept_in_prompt(plus_ids, set())
+
+
+def test_sana_hold_accepts_leading_space_bpe_concept_piece():
+    """Gemma/Sana: standalone `old` is not the id used inside `an old person`."""
+    bare_old = 101
+    spaced_old = 202
+    other = {"an": 11, "a": 12, "person": 13}
+
+    def fake_tokenize(text: str) -> list[int]:
+        if text == "old":
+            return [bare_old]
+        if text == " old":
+            return [spaced_old]
+        if text == "an old person":
+            return [other["an"], spaced_old, other["person"]]
+        if text == "a person":
+            return [other["a"], other["person"]]
+        raise AssertionError(f"unexpected tokenize({text!r})")
+
+    plus, neu = "an old person", "a person"
+    plus_ids = fake_tokenize(plus)
+    neu_ids = fake_tokenize(neu)
+    declared = sana_concept_token_ids("old", fake_tokenize)
+    assert bare_old in declared
+    assert spaced_old in declared
+    assert bare_old not in plus_ids
+    assert spaced_old in plus_ids
+
+    concept = resolve_sana_concept_ids(plus_ids, neu_ids, "old", fake_tokenize)
+    assert spaced_old in concept
+    dim = 4
+    plus_emb = torch.zeros(len(plus_ids), dim)
+    neu_emb = torch.zeros(len(neu_ids), dim)
+    hold = sana_unused_token_hold(plus_emb, neu_emb, plus_ids, neu_ids, concept)
+    assert float(hold) == pytest.approx(0.0, abs=1e-8)
+
+
+def test_sana_hold_falls_back_to_plus_minus_neu_support():
+    """If even ` old` misses the + prompt, use set(plus) - set(neu)."""
+    in_prompt_old = 303
+
+    def fake_tokenize(text: str) -> list[int]:
+        if text == "old":
+            return [101]
+        if text == " old":
+            return [202]
+        if text == "an old person":
+            return [11, in_prompt_old, 13]
+        if text == "a person":
+            return [12, 13]
+        raise AssertionError(f"unexpected tokenize({text!r})")
+
+    plus_ids = fake_tokenize("an old person")
+    neu_ids = fake_tokenize("a person")
+    declared = sana_concept_token_ids("old", fake_tokenize)
+    assert in_prompt_old not in declared
+    with pytest.raises(SanaHoldError, match="not found"):
+        zimage_require_concept_in_prompt(plus_ids, declared)
+
+    concept = resolve_sana_concept_ids(plus_ids, neu_ids, "old", fake_tokenize)
+    assert concept == {11, in_prompt_old}
+    hold = sana_unused_token_hold(
+        torch.zeros(len(plus_ids), 4),
+        torch.zeros(len(neu_ids), 4),
+        plus_ids,
+        neu_ids,
+        concept,
+    )
+    assert float(hold) == pytest.approx(0.0, abs=1e-8)
+    with pytest.raises(SanaHoldError, match="not found"):
+        resolve_sana_concept_ids([1, 2], [1, 2], "old", lambda _t: [999])
 
 
 def test_refuses_foreign_backends():
