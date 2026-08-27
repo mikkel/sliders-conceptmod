@@ -2,14 +2,18 @@
 # - https://github.com/cloneofsimo/lora/blob/master/lora_diffusion/lora.py
 # - https://github.com/kohya-ss/sd-scripts/blob/main/networks/lora.py
 
+from __future__ import annotations
+
 import os
 import math
-from typing import Optional, List, Type, Set, Literal
+from typing import TYPE_CHECKING, Optional, List, Type, Set, Literal
 
 import torch
 import torch.nn as nn
-from diffusers import UNet2DConditionModel
 from safetensors.torch import save_file
+
+if TYPE_CHECKING:
+    from diffusers import UNet2DConditionModel
 
 
 UNET_TARGET_REPLACE_MODULE_TRANSFORMER = [
@@ -191,7 +195,7 @@ class LoRAModule(nn.Module):
 class LoRANetwork(nn.Module):
     def __init__(
         self,
-        unet: UNet2DConditionModel,
+        unet: "UNet2DConditionModel",
         rank: int = 4,
         multiplier: float = 1.0,
         delimiter: str = "_",

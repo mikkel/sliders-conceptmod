@@ -52,6 +52,20 @@ python trainscripts/textsliders/train_lora_xl.py --attributes 'male, female' --n
 To evaluate your trained models use the notebook `XL-sliders-inference.ipynb`
 
 
+## Z-Image Turbo (ZiT) image sliders
+
+Opt-in UNI analog on [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo)
+(6B, LoRA 16, 768px, 8 steps, CFG 0). Positive / neutral yaml, unused
+attributes pinned, no minus teacher. **Does not change Music 3 defaults.**
+Live train card: [docs/zimage-slider.md](docs/zimage-slider.md).
+
+```
+CUDA_VISIBLE_DEVICES=N python conceptmod/textsliders/train_lora_zimage.py \
+  --name age-zit --prompts_file conceptmod/textsliders/data/prompts-zimage.yaml \
+  --rank 16 --alpha 16 --resolution 768 --sample_steps 8 --sample_guidance 0.0 \
+  --steps 500 --seed 7 --device 0
+```
+
 ## Visual Concept Sliders
 ### Training SD-1.x and SD-2.x LoRa
 To train image based sliders, you need to create a ~4-6 pairs of image dataset (before/after edit for desired concept). Save the before images and after images separately. You can also create a dataset with varied intensity effect and save them differently. 
