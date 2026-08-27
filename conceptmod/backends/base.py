@@ -1,9 +1,9 @@
 """Backend protocol copied from mikkel/conceptmod (encode / velocity / sample).
 
-Live conceptmod backends require CUDA. This fork keeps the same methods so
-an H3 image-slider trainer can call ``encode_text`` / ``predict_v`` /
-``partial_denoise`` / ``generate``. Tests inject CPU mocks and never load
-Hub weights.
+conceptmod's DiT backends implement all of these. H3 is AR/MoE, so this
+fork keeps the same method names: ``encode_text`` is native, while
+``predict_v`` / ``partial_denoise`` raise ``ArchitectureMismatch``.
+Live load requires CUDA. Tests inject CPU mocks and never load Hub weights.
 """
 
 from __future__ import annotations

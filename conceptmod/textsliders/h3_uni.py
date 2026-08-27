@@ -88,10 +88,6 @@ def h3_uni_hidden_loss(
     return F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_zero, tgt_zero)
 
 
-# Back-compat alias used by earlier velocity drafts; same algebra.
-h3_uni_velocity_loss = h3_uni_hidden_loss
-
-
 def h3_minus_canary(pred_minus: torch.Tensor, tgt_minus: torch.Tensor) -> torch.Tensor:
     """Logged only. Never added to the train loss."""
     return F.mse_loss(pred_minus, tgt_minus)
