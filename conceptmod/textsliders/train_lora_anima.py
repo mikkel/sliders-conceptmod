@@ -10,7 +10,9 @@ Live card (documented by ``scripts/smoke_anima_slider.py``):
     frozen base transformer with adapter disabled
     never  train text_conditioner
     sample in-process PEFT pipe(prompt=...) at 0 / 0.25 / 0.5 / 1.0
-    lm     --lm_target direct (expression; cfg_delta is UNI CFG deltas)
+    lm     --lm_target trajectory (K-step FlowMatch Euler; direct /
+           cfg_delta kept). 1-step v-space gap is microscopic on Anima.
+    traj   --traj_steps 4
     every  --sample_every 100 (end-of-train gate always runs)
 
 Train and sample share bare infer/neu captions. Attributes are unused
@@ -60,11 +62,18 @@ from conceptmod.textsliders.anima_slider import (
     DEFAULT_SAMPLE_SCALES,
     DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
+    DEFAULT_TEACHER_GAP_BOOST,
+    DEFAULT_TRAJ_IDENTITY_WEIGHT,
+    DEFAULT_TRAJ_STEPS,
     FROZEN_MODULES,
     LORA_TARGETS,
+    anima_boost_teacher,
     anima_cfg_delta,
     anima_direct_loss,
     anima_direct_teachers,
+    anima_recipe_label,
+    anima_short_trajectory,
+    anima_trajectory_loss,
     anima_uni_loss,
     anima_uni_teachers,
     anima_unused_hold_loss,
@@ -112,9 +121,38 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=ANIMA_LM_TARGETS,
         default=DEFAULT_LM_TARGET,
         help=(
-            "direct (default, expression): MSE(v(neu, adapter), v(pos, frozen)) "
-            "+ MSE(v(neu, scale 0), v(neu, frozen)). "
-            "cfg_delta: UNI CFG deltas. Music 3 --lm_target v9 is untouched."
+            "trajectory (default, live smile): K-step FlowMatch Euler "
+            "MSE(x_student, x_plus). direct / cfg_delta are 1-step and "
+            "cannot carry Anima expression (v-space gap ~1e-4). "
+            "Music 3 --lm_target v9 is untouched."
+        ),
+    )
+    parser.add_argument(
+        "--traj_steps",
+        type=int,
+        default=DEFAULT_TRAJ_STEPS,
+        help=(
+            "short denoise steps K for --lm_target trajectory "
+            f"(default {DEFAULT_TRAJ_STEPS}; 8 is the longer live option)"
+        ),
+    )
+    parser.add_argument(
+        "--traj_identity_weight",
+        type=float,
+        default=DEFAULT_TRAJ_IDENTITY_WEIGHT,
+        help=(
+            "light MSE(x_zero, x_neu) so scale 0 stays the neu short "
+            f"trajectory (default {DEFAULT_TRAJ_IDENTITY_WEIGHT}; 0 = off)"
+        ),
+    )
+    parser.add_argument(
+        "--teacher_gap_boost",
+        type=float,
+        default=DEFAULT_TEACHER_GAP_BOOST,
+        help=(
+            "for direct / cfg_delta only: train toward "
+            "v_neu + boost*(v_pos-v_neu) with boost>1. Default 1 (off). "
+            "Not a substitute for trajectory."
         ),
     )
     parser.add_argument(
@@ -625,7 +663,16 @@ def train_dummy(args: argparse.Namespace) -> dict:
             trained_infer.append(row.infer_prompt)
         z, t = _sample_zt(backend, int(args.seed), step)
         loss, canary_v = _train_step(
-            backend, row, plan, z, t, float(args.hold_weight), lm_target
+            backend,
+            row,
+            plan,
+            z,
+            t,
+            float(args.hold_weight),
+            lm_target,
+            traj_steps=int(args.traj_steps),
+            traj_identity_weight=float(args.traj_identity_weight),
+            teacher_gap_boost=float(args.teacher_gap_boost),
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -659,10 +706,16 @@ def train_dummy(args: argparse.Namespace) -> dict:
         "device": str(device),
         "lora_targets": list(LORA_TARGETS),
         "frozen_modules": list(FROZEN_MODULES),
-        "recipe": (
-            "direct velocity UNI + unused_token_hold"
-            if lm_target == "direct"
-            else "cfg_delta UNI + unused_token_hold"
+        "recipe": anima_recipe_label(lm_target),
+        "traj_steps": int(args.traj_steps),
+        "traj_identity_weight": float(args.traj_identity_weight),
+        "teacher_gap_boost": float(args.teacher_gap_boost),
+        "traj_loop": (
+            "thin FlowMatch Euler over predict_v "
+            "(σ=linspace(1,1/K,K)+0, x←x+(σ_next−σ)*v)"
+        ),
+        "traj_loss": (
+            "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu)"
         ),
         "plus_label": meta.plus_label,
         "minus_canary": any(r.has_minus_canary for r in rows),
@@ -719,6 +772,11 @@ class LiveAnimaBackend:
             1, 1, resolution, resolution, device=device, dtype=torch.bfloat16
         )
         self._text_cache: dict[str, torch.Tensor] = {}
+        sched = getattr(pipe, "scheduler", None)
+        cfg = getattr(sched, "config", None)
+        self.num_train_timesteps = int(
+            getattr(cfg, "num_train_timesteps", None) or 1000
+        )
 
     def encode_text(self, prompt: str) -> tuple[torch.Tensor, list[str]]:
         if prompt not in self._text_cache:
@@ -848,10 +906,97 @@ def _cycle_row(rows, plans, step: int):
     return rows[idx], plans[idx]
 
 
-def _train_step(backend, row, plan, z, t, hold_weight: float, lm_target: str):
+def _hold_and_canary(backend, row, plan, hold_weight: float, canary_student, v_neg, v_null):
+    feat_s, tokens_s = backend.text_features(row.positive, frozen=False, scale=1.0)
+    feat_n, tokens_n = backend.text_features(row.neutral, frozen=True)
+    # Dummy tokenizer matches ``row_token_plan`` word ids. Live Qwen/T5
+    # ids do not — skip the index hold there (encoder is frozen anyway).
+    extra = None
+    if tokens_s and tokens_n and plan["pairs"]:
+        extra = hold_weight * anima_unused_hold_loss(
+            feat_s, feat_n, pairs=plan["pairs"]
+        )
+    canary = None
+    if v_neg is not None:
+        canary = float(minus_canary_cosine(canary_student, v_neg, v_null))
+    return extra, canary
+
+
+def _trajectory_step(
+    backend,
+    row,
+    plan,
+    z,
+    hold_weight: float,
+    traj_steps: int,
+    identity_weight: float,
+):
+    """Same z_T, K-step Euler: student(neu, adapter) → frozen plus traj."""
+    infer = row.infer_prompt
+    with torch.no_grad():
+        x_plus = anima_short_trajectory(
+            backend, row.positive, z, num_steps=traj_steps, frozen=True
+        )
+        x_neu = anima_short_trajectory(
+            backend, row.neutral, z, num_steps=traj_steps, frozen=True
+        )
+        v_null = backend.predict_v("", z, torch.tensor([1000.0], device=z.device), frozen=True)
+        v_neg = (
+            backend.predict_v(
+                row.negative,
+                z,
+                torch.tensor([1000.0], device=z.device),
+                frozen=True,
+            )
+            if row.has_minus_canary
+            else None
+        )
+    x_student = anima_short_trajectory(
+        backend, infer, z, num_steps=traj_steps, frozen=False, scale=1.0
+    )
+    x_zero = None
+    if float(identity_weight) > 0.0:
+        with torch.no_grad():
+            x_zero = anima_short_trajectory(
+                backend, infer, z, num_steps=traj_steps, frozen=False, scale=0.0
+            )
+    loss = anima_trajectory_loss(
+        x_student, x_plus, x_zero, x_neu, identity_weight=identity_weight
+    )
+    extra, canary = _hold_and_canary(
+        backend, row, plan, hold_weight, x_student.detach(), v_neg, v_null
+    )
+    if extra is not None:
+        loss = loss + extra
+    return loss, canary
+
+
+def _train_step(
+    backend,
+    row,
+    plan,
+    z,
+    t,
+    hold_weight: float,
+    lm_target: str,
+    *,
+    traj_steps: int = DEFAULT_TRAJ_STEPS,
+    traj_identity_weight: float = DEFAULT_TRAJ_IDENTITY_WEIGHT,
+    teacher_gap_boost: float = DEFAULT_TEACHER_GAP_BOOST,
+):
     """Student +1 stays on infer/neu. + caption is teacher only (#62 analog)."""
     infer = row.infer_prompt
     recipe = resolve_anima_lm_target(lm_target)
+    if recipe == "trajectory":
+        return _trajectory_step(
+            backend,
+            row,
+            plan,
+            z,
+            hold_weight,
+            traj_steps=int(traj_steps),
+            identity_weight=float(traj_identity_weight),
+        )
     with torch.no_grad():
         v_pos = backend.predict_v(row.positive, z, t, frozen=True)
         v_neu = backend.predict_v(row.neutral, z, t, frozen=True)
@@ -861,6 +1006,7 @@ def _train_step(backend, row, plan, z, t, hold_weight: float, lm_target: str):
             if row.has_minus_canary
             else None
         )
+        v_pos = anima_boost_teacher(v_pos, v_neu, teacher_gap_boost)
     v_student_plus = backend.predict_v(infer, z, t, frozen=False, scale=1.0)
     v_student_zero = backend.predict_v(infer, z, t, frozen=False, scale=0.0)
     if recipe == "direct":
@@ -881,17 +1027,11 @@ def _train_step(backend, row, plan, z, t, hold_weight: float, lm_target: str):
         )
         loss = anima_uni_loss(s_plus, teachers["plus"], s_zero, teachers["zero"])
         canary_student = s_plus.detach()
-    feat_s, tokens_s = backend.text_features(row.positive, frozen=False, scale=1.0)
-    feat_n, tokens_n = backend.text_features(row.neutral, frozen=True)
-    # Dummy tokenizer matches ``row_token_plan`` word ids. Live Qwen/T5
-    # ids do not — skip the index hold there (encoder is frozen anyway).
-    if tokens_s and tokens_n and plan["pairs"]:
-        loss = loss + hold_weight * anima_unused_hold_loss(
-            feat_s, feat_n, pairs=plan["pairs"]
-        )
-    canary = None
-    if v_neg is not None:
-        canary = float(minus_canary_cosine(canary_student, v_neg, v_null))
+    extra, canary = _hold_and_canary(
+        backend, row, plan, hold_weight, canary_student, v_neg, v_null
+    )
+    if extra is not None:
+        loss = loss + extra
     return loss, canary
 
 
@@ -922,7 +1062,16 @@ def train_live(args: argparse.Namespace) -> dict:
             trained_infer.append(row.infer_prompt)
         z, t = _sample_zt(backend, int(args.seed), step)
         loss, canary_v = _train_step(
-            backend, row, plan, z, t, float(args.hold_weight), lm_target
+            backend,
+            row,
+            plan,
+            z,
+            t,
+            float(args.hold_weight),
+            lm_target,
+            traj_steps=int(args.traj_steps),
+            traj_identity_weight=float(args.traj_identity_weight),
+            teacher_gap_boost=float(args.teacher_gap_boost),
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -952,10 +1101,16 @@ def train_live(args: argparse.Namespace) -> dict:
         "device": str(device),
         "lora_targets": list(LORA_TARGETS),
         "frozen_modules": list(FROZEN_MODULES),
-        "recipe": (
-            "direct velocity UNI + unused_token_hold"
-            if lm_target == "direct"
-            else "cfg_delta UNI + unused_token_hold"
+        "recipe": anima_recipe_label(lm_target),
+        "traj_steps": int(args.traj_steps),
+        "traj_identity_weight": float(args.traj_identity_weight),
+        "teacher_gap_boost": float(args.teacher_gap_boost),
+        "traj_loop": (
+            "thin FlowMatch Euler over predict_v "
+            "(σ=linspace(1,1/K,K)+0, x←x+(σ_next−σ)*v)"
+        ),
+        "traj_loss": (
+            "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu)"
         ),
         "plus_label": meta.plus_label,
         "minus_canary": any(r.has_minus_canary for r in rows),
@@ -998,6 +1153,9 @@ def train(args: argparse.Namespace) -> dict:
             control_prompt=str(args.control_prompt),
             lm_target=str(args.lm_target),
             sample_every=int(args.sample_every),
+            traj_steps=int(args.traj_steps),
+            traj_identity_weight=float(args.traj_identity_weight),
+            teacher_gap_boost=float(args.teacher_gap_boost),
         )
         print(json.dumps(card, indent=2))
         print()
@@ -1013,6 +1171,8 @@ def train(args: argparse.Namespace) -> dict:
             lr=float(args.lr),
             lm_target=str(args.lm_target),
             sample_every=int(args.sample_every),
+            traj_steps=int(args.traj_steps),
+            teacher_gap_boost=float(args.teacher_gap_boost),
         ))
         return card
     if args.dummy:

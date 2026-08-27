@@ -119,7 +119,7 @@ python trainscripts/imagesliders/train_lora-scale-xl.py --name 'eyesliderXL' --r
 
 ### Anima (opt-in yaml slider)
 
-Flow-matching 2B DiT (`circlestone-labs/Anima-Base-v1.0-Diffusers`). Default `--lm_target direct`: neu+LoRA matches plus velocity, scale 0 matches neu. Train and sample share bare infer/neu captions (attributes are unused-token pins, not prefixes). Cycles woman + man. LoRA rank 16 on `to_q/to_k/to_v/to_out.0`. Does not train `text_conditioner`. Default `--lr 1e-4`, `--sample_every 100`. In-process PEFT scale grid through `pipe(prompt=...)`. Does not change Music 3 defaults (`--lm_target v9`). Train card: `docs/anima-slider.md`. Dummy smoke: `scripts/smoke_anima_slider.py`.
+Flow-matching 2B DiT (`circlestone-labs/Anima-Base-v1.0-Diffusers`). Default `--lm_target trajectory`: K-step FlowMatch Euler so neu+LoRA matches the frozen plus *trajectory* (1-step `direct` / `cfg_delta` cannot carry smile — v-space pos/neu gap is ~1e-4). Train and sample share bare infer/neu captions (attributes are unused-token pins, not prefixes). Cycles woman + man. LoRA rank 16 on `to_q/to_k/to_v/to_out.0`. Does not train `text_conditioner`. Default `--lr 1e-4`, `--traj_steps 4`, `--sample_every 100`. In-process PEFT scale grid through `pipe(prompt=...)`. Does not change Music 3 defaults (`--lm_target v9`). Train card: `docs/anima-slider.md`. Dummy smoke: `scripts/smoke_anima_slider.py`.
 
 ```
 HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
@@ -127,7 +127,7 @@ HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
   --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
   --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
   --rank 16 --resolution 768 --sample_steps 40 --cfg 4 \
-  --lr 1e-4 --lm_target direct --sample_every 100 \
+  --lr 1e-4 --lm_target trajectory --traj_steps 4 --sample_every 100 \
   --device cuda:0 --save_dir models/smile-anima
 ```
 
