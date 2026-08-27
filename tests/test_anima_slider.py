@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -61,9 +62,18 @@ from conceptmod.textsliders.anima_slider import (
     row_token_plan,
     splice_unused_embeds,
     stock_teacher_smoke_captions,
+    turbo_preview_card,
+    turbo_preview_sample_command,
     unused_token_mask,
     unused_vocab,
     word_tokens,
+    TURBO_COMFY_REPO,
+    TURBO_DIFFUSERS_OUTPUT,
+    TURBO_LICENSE,
+    TURBO_PREVIEW_ONLY,
+    TURBO_SAMPLE_CFG,
+    TURBO_SAMPLE_STEPS,
+    TURBO_TRANSFORMER_FILE,
 )
 from conceptmod.textsliders.train_lora_anima import (
     _call_modular_pipe,
@@ -136,6 +146,8 @@ def test_anima_cli_defaults_match_live_card():
         "lm_target": "v9",
         "pole_mode": "hidden",
     }
+    assert card["turbo"] == "preview_only"
+    assert args.print_turbo_preview is False
     cmd = live_train_command()
     assert "circlestone-labs/Anima-Base-v1.0-Diffusers" in cmd
     assert "--rank 16" in cmd
@@ -891,3 +903,156 @@ def test_dummy_train_trajectory_prints_target(tmp_path):
     assert "Euler" in sidecar["traj_loop"]
     assert sidecar["sample_grid"]["scales"] == [0.0, 0.25, 0.5, 1.0]
     assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
+
+
+def test_turbo_is_preview_only_train_stays_base():
+    card = turbo_preview_card()
+    assert TURBO_PREVIEW_ONLY is True
+    assert card["role"] == "preview_only"
+    assert card["train_on"] == DEFAULT_MODEL_ID
+    assert card["train_on"] == "circlestone-labs/Anima-Base-v1.0-Diffusers"
+    assert card["comfy_repo"] == TURBO_COMFY_REPO
+    assert card["transformer_file"] == TURBO_TRANSFORMER_FILE
+    assert "anima-turbo-v1.1.safetensors" in card["transformer_file"]
+    assert card["vae_class"] == "AutoencoderKLQwenImage"
+    assert card["convert_splits"]["llm_adapter"] == "AnimaTextConditioner"
+    assert card["convert_splits"]["rest"] == "CosmosTransformer3DModel"
+    assert "--save_pipeline" in card["convert_flags"]
+    assert "--dtype bf16" in card["convert_flags"]
+    assert card["output"] == TURBO_DIFFUSERS_OUTPUT
+    assert card["sample_cfg"] == TURBO_SAMPLE_CFG == 1.0
+    assert card["sample_steps"] == TURBO_SAMPLE_STEPS == 10
+    assert card["sample_steps_range"] == [8, 12]
+    assert "Non-Commercial" in card["license"]
+    assert card["license"] == TURBO_LICENSE
+    assert "Anima-1.0-Turbo-Diffusers" in card["ignore_community"]
+    assert "preview" in card["why"].lower()
+    cmd = turbo_preview_sample_command()
+    assert "--cfg 1" in cmd
+    assert "--sample_steps 10" in cmd
+    assert TURBO_DIFFUSERS_OUTPUT in cmd
+    live = live_train_card()
+    assert live["model_id"] == DEFAULT_MODEL_ID
+    assert live["cfg"] == 4.0
+    assert live["sample_steps"] == 40
+    assert live["turbo"] == "preview_only"
+    live_cmd = live_train_command()
+    assert "circlestone-labs/Anima-Base-v1.0-Diffusers" in live_cmd
+    assert "--cfg 4" in live_cmd
+    assert "--sample_steps 40" in live_cmd
+
+
+def test_print_turbo_preview_does_not_train():
+    from conceptmod.textsliders.train_lora_anima import train
+
+    out = train(parse_args(["--print_turbo_preview"]))
+    assert out["role"] == "preview_only"
+    assert out["train_on"] == DEFAULT_MODEL_ID
+    assert parse_args([]).model_id == DEFAULT_MODEL_ID
+    assert parse_args([]).cfg == 4.0
+    assert parse_args([]).sample_steps == 40
+
+
+def test_explicit_cfg_1_is_allowed_on_sample_path():
+    """Turbo preview sample uses --cfg 1. That is an explicit request."""
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0)
+    pipe = backend.pipe
+    pipe.guider.config.guidance_scale = 4.0
+    pipe.guider.guidance_scale = 4.0
+    restore = apply_anima_guider_cfg(pipe, 1.0)
+    assert pipe.guider.config.guidance_scale == 1.0
+    restore()
+    images = _call_modular_pipe(
+        pipe,
+        WOMAN_NEU,
+        steps=2,
+        height=32,
+        width=32,
+        cfg=1.0,
+        seed=0,
+        device=backend.device,
+    )
+    assert images
+    assert pipe.last_guidance_scale == 1.0
+
+
+def _load_turbo_convert():
+    path = REPO / "scripts" / "convert_anima_turbo_diffusers.py"
+    spec = importlib.util.spec_from_file_location("convert_anima_turbo_diffusers", path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_convert_anima_turbo_helper_is_preview_only(tmp_path):
+    convert = _load_turbo_convert()
+    convert_recipe = convert.convert_recipe
+    copy_tokenizers = convert.copy_tokenizers
+    official_convert_argv = convert.official_convert_argv
+    convert_parse = convert.parse_args
+    write_preview_readme = convert.write_preview_readme
+    resolve_tokenizer_dirs = convert.resolve_tokenizer_dirs
+
+    args = convert_parse([])
+    assert args.output.name == TURBO_DIFFUSERS_OUTPUT
+    assert args.base_diffusers == DEFAULT_MODEL_ID
+    assert args.dtype == "bf16"
+    recipe = convert_recipe()
+    assert recipe["role"] == "preview_only"
+    assert recipe["train_on"] == DEFAULT_MODEL_ID
+    assert recipe["turbo_is_not_a_train_target"] is True
+    assert recipe["save_pipeline"] is True
+    assert recipe["dtype"] == "bf16"
+    names = [Path(row["filename"]).name for row in recipe["hub_files"]]
+    assert names == [
+        "anima-turbo-v1.1.safetensors",
+        "qwen_3_06b_base.safetensors",
+        "qwen_image_vae.safetensors",
+    ]
+    assert all(row["repo"] == "circlestone-labs/Anima" for row in recipe["hub_files"])
+    argv = recipe["official_argv"]
+    assert "--save_pipeline" in argv
+    assert argv[argv.index("--dtype") + 1] == "bf16"
+    assert "--cfg 1" in recipe["sample_command"]
+    assert "--sample_steps 10" in recipe["sample_command"]
+    built = official_convert_argv(
+        convert_script=tmp_path / "convert_anima_to_diffusers.py",
+        transformer=tmp_path / "anima-turbo-v1.1.safetensors",
+        text_encoder=tmp_path / "qwen_3_06b_base.safetensors",
+        vae=tmp_path / "qwen_image_vae.safetensors",
+        qwen_tokenizer=tmp_path / "tokenizer",
+        t5_tokenizer=tmp_path / "t5_tokenizer",
+        output=tmp_path / TURBO_DIFFUSERS_OUTPUT,
+    )
+    assert "--save_pipeline" in built
+    assert built[built.index("--dtype") + 1] == "bf16"
+    readme = write_preview_readme(tmp_path / "out")
+    text = readme.read_text()
+    assert "preview only" in text.lower()
+    assert "Do not train" in text
+    assert DEFAULT_MODEL_ID in text
+    assert "Non-Commercial" in text
+    qwen = tmp_path / "src_tok"
+    t5 = tmp_path / "src_t5"
+    qwen.mkdir()
+    t5.mkdir()
+    (qwen / "tokenizer_config.json").write_text("{}", encoding="utf-8")
+    (t5 / "tokenizer_config.json").write_text("{}", encoding="utf-8")
+    dest = tmp_path / "converted"
+    dest.mkdir()
+    copy_tokenizers(qwen, t5, dest)
+    assert (dest / "tokenizer" / "tokenizer_config.json").is_file()
+    assert (dest / "t5_tokenizer" / "tokenizer_config.json").is_file()
+    local_base = tmp_path / "Anima-Base-v1.0-Diffusers"
+    (local_base / "tokenizer").mkdir(parents=True)
+    (local_base / "t5_tokenizer").mkdir(parents=True)
+    (local_base / "tokenizer" / "tokenizer_config.json").write_text("{}", encoding="utf-8")
+    (local_base / "t5_tokenizer" / "tokenizer_config.json").write_text("{}", encoding="utf-8")
+    got_qwen, got_t5 = resolve_tokenizer_dirs(str(local_base), tmp_path / "cache")
+    assert got_qwen == local_base / "tokenizer"
+    assert got_t5 == local_base / "t5_tokenizer"
+    dry = convert.main(["--dry-run", "--output", str(tmp_path / "Anima-Turbo-v1.1-Diffusers")])
+    assert dry == 0
+    printed = convert.main(["--print-recipe"])
+    assert printed == 0

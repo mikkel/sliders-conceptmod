@@ -102,6 +102,81 @@ HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
 `--traj_steps 8` is the longer live option. `--teacher_gap_boost 4`
 only applies to a `direct` / `cfg_delta` debug run.
 
+## Turbo v1.1 is preview only
+
+**Do not train on Turbo.** The live train target stays
+[`circlestone-labs/Anima-Base-v1.0-Diffusers`](https://huggingface.co/circlestone-labs/Anima-Base-v1.0-Diffusers).
+CircleStone: train LoRAs on Base.
+
+`smile-anima-v5` on Base failed because the 1-step v-space teacher gap
+is tiny (`cos ≈ 0.99993`). Turbo is **not** the next train unless a
+stock/preview smoke shows a *larger* closed-mouth vs teeth gap than
+Base. Use it for faster stock/preview smoke only.
+
+There is **no official Turbo Diffusers repo**. Ignore community
+`Anima-1.0-Turbo-Diffusers`: it is v1.0 only and uses the wrong VAE
+class. Official convert splits `llm_adapter` →
+`AnimaTextConditioner` and the rest → `CosmosTransformer3DModel`;
+VAE is `AutoencoderKLQwenImage`.
+
+| field | value |
+|---|---|
+| role | **preview only** (not a train target) |
+| Comfy single-file | `circlestone-labs/Anima` → `split_files/diffusion_models/anima-turbo-v1.1.safetensors` (4.18 GB) |
+| text encoder | `split_files/text_encoders/qwen_3_06b_base.safetensors` |
+| VAE | `split_files/vae/qwen_image_vae.safetensors` |
+| convert | official `huggingface/diffusers` `scripts/convert_anima_to_diffusers.py` |
+| convert flags | `--save_pipeline --dtype bf16` |
+| tokenizers | reuse `tokenizer/` + `t5_tokenizer/` from `Anima-Base-v1.0-Diffusers` |
+| output | `./Anima-Turbo-v1.1-Diffusers` |
+| sample CFG | **1** |
+| sample steps | **8–12** (this repo: `--sample_steps 10`) |
+| license | CircleStone Labs **Non-Commercial (NC)** |
+
+```bash
+python scripts/convert_anima_turbo_diffusers.py \
+  --output ./Anima-Turbo-v1.1-Diffusers
+```
+
+The helper downloads the three Hub files, fetches the official convert
+(+ sibling `convert_cosmos_to_diffusers.py`), reuses Base tokenizers
+from a local checkout or the Hub, and runs:
+
+```bash
+python convert_anima_to_diffusers.py \
+  --transformer_ckpt_path .../anima-turbo-v1.1.safetensors \
+  --text_encoder_ckpt_path .../qwen_3_06b_base.safetensors \
+  --vae_ckpt_path .../qwen_image_vae.safetensors \
+  --qwen_tokenizer_path .../tokenizer \
+  --t5_tokenizer_path .../t5_tokenizer \
+  --output_path ./Anima-Turbo-v1.1-Diffusers \
+  --save_pipeline --dtype bf16
+```
+
+Turbo preview sample (sample path only; train recipe stays Base):
+
+```bash
+HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
+  --name smile-anima-turbo-preview \
+  --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
+  --model_id ./Anima-Turbo-v1.1-Diffusers \
+  --rank 16 --resolution 768 --sample_steps 10 --cfg 1 \
+  --lr 1e-4 --lm_target trajectory --traj_steps 4 \
+  --teacher_gap_boost 1 --sample_every 100 \
+  --device cuda:0 --save_dir models/smile-anima-turbo-preview
+```
+
+`--cfg 1` is an explicit sample-path request. The guider fail-close
+still refuses a *silent* fallback to CFG 1 when CFG 4 could not be
+applied. `--cfg` does not change the trajectory train loss.
+
+Print the preview card without training:
+
+```bash
+PYTHONPATH=. python conceptmod/textsliders/train_lora_anima.py --print_turbo_preview
+python scripts/convert_anima_turbo_diffusers.py --print-recipe
+```
+
 `--lr` stays overridable. CircleStone's own finetune note is even
 lower (`~2e-5` for rank 32); `1e-4` is the trainer default.
 
@@ -188,6 +263,10 @@ with the **same seed**, same steps, CFG 4 via
 `guider.config.guidance_scale`. Stock neu must look clearly less
 smiley than stock plus. If both already grin, do not trust the slider.
 
+For a faster first look, convert Turbo v1.1 (preview only) and sample
+at CFG 1, 8–12 steps. That smoke does **not** change the train target
+off Base. See [Turbo v1.1 is preview only](#turbo-v11-is-preview-only).
+
 v3 captions:
 
 | pair | neu / infer (student +1) | plus (CFG teacher only) |
@@ -224,3 +303,4 @@ bare strings.
 - [docs/sana-slider.md](sana-slider.md) — cheap 0.6B test backend (not this trainer)
 - [docs/lm-plus-neu-exam.md](lm-plus-neu-exam.md) — Music 3 last-token UNI (not this trainer)
 - Music 3 live defaults stay `--lm_target v9 --pole_mode hidden`
+- Turbo v1.1 convert helper: `scripts/convert_anima_turbo_diffusers.py` (preview only; train stays Base)

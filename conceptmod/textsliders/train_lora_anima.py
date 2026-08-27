@@ -83,6 +83,8 @@ from conceptmod.textsliders.anima_slider import (
     live_train_card,
     live_train_command,
     load_anima_prompts,
+    turbo_preview_card,
+    turbo_preview_sample_command,
     looks_like_rgb_noise,
     minus_canary_cosine,
     resolve_anima_lm_target,
@@ -101,8 +103,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--rank", type=int, default=DEFAULT_RANK)
     parser.add_argument("--alpha", type=float, default=None)
     parser.add_argument("--resolution", type=int, default=DEFAULT_RESOLUTION)
-    parser.add_argument("--sample_steps", type=int, default=DEFAULT_SAMPLE_STEPS)
-    parser.add_argument("--cfg", type=float, default=DEFAULT_CFG)
+    parser.add_argument(
+        "--sample_steps",
+        type=int,
+        default=DEFAULT_SAMPLE_STEPS,
+        help=(
+            f"in-process PEFT sample steps (default {DEFAULT_SAMPLE_STEPS} "
+            "for Base). Turbo preview-only smoke uses --sample_steps 10 "
+            "(official 8–12). Does not change the Base train recipe."
+        ),
+    )
+    parser.add_argument(
+        "--cfg",
+        type=float,
+        default=DEFAULT_CFG,
+        help=(
+            f"sample-path ModularPipeline CFG (default {DEFAULT_CFG:g} for "
+            "Base). Turbo preview-only smoke uses --cfg 1. Train stays on "
+            "Base at CFG 4; this flag does not silently train at CFG 1."
+        ),
+    )
+    parser.add_argument(
+        "--print_turbo_preview",
+        action="store_true",
+        help=(
+            "print the Turbo v1.1 preview-only convert/sample card and exit. "
+            "Does not change the Base train recipe."
+        ),
+    )
     parser.add_argument("--hold_weight", type=float, default=DEFAULT_HOLD_WEIGHT)
     parser.add_argument("--steps", type=int, default=500)
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
@@ -433,7 +461,9 @@ def apply_anima_guider_cfg(pipe, cfg: float) -> Callable[[], None]:
     ``guider.config.guidance_scale`` (and any real field the guider
     exposes), then ``pipe(prompt=...)`` without that kwarg.
 
-    Fail closed: do not silently sample at CFG 1.
+    Fail closed: do not silently sample at CFG 1 when a higher CFG
+    was requested. Explicit ``--cfg 1`` (Turbo preview sample) is
+    allowed and is applied the same way.
     """
     cfg = float(cfg)
     guider = getattr(pipe, "guider", None)
@@ -1139,6 +1169,12 @@ def train_live(args: argparse.Namespace) -> dict:
 
 
 def train(args: argparse.Namespace) -> dict:
+    if getattr(args, "print_turbo_preview", False):
+        card = turbo_preview_card()
+        print(json.dumps(card, indent=2))
+        print()
+        print(turbo_preview_sample_command())
+        return card
     if args.print_card:
         card = live_train_card(
             name=args.name,

@@ -9,6 +9,8 @@ models/energy-encoder/
 models/energy-encoder-dummy/
 models/energy-slider/
 models/gender-slider/
+Anima-Turbo-v1.1-Diffusers/
+.cache/anima-convert/
 *_step*.safetensors
 *_train.jsonl
 STUDIO_STOPPED.txt
