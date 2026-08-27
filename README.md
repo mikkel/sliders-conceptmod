@@ -10,6 +10,13 @@ UNI analog on `krea/Krea-2-Raw` (train LoRAs on Raw, run on Turbo). Rank 16,
 512 px, Raw 28 steps CFG 4.5 / Turbo 8 steps CFG 0. Does not change the
 Music 3 default. Anima / ZiT / H3 are not in this trainer.
 
+**Sana 0.6B image sliders (opt-in cheap test backend):** see
+[docs/sana-slider.md](docs/sana-slider.md). UNI analog on
+`Efficient-Large-Model/Sana_600M_512px_diffusers`. Train **xattn**
+(conceptmod 0.6B default) or `--lora RANK`, 512 px, 20 steps, CFG 4.5.
+Fruit-bowl control: `a bowl of fruit on a table`. Does not change the
+Music 3 default.
+
 ###  [Project Website](https://sliders.baulab.info) | [Arxiv Preprint](https://arxiv.org/pdf/2311.12092.pdf) | [Trained Sliders](https://sliders.baulab.info/weights/xl_sliders/) | [Colab Demo](https://colab.research.google.com/github/rohitgandikota/sliders/blob/main/demo_concept_sliders.ipynb) <br>
 Official code implementation of "Concept Sliders: LoRA Adaptors for Precise Control in Diffusion Models"
 
@@ -69,6 +76,23 @@ CUDA_VISIBLE_DEVICES=N python conceptmod/textsliders/train_lora_zimage.py \
   --name age-zit --prompts_file conceptmod/textsliders/data/prompts-zimage.yaml \
   --rank 16 --alpha 16 --resolution 768 --sample_steps 8 --sample_guidance 0.0 \
   --steps 500 --seed 7 --device 0
+```
+
+## Sana 0.6B image sliders (cheap test backend)
+
+Opt-in UNI analog on
+[Efficient-Large-Model/Sana_600M_512px_diffusers](https://huggingface.co/Efficient-Large-Model/Sana_600M_512px_diffusers)
+(0.6B, xattn or LoRA, 512px, 20 steps, CFG 4.5). Positive / neutral yaml,
+unused attributes pinned, no minus teacher. Fruit bowl is the control
+prompt. **Does not change Music 3 defaults.** Live train card:
+[docs/sana-slider.md](docs/sana-slider.md).
+
+```
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_sana.py \
+  --name age-sana --prompts_file conceptmod/textsliders/data/prompts-sana.yaml \
+  --train_method xattn --resolution 512 --sample_steps 20 --sample_guidance 4.5 \
+  --control_prompt "a bowl of fruit on a table" \
+  --steps 500 --lr 2e-5 --seed 7 --device 0
 ```
 
 ## Visual Concept Sliders

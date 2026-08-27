@@ -2323,3 +2323,173 @@ def expand_attributes_krea(row: dict) -> list[dict]:
                 item[key] = f"{prefix} {value}"
         rows.append(item)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Sana 0.6B image UNI (opt-in). Not Music 3 lyric-hold.
+# Cheap test backend: Efficient-Large-Model/Sana_600M_512px_diffusers.
+# Train xattn (conceptmod default) or LoRA. 512px. Sample 20 steps, CFG 4.5.
+# CFG compose is conceptmod ``backends/sana.py``:
+#   v = v_u + g * (v_c - v_u)     # g != 1
+#   v = v_c                       # g == 1
+# The increment ``v(z,t,c) − v(z,t,'')`` is live at CFG 4.5.
+# ---------------------------------------------------------------------------
+
+SANA_MODEL_ID = "Efficient-Large-Model/Sana_600M_512px_diffusers"
+SANA_RESOLUTION = 512
+SANA_SAMPLE_STEPS = 20
+SANA_CFG = 4.5
+SANA_TRAIN_METHOD = "xattn"
+SANA_LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
+SANA_CONTROL_PROMPT = "a bowl of fruit on a table"
+SANA_DEFAULT_LR = 2e-5
+SANA_DEFAULT_STEPS = 500
+SANA_HOLD_WEIGHT = 1.0
+
+
+def sana_cfg_delta(v_cond: torch.Tensor, v_uncond: torch.Tensor) -> torch.Tensor:
+    """Velocity-space CFG increment from conceptmod: ``v(z,t,c) − v(z,t,'')``."""
+    return v_cond - v_uncond
+
+
+def sana_cfg(
+    v_cond: torch.Tensor,
+    v_uncond: torch.Tensor,
+    guidance: float,
+) -> torch.Tensor:
+    """conceptmod ``SanaBackend`` sampling CFG.
+
+    ``v_u + g * (v_c − v_u)`` when ``g != 1``. ``g == 1`` is identity
+    (the backend skips the uncond pass). This is **not** the Z-Image /
+    Krea compose ``v_c + g * (v_c − v_u)``.
+    """
+    g = float(guidance)
+    if g == 1.0:
+        return v_cond
+    return v_uncond + g * (v_cond - v_uncond)
+
+
+def sana_uni_teachers(
+    v_pos: torch.Tensor,
+    v_neu: torch.Tensor,
+    v_uncond: torch.Tensor | None = None,
+    *,
+    guidance: float = SANA_CFG,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """UNI teachers: +1 → CFG-composed + concept, scale 0 → raw ``v(neu)``.
+
+    CFG 4.5 is live, so the + teacher uses :func:`sana_cfg`. Scale 0 is
+    the slider off: raw ``v(neu)``, never leftover-gated. Minus is not
+    a teacher.
+    """
+    if v_uncond is not None and float(guidance) != 1.0:
+        return sana_cfg(v_pos, v_uncond, guidance), v_neu
+    return v_pos, v_neu
+
+
+def sana_uni_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    pred_zero: torch.Tensor,
+    tgt_zero: torch.Tensor,
+    *,
+    pred_unused: torch.Tensor | None = None,
+    tgt_unused: torch.Tensor | None = None,
+    unused_weight: float = 1.0,
+    unused_token_hold: torch.Tensor | None = None,
+    token_hold_weight: float = SANA_HOLD_WEIGHT,
+) -> torch.Tensor:
+    """UNI velocity MSE: +1 → +, 0 → neu. Optional unused hold.
+
+    Image analog of ``lm_plus_neu_loss`` — not lyric-hold. No minus MSE.
+    """
+    return zimage_uni_loss(
+        pred_plus,
+        tgt_plus,
+        pred_zero,
+        tgt_zero,
+        pred_unused=pred_unused,
+        tgt_unused=tgt_unused,
+        unused_weight=unused_weight,
+        unused_token_hold=unused_token_hold,
+        token_hold_weight=token_hold_weight,
+    )
+
+
+def sana_canary_minus(
+    pred_minus: torch.Tensor, vel_neg: torch.Tensor
+) -> dict[str, float | bool]:
+    """Unscored −1 canary. Never a teacher."""
+    return zimage_canary_minus(pred_minus, vel_neg)
+
+
+SanaHoldError = ZImageHoldError
+
+
+def expand_attributes_sana(row: dict) -> list[dict]:
+    """Pin unused attributes onto target / pos / neu (and canary neg)."""
+    return expand_attributes_zimage(row)
+
+
+def sana_concept_token_ids(concept_words: str | Iterable[str], tokenize_fn) -> set[int]:
+    return zimage_concept_token_ids(concept_words, tokenize_fn)
+
+
+def sana_unused_token_hold(
+    pred_plus_embeds: torch.Tensor,
+    neu_embeds: torch.Tensor,
+    plus_ids: Sequence[int],
+    neu_ids: Sequence[int],
+    concept_ids: Iterable[int],
+    *,
+    fail_closed: bool = True,
+) -> torch.Tensor:
+    """MSE unused +1 tokens → encode(neu). Concept words are not held."""
+    return zimage_unused_token_hold(
+        pred_plus_embeds,
+        neu_embeds,
+        plus_ids,
+        neu_ids,
+        concept_ids,
+        fail_closed=fail_closed,
+    )
+
+
+def sana_live_train_card() -> dict[str, object]:
+    """Documented first GPU look (Modal / RunPod). CI never downloads this."""
+    return {
+        "model_id": SANA_MODEL_ID,
+        "arch": "0.6B flow-matching linear DiT, Gemma-2, DC-AE",
+        "train_method": SANA_TRAIN_METHOD,
+        "lora": {
+            "optional": True,
+            "targets": list(SANA_LORA_TARGETS),
+            "note": "conceptmod default for 0.6B is xattn, not LoRA",
+        },
+        "resolution": SANA_RESOLUTION,
+        "sample_steps": SANA_SAMPLE_STEPS,
+        "sample_guidance": SANA_CFG,
+        "cfg_compose": "v_u + g * (v_c - v_u)",
+        "cfg_delta": "v(z,t,c) - v(z,t,'')",
+        "control_prompt": SANA_CONTROL_PROMPT,
+        "lr": SANA_DEFAULT_LR,
+        "steps": SANA_DEFAULT_STEPS,
+        "device": "cuda:0",
+        "recipe": "uni_plus_neu + unused_token_hold",
+        "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
+    }
+
+
+def sana_live_train_command() -> str:
+    return (
+        "CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_sana.py \\\n"
+        "  --name age-sana \\\n"
+        "  --prompts_file conceptmod/textsliders/data/prompts-sana.yaml \\\n"
+        f"  --model_id {SANA_MODEL_ID} \\\n"
+        "  --train_method xattn \\\n"
+        f"  --resolution {SANA_RESOLUTION} \\\n"
+        f"  --sample_steps {SANA_SAMPLE_STEPS} --sample_guidance {SANA_CFG} \\\n"
+        f"  --control_prompt \"{SANA_CONTROL_PROMPT}\" \\\n"
+        f"  --steps {SANA_DEFAULT_STEPS} --lr {SANA_DEFAULT_LR} --seed 7 --device 0 \\\n"
+        "  --save_dir models/sana-slider"
+    )
