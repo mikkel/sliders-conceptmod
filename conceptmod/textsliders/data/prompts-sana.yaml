@@ -1,25 +1,18 @@
 # Sana 0.6B happy slider — UNI analog (opt-in cheap test backend).
 #
-# Happy is the example concept because age/old-face renders wander into
-# uncanny artifacts. UNI analog is unchanged: plus+neu, unused tokens
-# hold to encode(neu), concept words are not held.
+# Stronger smile positives: stock Sana already smiles on these; weak
+# "a happy person" plus was not enough for the slider to move expression.
+# UNI: train/infer +1 on neu caption; + caption is CFG teacher only (#62).
 #
-# plus = happy, neu = person. Negative is a canary only (no minus teacher).
-# attributes pin unused gender so the axis is emotion, not male/female.
-# concept_words are not held; unused prompt tokens hold to encode(neu).
-#
-# Fruit-bowl is the conceptmod control prompt (outputs/01–13): the edit
-# should leave it alone. It is not a teacher.
-#
-# Infer +1 with the neutral caption + trained xattn / LoRA, not the + caption.
+# attributes pin unused gender. Fruit-bowl is control, not a teacher.
 plus_label: Happy
 minus_label: Sad
 recommended_range: [0.0, 2.0]
-concept_words: "happy, smiling, joyful"
+concept_words: "smiling, happy, joyful, smile"
 control_prompt: "a bowl of fruit on a table"
 rows:
   - target: "a person"
-    positive: "a happy person"
+    positive: "a person smiling, happy expression"
     negative: "a sad person"
     neutral: "a person"
     attributes: ["male", "female"]
@@ -28,7 +21,7 @@ rows:
     resolution: 512
     batch_size: 1
   - target: "a portrait of a person"
-    positive: "a portrait of a happy person"
+    positive: "a portrait of a person smiling, happy expression"
     negative: "a portrait of a sad person"
     neutral: "a portrait of a person"
     attributes: ["male", "female"]

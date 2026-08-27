@@ -202,16 +202,16 @@ def test_attributes_pin_unused_on_pos_and_neu():
     rows = expand_attributes_sana(
         {
             "target": "a person",
-            "positive": "a happy person",
+            "positive": "a person smiling, happy expression",
             "neutral": "a person",
             "negative": "a sad person",
             "attributes": ["male", "female"],
         }
     )
     assert len(rows) == 2
-    assert rows[0]["positive"] == "male a happy person"
+    assert rows[0]["positive"] == "male a person smiling, happy expression"
     assert rows[0]["neutral"] == "male a person"
-    assert rows[1]["positive"] == "female a happy person"
+    assert rows[1]["positive"] == "female a person smiling, happy expression"
     assert rows[1]["neutral"] == "female a person"
     assert rows[0]["negative"] == "male a sad person"
 
@@ -220,23 +220,28 @@ def test_yaml_loads_positive_neutral_pins_and_fruit_bowl():
     prompts, meta = load_prompts(PROMPTS)
     assert meta.plus_label == "Happy"
     assert meta.minus_label == "Sad"
-    assert meta.concept_words == "happy, smiling, joyful"
+    assert meta.concept_words == "smiling, happy, joyful, smile"
     assert meta.control_prompt == "a bowl of fruit on a table"
     assert all(p.positive and p.neutral for p in prompts)
     assert any(p.positive.startswith("male ") for p in prompts)
     assert any(p.positive.startswith("female ") for p in prompts)
-    assert all("happy" in p.positive for p in prompts)
+    assert all("smiling" in p.positive and "happy expression" in p.positive for p in prompts)
+    assert all(p.neutral.endswith("a person") for p in prompts)
     assert all("happy" not in p.neutral for p in prompts)
+    assert all("smiling" not in p.neutral for p in prompts)
 
 
 def test_unused_hold_skips_concept_words():
-    plus_ids = dummy_tokenize("male a happy person")
+    plus_ids = dummy_tokenize("male a person smiling, happy expression")
     neu_ids = dummy_tokenize("male a person")
-    concept = sana_concept_token_ids("happy, smiling, joyful", dummy_tokenize)
+    concept = sana_concept_token_ids("smiling, happy, joyful, smile", dummy_tokenize)
     assert dummy_tokenize("happy")[0] in concept
+    assert dummy_tokenize("smiling")[0] in concept
+    assert dummy_tokenize("smile")[0] in concept
     unused = zimage_unused_token_positions(plus_ids, concept)
     held_tokens = [plus_ids[i] for i in unused]
     assert dummy_tokenize("happy")[0] not in held_tokens
+    assert dummy_tokenize("smiling")[0] not in held_tokens
     assert dummy_tokenize("male")[0] in held_tokens
     assert dummy_tokenize("person")[0] in held_tokens
 
@@ -475,7 +480,8 @@ def test_docs_publish_the_live_train_command():
     assert "--sample_guidance 4.5" in doc
     assert "a bowl of fruit on a table" in doc
     assert "happy-sana" in doc
-    assert "happy, smiling, joyful" in doc
+    assert "smiling, happy, joyful, smile" in doc
+    assert "a person smiling, happy expression" in doc
     assert "neu (infer path)" in doc
     assert "cancelled the" in doc
     assert "infer path" in doc
