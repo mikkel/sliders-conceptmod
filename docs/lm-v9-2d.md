@@ -25,10 +25,6 @@ unused-gender leak **right**, ±1 collapse
 slider **right**, leak **needs_help**,
 collapse **right** — same leak as `--symmetric`.
 
-Released Hub v9 weights (not this field's `lm_v9` default) are that
-`lm_v9_hub` recipe. Sidecar flags and the per-slider map live in
-[hub-v9-released-2d.md](hub-v9-released-2d.md).
-
 | method | slider | leak | ±1 collapse | slider cos | leak ratio | ±1 cos |
 |---|---|---|---|---:|---:|---:|
 | `lm_raw` | **needs_help** | **needs_help** | **needs_help** | 0.509 | 1.692 | 0.253 |
