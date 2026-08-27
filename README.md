@@ -67,9 +67,11 @@ To evaluate your trained models use the notebook `XL-sliders-inference.ipynb`
 ## Z-Image Turbo (ZiT) image sliders
 
 Opt-in UNI analog on [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo)
-(6B, LoRA 16, 768px, 8 steps, CFG 0). Positive / neutral yaml, unused
-attributes pinned, no minus teacher. **Does not change Music 3 defaults.**
-Live train card: [docs/zimage-slider.md](docs/zimage-slider.md).
+(6B, LoRA 16, 768px, 8 steps, CFG 0). Train and infer both use the
+neutral caption at +1; the + caption is the concept teacher only.
+Positive / neutral yaml, unused attributes pinned, no minus teacher.
+**Does not change Music 3 defaults.** Live train card:
+[docs/zimage-slider.md](docs/zimage-slider.md).
 
 ```
 CUDA_VISIBLE_DEVICES=N python conceptmod/textsliders/train_lora_zimage.py \
@@ -82,9 +84,11 @@ CUDA_VISIBLE_DEVICES=N python conceptmod/textsliders/train_lora_zimage.py \
 
 Opt-in UNI analog on
 [Efficient-Large-Model/Sana_600M_512px_diffusers](https://huggingface.co/Efficient-Large-Model/Sana_600M_512px_diffusers)
-(0.6B, xattn or LoRA, 512px, 20 steps, CFG 4.5). Positive / neutral yaml,
-unused attributes pinned, no minus teacher. Fruit bowl is the control
-prompt. **Does not change Music 3 defaults.** Live train card:
+(0.6B, xattn or LoRA, 512px, 20 steps, CFG 4.5). Train and infer both
+use the neutral caption at +1; the + caption is the CFG teacher only.
+Positive / neutral yaml, unused attributes pinned, no minus teacher.
+Fruit bowl is the control prompt. **Does not change Music 3 defaults.**
+Live train card:
 [docs/sana-slider.md](docs/sana-slider.md).
 
 ```

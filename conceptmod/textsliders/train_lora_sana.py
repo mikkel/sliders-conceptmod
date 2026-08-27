@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Opt-in Sana 0.6B image-slider trainer (cheap test backend).
 
-UNI analog — not Music 3 lyric-hold, not ZiT / Krea / Anima / H3:
+UNI analog — Music 3 lyric-hold analog for images, not Music 3 itself,
+not ZiT / Krea / Anima / H3:
 
-- +1 → + concept prompt (CFG-composed at 4.5)
-- scale 0 → neutral prompt
+- teachers: +1 is CFG-composed + concept (g=4.5); 0 is ``v(neu)``
+- student +1 and 0 both run on the **neutral** caption (the infer path)
 - no minus teacher (canary only)
-- hold unused prompt tokens / pins to encode(neu); do not hold concept words
+- unused velocity hold (MSE(+1, neu) → ``v(neu)``) is off — it cancelled infer
+- frozen-embed token hold is off by default (no grad into xattn / LoRA)
 
 Velocity-space CFG geometry from conceptmod ``backends/sana.py``:
 
@@ -508,9 +510,16 @@ def train(args: argparse.Namespace) -> Path:
         emb_uncond = _encode("").to(device)
         ids_pos = _ids(prompt.positive)
         ids_neu = _ids(prompt.neutral)
-        concept_ids = resolve_sana_concept_ids(
-            ids_pos, ids_neu, prompt.concept_words, tokenize_fn
-        )
+        # Fail-closed: concept still comes from the + caption for teachers.
+        try:
+            concept_ids = resolve_sana_concept_ids(
+                ids_pos, ids_neu, prompt.concept_words, tokenize_fn
+            )
+        except SanaHoldError as exc:
+            if not dummy:
+                raise
+            print(f"dummy skip concept-in-plus check: {exc}", flush=True)
+            concept_ids = set()
         if network is not None:
             _set_lora_multiplier(network, 0.0)
         with torch.no_grad():
@@ -525,14 +534,15 @@ def train(args: argparse.Namespace) -> Path:
                 vel_neg = _predict(_encode(prompt.negative).to(device), z, t, frozen=True).float()
 
         token_hold = None
-        try:
-            token_hold = sana_unused_token_hold(
-                emb_pos, emb_neu, ids_pos, ids_neu, concept_ids
-            )
-        except SanaHoldError as exc:
-            if not dummy:
-                raise
-            print(f"dummy skip token hold: {exc}", flush=True)
+        if float(args.token_hold_weight) > 0.0:
+            try:
+                token_hold = sana_unused_token_hold(
+                    emb_pos, emb_neu, ids_pos, ids_neu, concept_ids
+                )
+            except SanaHoldError as exc:
+                if not dummy:
+                    raise
+                print(f"dummy skip token hold: {exc}", flush=True)
 
         def _student(scale: float, embeds: torch.Tensor) -> torch.Tensor:
             if network is not None:
@@ -542,16 +552,17 @@ def train(args: argparse.Namespace) -> Path:
             # xattn: scale 0 is the frozen copy; +1 is the trained transformer.
             return _predict(embeds, z, t, frozen=scale == 0.0).float()
 
-        pred_plus = _student(1.0, emb_pos)
+        # Infer path: +1 and 0 both run on the neutral caption.
+        pred_plus = _student(1.0, emb_neu)
         pred_zero = _student(0.0, emb_neu)
-        pred_unused = _student(1.0, emb_neu)
+        # Do not MSE student(+1, neu) → v(neu): that cancelled the infer path
+        # (age-sana dud: fruit held, concept barely moved). unused_weight stays
+        # for an explicit later control-prompt hold; do not pass pred_unused.
         loss = sana_uni_loss(
             pred_plus,
             tgt_plus,
             pred_zero,
             tgt_zero,
-            pred_unused=pred_unused,
-            tgt_unused=tgt_zero,
             unused_weight=float(args.unused_weight),
             unused_token_hold=token_hold,
             token_hold_weight=float(args.token_hold_weight),
@@ -609,10 +620,11 @@ def train(args: argparse.Namespace) -> Path:
         "concept_words": meta.concept_words,
         "control_prompt": control_prompt,
         "teacher": {
-            "plus": "+ concept prompt, Sana CFG v_u + g*(v_c - v_u)",
-            "zero": "neutral prompt velocity",
+            "plus": "student +1 on neu caption → Sana CFG(v_pos): v_u + g*(v_c - v_u)",
+            "zero": "student 0 on neu caption → v(neu)",
             "minus": "canary only",
-            "unused_hold": "unused prompt tokens → encode(neu); concept words not held",
+            "student": "train and infer both use the neutral caption at +1",
+            "unused_hold": "off by default; unused velocity hold cancelled the infer path",
             "cfg": "v(z,t,c) - v(z,t,'')",
             "cfg_compose": "v_u + g * (v_c - v_u)",
         },
@@ -655,8 +667,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sample_steps", type=int, default=SANA_SAMPLE_STEPS)
     parser.add_argument("--sample_guidance", type=float, default=SANA_CFG)
     parser.add_argument("--guidance", type=float, default=None, help="override yaml guidance_scale")
-    parser.add_argument("--unused_weight", type=float, default=1.0)
-    parser.add_argument("--token_hold_weight", type=float, default=1.0)
+    parser.add_argument(
+        "--unused_weight",
+        type=float,
+        default=0.0,
+        help="optional unused/control velocity hold; off by default (do not MSE +1+neu → v_neu)",
+    )
+    parser.add_argument(
+        "--token_hold_weight",
+        type=float,
+        default=0.0,
+        help="optional frozen-embed unused-token hold; off by default (no xattn/LoRA grad)",
+    )
     parser.add_argument("--model_id", type=str, default=SANA_MODEL_ID)
     parser.add_argument("--config_file", type=str, default=str(DEFAULT_CONFIG))
     parser.add_argument("--prompts_file", type=str, default=str(DEFAULT_PROMPTS))

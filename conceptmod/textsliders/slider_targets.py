@@ -1963,10 +1963,13 @@ def zimage_uni_teachers(
     *,
     guidance: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """UNI teachers: +1 is the + concept velocity, 0 is neu.
+    """UNI teachers: +1 target is the + concept velocity, 0 is neu.
 
-    When ``guidance > 0`` both poles go through :func:`zimage_cfg`.
-    ``vel_uncond`` is required then. Minus is never a teacher.
+    The student that fits these teachers runs on the **neutral** caption
+    (the infer path). Concept still comes from the + caption for teacher
+    velocities only. When ``guidance > 0`` both poles go through
+    :func:`zimage_cfg`. ``vel_uncond`` is required then. Minus is never
+    a teacher.
     """
     if vel_uncond is None:
         return vel_pos, vel_neu
@@ -1984,15 +1987,16 @@ def zimage_uni_loss(
     *,
     pred_unused: torch.Tensor | None = None,
     tgt_unused: torch.Tensor | None = None,
-    unused_weight: float = 1.0,
+    unused_weight: float = 0.0,
     unused_token_hold: torch.Tensor | None = None,
-    token_hold_weight: float = 1.0,
+    token_hold_weight: float = 0.0,
 ) -> torch.Tensor:
-    """UNI velocity MSE: +1 → +, 0 → neu. Optional unused hold.
+    """UNI velocity MSE: student +1/+0 on neu → (+ teacher, v_neu).
 
-    No minus MSE. ``pred_unused`` is student +1 on the unused / neu
-    prompt (should stay ``v_neu``). Token hold is unused prompt
-    tokens → encode(neu); concept words are not in that term.
+    No minus MSE. ``pred_unused`` is an optional extra hold (for example
+    a later control-prompt velocity hold). Do **not** pass student +1 on
+    neu as ``pred_unused`` with target ``v_neu`` — that cancels the infer
+    path. Frozen-embed token hold is off by default (no LoRA grad).
     """
     loss = F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_zero, tgt_zero)
     if pred_unused is not None and tgt_unused is not None and float(unused_weight) > 0.0:
@@ -2378,9 +2382,11 @@ def sana_uni_teachers(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """UNI teachers: +1 → CFG-composed + concept, scale 0 → raw ``v(neu)``.
 
-    CFG 4.5 is live, so the + teacher uses :func:`sana_cfg`. Scale 0 is
-    the slider off: raw ``v(neu)``, never leftover-gated. Minus is not
-    a teacher.
+    The student that fits these teachers runs on the **neutral** caption
+    (the infer path). Concept still comes from the + caption for teacher
+    velocities only. CFG 4.5 is live, so the + teacher uses
+    :func:`sana_cfg`. Scale 0 is the slider off: raw ``v(neu)``, never
+    leftover-gated. Minus is not a teacher.
     """
     if v_uncond is not None and float(guidance) != 1.0:
         return sana_cfg(v_pos, v_uncond, guidance), v_neu
@@ -2395,13 +2401,14 @@ def sana_uni_loss(
     *,
     pred_unused: torch.Tensor | None = None,
     tgt_unused: torch.Tensor | None = None,
-    unused_weight: float = 1.0,
+    unused_weight: float = 0.0,
     unused_token_hold: torch.Tensor | None = None,
-    token_hold_weight: float = SANA_HOLD_WEIGHT,
+    token_hold_weight: float = 0.0,
 ) -> torch.Tensor:
-    """UNI velocity MSE: +1 → +, 0 → neu. Optional unused hold.
+    """UNI velocity MSE: student +1/+0 on neu → (CFG(+), v_neu).
 
     Image analog of ``lm_plus_neu_loss`` — not lyric-hold. No minus MSE.
+    Unused velocity hold and frozen-embed token hold are off by default.
     """
     return zimage_uni_loss(
         pred_plus,
@@ -2486,7 +2493,7 @@ def sana_live_train_card() -> dict[str, object]:
         "lr": SANA_DEFAULT_LR,
         "steps": SANA_DEFAULT_STEPS,
         "device": "cuda:0",
-        "recipe": "uni_plus_neu + unused_token_hold",
+        "recipe": "uni: student +1/0 on neu, teacher CFG(+)",
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
     }
 

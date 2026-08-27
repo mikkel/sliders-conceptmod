@@ -80,6 +80,8 @@ def test_sana_parse_defaults_are_the_live_card():
     assert args.steps == SANA_DEFAULT_STEPS == 500
     assert args.control_prompt == SANA_CONTROL_PROMPT
     assert args.name == "happy-sana"
+    assert args.unused_weight == 0.0
+    assert args.token_hold_weight == 0.0
     assert args.dummy is False
 
 
@@ -91,6 +93,7 @@ def test_live_card_and_command_document_the_gpu_look():
     assert card["sample_guidance"] == 4.5
     assert card["train_method"] == "xattn"
     assert card["control_prompt"] == "a bowl of fruit on a table"
+    assert card["recipe"] == "uni: student +1/0 on neu, teacher CFG(+)"
     assert card["music3_default_untouched"] == {
         "lm_target": "v9",
         "pole_mode": "hidden",
@@ -147,6 +150,44 @@ def test_uni_loss_is_plus_and_zero_only():
     assert float(sana_uni_loss(pred_plus, tgt_plus, pred_zero + 1.0, tgt_zero)) > 0.0
     assert float(sana_uni_loss(pred_plus + 1.0, tgt_plus, pred_zero, tgt_zero)) > 0.0
     _ = other
+
+
+def test_uni_loss_unused_and_token_hold_off_by_default():
+    pred_plus = torch.tensor([1.0, 0.0])
+    tgt_plus = torch.tensor([1.0, 0.0])
+    pred_zero = torch.tensor([0.0, 0.0])
+    tgt_zero = torch.tensor([0.0, 0.0])
+    pred_unused = torch.tensor([9.0, 9.0])
+    base = sana_uni_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
+    ignored = sana_uni_loss(
+        pred_plus,
+        tgt_plus,
+        pred_zero,
+        tgt_zero,
+        pred_unused=pred_unused,
+        tgt_unused=tgt_zero,
+        unused_token_hold=pred_plus.new_tensor(4.0),
+    )
+    assert float(ignored) == pytest.approx(float(base), abs=1e-8)
+    forced_unused = sana_uni_loss(
+        pred_plus,
+        tgt_plus,
+        pred_zero,
+        tgt_zero,
+        pred_unused=pred_unused,
+        tgt_unused=tgt_zero,
+        unused_weight=1.0,
+    )
+    assert float(forced_unused) > float(base)
+    forced_hold = sana_uni_loss(
+        pred_plus,
+        tgt_plus,
+        pred_zero,
+        tgt_zero,
+        unused_token_hold=pred_plus.new_tensor(4.0),
+        token_hold_weight=1.0,
+    )
+    assert float(forced_hold) > float(base)
 
 
 def test_canary_minus_is_unscored():
@@ -371,6 +412,8 @@ def test_dummy_train_never_imports_hub(tmp_path, monkeypatch):
     assert meta["sample_steps"] == 20
     assert meta["control_prompt"] == "a bowl of fruit on a table"
     assert meta["teacher"]["minus"] == "canary only"
+    assert meta["teacher"]["student"] == "train and infer both use the neutral caption at +1"
+    assert "infer path" in meta["teacher"]["unused_hold"]
     assert "lyric" not in meta["teacher"]["unused_hold"]
     assert meta["teacher"]["cfg_compose"] == "v_u + g * (v_c - v_u)"
     assert meta["canary"]["scored"] is False
@@ -394,6 +437,17 @@ def test_dummy_lora_path_also_smokes(tmp_path):
     sidecar = json.loads(Path(str(weights).replace(".safetensors", ".json")).read_text())
     assert sidecar["lora_rank"] == 4
     assert sidecar["train_method"] == "xattn"
+
+
+def test_trainer_student_plus_is_neu_not_pos():
+    """Train +1 on neu (match infer). Concept teacher still uses + caption."""
+    src = Path("conceptmod/textsliders/train_lora_sana.py").read_text()
+    assert "pred_plus = _student(1.0, emb_neu)" in src
+    assert "pred_zero = _student(0.0, emb_neu)" in src
+    assert "pred_plus = _student(1.0, emb_pos)" not in src
+    assert "pred_unused = _student(1.0, emb_neu)" not in src
+    assert "sana_uni_teachers" in src
+    assert "vel_pos" in src
 
 
 def test_trainer_source_is_sana_only():
@@ -422,6 +476,8 @@ def test_docs_publish_the_live_train_command():
     assert "a bowl of fruit on a table" in doc
     assert "happy-sana" in doc
     assert "happy, smiling, joyful" in doc
+    assert "neu (infer path)" in doc
+    assert "cancelled the infer path" in doc
     assert "lyric-hold" in doc
     assert "v(z, t, c) − v(z, t, '')" in doc or "v(z, t, c) - v(z, t, '')" in doc
     readme = Path("README.md").read_text()

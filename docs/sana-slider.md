@@ -11,27 +11,29 @@ This is the first GPU look we will rent (Modal / RunPod). CPU tests use
 `--dummy` (tiny `attn1` / `attn2` + whitespace tokenizer). No GPU train
 and no Hub weights in CI.
 
-## UNI analog (not Music 3 lyric-hold)
+## UNI analog (Music 3 lyric-hold analog for images)
 
-Sana has no lyric span. The image analog of UNI is:
+Sana has no lyric span. Train and infer both use the **neutral** caption
+at +1. The concept still comes from the + caption for **teacher**
+velocities only (CFG-composed +).
 
-| scale | teacher |
-|---|---|
-| **+1** | `v('') + 4.5 · (v(z, t, + concept) − v(''))` |
-| **0** | `v(z, t, neu)` |
-| **−1** | unscored canary only |
+| scale | student caption | teacher |
+|---|---|---|
+| **+1** | neu (infer path) | `v('') + 4.5 · (v(z, t, + concept) − v(''))` |
+| **0** | neu | `v(z, t, neu)` |
+| **−1** | unscored canary only | — |
 
 Unused yaml `attributes` are prefixed onto every caption so gender (or
-whatever leftover) is pinned both ways. Unused prompt tokens / pins
-hold to `encode(neu)`. Declared `concept_words` (`happy, smiling, joyful`)
-are **not** held — those are the slider. Happy is the example concept
-because age/old-face renders wander into uncanny artifacts; the UNI
-analog is unchanged.
+whatever leftover) is pinned both ways. Frozen-embed unused-token hold
+is **off** by default — those encoder embeds have no grad into xattn /
+LoRA. Do **not** MSE student(+1, neu) → `v(neu)`: that cancelled the
+infer path (age-sana dud: fruit held, age barely moved). Declared
+`concept_words` (`happy, smiling, joyful`) are the slider. Happy is the
+example concept because age/old-face renders wander into uncanny
+artifacts; the UNI analog is unchanged.
 
-Fail closed if the + prompt does not contain any concept-word tokens.
-
-Infer plus+neu with the **neutral** caption + trained xattn / LoRA, not
-the + caption.
+Fail closed if the + prompt does not contain any concept-word tokens
+(teacher construction still reads the + caption).
 
 ## Velocity-space CFG geometry
 

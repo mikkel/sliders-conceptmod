@@ -8,24 +8,26 @@ Not Anima, Krea, or H3 — those backends stay out of this card.
 CPU tests use `--dummy` (tiny `Attention` + whitespace tokenizer). No
 GPU train and no Hub weights in CI.
 
-## UNI analog (not Music 3 lyric-hold)
+## UNI analog (Music 3 lyric-hold analog for images)
 
-ZiT has no lyric span. The image analog of UNI is:
+ZiT has no lyric span. Train and infer both use the **neutral** caption
+at +1. The concept still comes from the + caption for **teacher**
+velocities only.
 
-| scale | teacher |
-|---|---|
-| **+1** | `v(z, t, + concept prompt)` |
-| **0** | `v(z, t, neu)` |
-| **−1** | unscored canary only |
+| scale | student caption | teacher |
+|---|---|---|
+| **+1** | neu (infer path) | `v(z, t, + concept prompt)` |
+| **0** | neu | `v(z, t, neu)` |
+| **−1** | unscored canary only | — |
 
 Unused yaml `attributes` are prefixed onto every caption so gender (or
-whatever leftover) is pinned both ways. Unused prompt tokens hold to
-`encode(neu)`. Declared `concept_words` (`old, elderly, aged`) are
-**not** held — those are the slider.
+whatever leftover) is pinned both ways. Frozen-embed unused-token hold
+is **off** by default — those encoder embeds have no grad into LoRA.
+Do **not** MSE student(+1, neu) → `v(neu)`: that cancelled the infer
+path. Declared `concept_words` (`old, elderly, aged`) are the slider.
 
-Fail closed if the + prompt does not contain any concept-word tokens.
-
-Infer plus+neu with the **neutral** caption + LoRA, not the + caption.
+Fail closed if the + prompt does not contain any concept-word tokens
+(teacher construction still reads the + caption).
 
 ## Velocity-space CFG geometry
 
