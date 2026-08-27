@@ -26,6 +26,9 @@ from conceptmod.textsliders.anima_slider import (
     DEFAULT_SAMPLE_SCALES,
     DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
+    DEFAULT_TEACHER_GAP_BOOST,
+    DEFAULT_TRAJ_IDENTITY_WEIGHT,
+    DEFAULT_TRAJ_STEPS,
     LORA_TARGETS,
     MAN_NEU,
     MAN_PLUS,
@@ -33,9 +36,14 @@ from conceptmod.textsliders.anima_slider import (
     WOMAN_PLUS,
     AnimaSampleGateError,
     align_unused_positions,
+    anima_boost_teacher,
     anima_cfg_delta,
     anima_direct_loss,
     anima_direct_teachers,
+    anima_flow_euler_step,
+    anima_flow_sigmas,
+    anima_short_trajectory,
+    anima_trajectory_loss,
     anima_uni_loss,
     anima_uni_teachers,
     anima_unused_hold_loss,
@@ -92,7 +100,10 @@ def test_anima_cli_defaults_match_live_card():
     assert args.sample_steps == DEFAULT_SAMPLE_STEPS == 40
     assert args.cfg == DEFAULT_CFG == 4.0
     assert args.lr == DEFAULT_LR == 1e-4
-    assert args.lm_target == DEFAULT_LM_TARGET == "direct"
+    assert args.lm_target == DEFAULT_LM_TARGET == "trajectory"
+    assert args.traj_steps == DEFAULT_TRAJ_STEPS == 4
+    assert args.traj_identity_weight == DEFAULT_TRAJ_IDENTITY_WEIGHT == 0.25
+    assert args.teacher_gap_boost == DEFAULT_TEACHER_GAP_BOOST == 1.0
     assert args.control_prompt == DEFAULT_CONTROL_PROMPT
     assert args.sample_every == DEFAULT_SAMPLE_EVERY == 100
     assert args.sample_seed == DEFAULT_SAMPLE_SEED == 42
@@ -110,7 +121,12 @@ def test_anima_cli_defaults_match_live_card():
     assert card["control_prompt"] == "a bowl of fruit on a table"
     assert card["sample_scales"] == list(DEFAULT_SAMPLE_SCALES)
     assert card["sample_seed"] == 42
-    assert card["lm_target"] == "direct"
+    assert card["lm_target"] == "trajectory"
+    assert card["traj_steps"] == 4
+    assert card["teacher_gap_boost"] == 1.0
+    assert "predict_v" in card["traj_loop"]
+    assert "MSE(x_student, x_plus)" in card["traj_loss"]
+    assert "0.99993" in card["one_step_failure"]
     assert card["sample_every"] == 100
     assert "PEFT" in card["sample_gate"]
     assert card["stock_teacher_smoke"]["woman"]["neu"] == WOMAN_NEU
@@ -127,7 +143,8 @@ def test_anima_cli_defaults_match_live_card():
     assert "--sample_steps 40" in cmd
     assert "--cfg 4" in cmd
     assert "--lr 0.0001" in cmd
-    assert "--lm_target direct" in cmd
+    assert "--lm_target trajectory" in cmd
+    assert "--traj_steps 4" in cmd
     assert "--sample_every 100" in cmd
     assert "HF_HUB_OFFLINE=1" in cmd
 
@@ -325,7 +342,9 @@ def test_dummy_train_fits_uni_without_hub(tmp_path):
     assert sidecar["frozen_modules"] == ["text_conditioner"]
     assert sidecar["minus_canary"] is False
     assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
-    assert sidecar["lm_target"] == "direct"
+    assert sidecar["lm_target"] == "trajectory"
+    assert sidecar["traj_steps"] == 4
+    assert sidecar["traj_loss"] == "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu)"
     assert sidecar["loss_last"] is not None
     assert sidecar["loss_last"] < 0.05
     assert sidecar["sample_grid"]["method"] == "peft_pipe_prompt"
@@ -434,6 +453,9 @@ def test_print_card_does_not_train():
     assert out["model_id"] == DEFAULT_MODEL_ID
     assert out["lora"]["rank"] == 16
     assert out["lr"] == 1e-4
+    assert out["lm_target"] == "trajectory"
+    assert out["traj_steps"] == 4
+    assert "MSE(x_student, x_plus)" in out["traj_loss"]
 
 
 def test_sample_zt_draws_on_cpu_then_moves():
@@ -651,13 +673,18 @@ def test_cycle_training_rows_woman_then_man():
     assert third.infer_prompt == WOMAN_NEU
 
 
-def test_anima_lm_target_default_direct_rejects_unknown():
-    assert resolve_anima_lm_target() == "direct"
+def test_anima_lm_target_default_trajectory_rejects_unknown():
+    assert resolve_anima_lm_target() == "trajectory"
+    assert resolve_anima_lm_target("direct") == "direct"
     assert resolve_anima_lm_target("cfg_delta") == "cfg_delta"
+    assert resolve_anima_lm_target("trajectory") == "trajectory"
     with pytest.raises(ValueError, match="lm_target"):
         resolve_anima_lm_target("v9")
     args = parse_args(["--lm_target", "cfg_delta"])
     assert args.lm_target == "cfg_delta"
+    traj = parse_args(["--lm_target", "trajectory", "--traj_steps", "8"])
+    assert traj.lm_target == "trajectory"
+    assert traj.traj_steps == 8
 
 
 def test_direct_loss_is_raw_velocity_mse():
@@ -723,4 +750,144 @@ def test_dummy_train_cfg_delta_still_works(tmp_path):
     assert sidecar["lm_target"] == "cfg_delta"
     assert WOMAN_NEU in sidecar["train_infer_prompts"]
     assert MAN_NEU in sidecar["train_infer_prompts"]
+    assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
+
+
+def test_dummy_train_direct_still_works(tmp_path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--steps",
+            "8",
+            "--device",
+            "cpu",
+            "--name",
+            "anima-direct",
+            "--prompts_file",
+            str(PROMPTS),
+            "--save_dir",
+            str(tmp_path),
+            "--rank",
+            "4",
+            "--lm_target",
+            "direct",
+        ]
+    )
+    sidecar = train_dummy(args)
+    assert sidecar["lm_target"] == "direct"
+    assert sidecar["teacher_gap_boost"] == 1.0
+    assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
+
+
+def test_teacher_gap_boost_is_off_at_one():
+    v_pos = torch.tensor([2.0, 0.0])
+    v_neu = torch.tensor([0.0, 1.0])
+    assert torch.allclose(anima_boost_teacher(v_pos, v_neu, 1.0), v_pos)
+    assert torch.allclose(anima_boost_teacher(v_pos, v_neu, 0.5), v_pos)
+    boosted = anima_boost_teacher(v_pos, v_neu, 3.0)
+    assert torch.allclose(boosted, v_neu + 3.0 * (v_pos - v_neu))
+    args = parse_args(["--teacher_gap_boost", "4"])
+    assert args.teacher_gap_boost == 4.0
+
+
+def test_flow_euler_step_matches_flowmatch_scheduler():
+    sample = torch.tensor([1.0, -2.0])
+    vel = torch.tensor([0.5, 0.25])
+    out = anima_flow_euler_step(sample, vel, 1.0, 0.25)
+    assert torch.allclose(out, sample + (0.25 - 1.0) * vel)
+    sigmas = anima_flow_sigmas(4)
+    assert sigmas.numel() == 5
+    assert float(sigmas[0]) == pytest.approx(1.0)
+    assert float(sigmas[-2]) == pytest.approx(0.25)
+    assert float(sigmas[-1]) == pytest.approx(0.0)
+
+
+def test_trajectory_loss_is_student_vs_plus_plus_identity():
+    plus = torch.tensor([1.0, 0.0])
+    student = torch.tensor([1.0, 0.0])
+    neu = torch.tensor([0.0, 1.0])
+    zero = torch.tensor([0.0, 1.0])
+    base = anima_trajectory_loss(student, plus, zero, neu, identity_weight=0.25)
+    assert float(base) == pytest.approx(0.0, abs=1e-8)
+    moved = anima_trajectory_loss(student + 1, plus, zero, neu, identity_weight=0.25)
+    assert float(moved) > float(base)
+    ident = anima_trajectory_loss(student, plus, zero + 2, neu, identity_weight=0.25)
+    assert float(ident) > float(base)
+    no_id = anima_trajectory_loss(student, plus, zero + 2, neu, identity_weight=0.0)
+    assert float(no_id) == pytest.approx(0.0, abs=1e-8)
+
+
+def test_dummy_trajectory_moves_minimal_pair():
+    """Neu+adapter short traj should chase frozen plus traj from the same z_T."""
+    backend = FakeAnimaBackend(device="cpu", rank=8, seed=0)
+    neu, pos = "a woman", "a smiling woman"
+    g = torch.Generator().manual_seed(0)
+    z = torch.randn((1, *backend.latent_shape), generator=g)
+    with torch.no_grad():
+        x_plus = anima_short_trajectory(backend, pos, z, num_steps=4, frozen=True)
+        x_before = anima_short_trajectory(
+            backend, neu, z, num_steps=4, frozen=False, scale=1.0
+        )
+    before = float(anima_trajectory_loss(x_before, x_plus, identity_weight=0.0))
+    params = backend.trainable_parameters()
+    opt = torch.optim.AdamW(params, lr=5e-2)
+    for _ in range(40):
+        x_student = anima_short_trajectory(
+            backend, neu, z, num_steps=4, frozen=False, scale=1.0
+        )
+        with torch.no_grad():
+            x_plus = anima_short_trajectory(backend, pos, z, num_steps=4, frozen=True)
+            x_neu = anima_short_trajectory(backend, neu, z, num_steps=4, frozen=True)
+            x_zero = anima_short_trajectory(
+                backend, neu, z, num_steps=4, frozen=False, scale=0.0
+            )
+        loss = anima_trajectory_loss(
+            x_student, x_plus, x_zero, x_neu, identity_weight=0.25
+        )
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+    with torch.no_grad():
+        x_after = anima_short_trajectory(
+            backend, neu, z, num_steps=4, frozen=False, scale=1.0
+        )
+        x_plus = anima_short_trajectory(backend, pos, z, num_steps=4, frozen=True)
+        x_zero = anima_short_trajectory(
+            backend, neu, z, num_steps=4, frozen=False, scale=0.0
+        )
+        x_neu = anima_short_trajectory(backend, neu, z, num_steps=4, frozen=True)
+    after = float(anima_trajectory_loss(x_after, x_plus, identity_weight=0.0))
+    ident = float(anima_trajectory_loss(x_zero, x_neu, identity_weight=0.0))
+    assert backend.lora_B_norm() > 0.0
+    assert after < before
+    assert ident < 1e-6
+
+
+def test_dummy_train_trajectory_prints_target(tmp_path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--steps",
+            "6",
+            "--device",
+            "cpu",
+            "--name",
+            "anima-traj",
+            "--prompts_file",
+            str(PROMPTS),
+            "--save_dir",
+            str(tmp_path),
+            "--rank",
+            "4",
+            "--lm_target",
+            "trajectory",
+            "--traj_steps",
+            "4",
+        ]
+    )
+    sidecar = train_dummy(args)
+    assert sidecar["lm_target"] == "trajectory"
+    assert sidecar["traj_steps"] == 4
+    assert "Euler" in sidecar["traj_loop"]
+    assert sidecar["sample_grid"]["scales"] == [0.0, 0.25, 0.5, 1.0]
     assert sidecar["music3_default_untouched"]["lm_target"] == "v9"

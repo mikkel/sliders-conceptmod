@@ -3,8 +3,9 @@
 Image analog of Music 3 UNI (not lyric-hold — images have no lyrics /
 ``<|audio_start|>``):
 
-- student +1 fits the + concept prompt (CFG teacher)
+- student +1 fits the + concept prompt (CFG / trajectory teacher)
 - student scale 0 fits the neutral prompt
+- live smile uses ``--lm_target trajectory`` (1-step v-space gap is tiny)
 - no minus teacher unless the yaml still declares one as a canary
 - hold unused prompt tokens / attributes (subject, composition, pins)
   to encode(neu); do **not** hold the concept words
@@ -44,9 +45,14 @@ DEFAULT_SAMPLE_SCALES = (0.0, 0.25, 0.5, 1.0)
 DEFAULT_SAMPLE_SEED = 42
 # Live mid-train PEFT grid. End-of-train gate always runs.
 DEFAULT_SAMPLE_EVERY = 100
-# Expression transfer: match plus velocity on neu+LoRA. cfg_delta is UNI.
-ANIMA_LM_TARGETS = ("direct", "cfg_delta")
-DEFAULT_LM_TARGET = "direct"
+# v4 1-step direct / cfg_delta cannot carry Anima expression (v-space
+# pos/neu gap is microscopic). Live default is short-trajectory MSE.
+ANIMA_LM_TARGETS = ("direct", "cfg_delta", "trajectory")
+DEFAULT_LM_TARGET = "trajectory"
+DEFAULT_TRAJ_STEPS = 4
+DEFAULT_TRAJ_IDENTITY_WEIGHT = 0.25
+# Off: values <= 1 leave the 1-step teacher unamplified.
+DEFAULT_TEACHER_GAP_BOOST = 1.0
 LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
 # CircleStone: do not train the LLM adapter.
 FROZEN_MODULES = ("text_conditioner",)
@@ -244,11 +250,116 @@ def anima_direct_loss(
     """``MSE(v(neu, adapter), v(pos, frozen)) + MSE(v(neu, scale 0), v(neu, frozen))``.
 
     Scale 0 matches neu. Neu+LoRA matches plus velocity. Clearer for
-    expression transfer than CFG-delta UNI.
+    expression transfer than CFG-delta UNI. Still 1-step: Anima's
+    frozen ``v(pos)`` ≈ ``v(neu)`` so this cannot carry a smile.
     """
     return F.mse_loss(student_plus, teacher_plus) + F.mse_loss(
         student_zero, teacher_zero
     )
+
+
+def anima_boost_teacher(
+    v_pos: torch.Tensor,
+    v_neu: torch.Tensor,
+    boost: float,
+) -> torch.Tensor:
+    """CFG-amplified 1-step teacher: ``v_neu + boost * (v_pos − v_neu)``.
+
+    ``boost <= 1`` is off (returns ``v_pos``). For ``direct`` / ``cfg_delta``
+    only — not a substitute for ``trajectory``.
+    """
+    scale = float(boost)
+    if scale <= 1.0 + 1e-8:
+        return v_pos
+    return v_neu + scale * (v_pos - v_neu)
+
+
+def anima_flow_sigmas(
+    num_steps: int,
+    device=None,
+    dtype=None,
+) -> torch.Tensor:
+    """Flow-match Euler schedule: ``linspace(1, 1/K, K)`` plus terminal 0.
+
+    Matches ``FlowMatchEulerDiscreteScheduler`` custom-sigma usage
+    (Music 3 ``rollout_states`` / Anima ModularPipeline). Length ``K+1``.
+    """
+    steps = int(num_steps)
+    if steps < 1:
+        raise ValueError(f"traj_steps must be >= 1, got {num_steps!r}")
+    vals = torch.linspace(1.0, 1.0 / steps, steps, device=device, dtype=dtype)
+    zero = torch.zeros(1, device=vals.device, dtype=vals.dtype)
+    return torch.cat([vals, zero], dim=0)
+
+
+def anima_flow_euler_step(
+    sample: torch.Tensor,
+    velocity: torch.Tensor,
+    sigma: torch.Tensor | float,
+    sigma_next: torch.Tensor | float,
+) -> torch.Tensor:
+    """``FlowMatchEulerDiscreteScheduler.step``: ``x + (σ_next − σ) * v``."""
+    return sample + (sigma_next - sigma) * velocity
+
+
+def anima_num_train_timesteps(backend) -> int:
+    """Infer-noise level. Live reads the scheduler; dummy is 1000."""
+    n = getattr(backend, "num_train_timesteps", None)
+    if n:
+        return int(n)
+    pipe = getattr(backend, "pipe", None)
+    sched = getattr(pipe, "scheduler", None)
+    cfg = getattr(sched, "config", None)
+    n = getattr(cfg, "num_train_timesteps", None)
+    return int(n) if n else 1000
+
+
+def anima_short_trajectory(
+    backend,
+    prompt: str,
+    z_t: torch.Tensor,
+    *,
+    num_steps: int,
+    frozen: bool = False,
+    scale: float | None = None,
+) -> torch.Tensor:
+    """K-step flow Euler over ``predict_v``. Not ModularPipeline denoise.
+
+    ``z_t ~ N(0, I)`` at infer noise (σ=1). Same ``z_t`` + schedule for
+    teacher and student. Thin loop so the student path keeps grad;
+    ``pipe(...)`` is inference-only and has no grad through the DiT.
+    """
+    steps = int(num_steps)
+    n_train = anima_num_train_timesteps(backend)
+    sigmas = anima_flow_sigmas(steps, device=z_t.device, dtype=torch.float32)
+    x = z_t
+    for i in range(steps):
+        sigma = sigmas[i]
+        sigma_next = sigmas[i + 1]
+        t = (sigma * float(n_train)).reshape(1).to(device=z_t.device)
+        v = backend.predict_v(prompt, x, t, frozen=frozen, scale=scale)
+        x = anima_flow_euler_step(x, v, sigma, sigma_next)
+    return x
+
+
+def anima_trajectory_loss(
+    x_student: torch.Tensor,
+    x_plus: torch.Tensor,
+    x_zero: torch.Tensor | None = None,
+    x_neu: torch.Tensor | None = None,
+    identity_weight: float = DEFAULT_TRAJ_IDENTITY_WEIGHT,
+) -> torch.Tensor:
+    """``MSE(x_student, x_plus) + λ_id * MSE(x_zero, x_neu)``.
+
+    ``x_plus`` is the frozen plus short trajectory (no grad).
+    ``x_student`` is adapter-on, neu/infer, same ``z_T``.
+    Identity term is optional / light so scale 0 stays the neu trajectory.
+    """
+    loss = F.mse_loss(x_student, x_plus)
+    weight = float(identity_weight)
+    if weight > 0.0 and x_zero is not None and x_neu is not None:
+        loss = loss + weight * F.mse_loss(x_zero, x_neu)
+    return loss
 
 
 def resolve_anima_lm_target(lm_target: str | None = None) -> str:
@@ -498,6 +609,15 @@ def stock_teacher_smoke_captions() -> dict[str, Any]:
     }
 
 
+def anima_recipe_label(lm_target: str | None = None) -> str:
+    recipe = resolve_anima_lm_target(lm_target)
+    if recipe == "trajectory":
+        return "trajectory short FlowMatch Euler + unused_token_hold"
+    if recipe == "direct":
+        return "direct velocity UNI + unused_token_hold"
+    return "cfg_delta UNI + unused_token_hold"
+
+
 def live_train_card(
     *,
     name: str = "smile-anima",
@@ -512,6 +632,9 @@ def live_train_card(
     control_prompt: str = DEFAULT_CONTROL_PROMPT,
     lm_target: str = DEFAULT_LM_TARGET,
     sample_every: int = DEFAULT_SAMPLE_EVERY,
+    traj_steps: int = DEFAULT_TRAJ_STEPS,
+    traj_identity_weight: float = DEFAULT_TRAJ_IDENTITY_WEIGHT,
+    teacher_gap_boost: float = DEFAULT_TEACHER_GAP_BOOST,
 ) -> dict[str, Any]:
     """Documented live train card. CI never downloads these weights."""
     recipe = resolve_anima_lm_target(lm_target)
@@ -537,6 +660,29 @@ def live_train_card(
         "sample_seed": DEFAULT_SAMPLE_SEED,
         "sample_every": int(sample_every),
         "lm_target": recipe,
+        "traj_steps": int(traj_steps),
+        "traj_identity_weight": float(traj_identity_weight),
+        "teacher_gap_boost": float(teacher_gap_boost),
+        "traj_loop": (
+            "thin FlowMatch Euler over predict_v: σ=linspace(1,1/K,K)+0, "
+            "x ← x+(σ_next−σ)*v. Not ModularPipeline denoise (no grad "
+            "through pipe). Matches Anima FlowMatchEulerDiscreteScheduler.step."
+        ),
+        "traj_loss": (
+            "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu); "
+            "x_plus=Euler_K(frozen, plus, z_T); "
+            "x_student=Euler_K(adapter, neu/infer, z_T); "
+            "x_neu=Euler_K(frozen, neu, z_T); "
+            "x_zero=Euler_K(scale=0, neu/infer, z_T); "
+            "z_T~N(0,I)"
+        ),
+        "one_step_failure": (
+            "v4 seed-42 velocity diagnostic: cos(v(pos,frozen), "
+            "v(neu,frozen))≈0.99993 (MSE≈0.00037). Stock images differ "
+            "(closed mouth vs toothy smile) but 1-step v-space gap is "
+            "microscopic. Adapter Δ was 3–7× larger with δ-cos≈0.28. "
+            "Need multi-step/trajectory, not another to_v 200-step 1-step retry."
+        ),
         "sample_gate": (
             "in-process PEFT disable_adapter / set_adapter_scale on "
             "pipe(prompt=...); fail if scale 0 is RGB noise or if scale "
@@ -544,9 +690,7 @@ def live_train_card(
         ),
         "stock_teacher_smoke": stock_teacher_smoke_captions(),
         "train_sample_prompts": "same bare infer/neu captions; attributes are pins only",
-        "recipe": (
-            "direct velocity UNI (default) or cfg_delta UNI + unused_token_hold"
-        ),
+        "recipe": anima_recipe_label(recipe),
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
     }
 
@@ -565,6 +709,8 @@ def live_train_command(
     lr: float = DEFAULT_LR,
     lm_target: str = DEFAULT_LM_TARGET,
     sample_every: int = DEFAULT_SAMPLE_EVERY,
+    traj_steps: int = DEFAULT_TRAJ_STEPS,
+    teacher_gap_boost: float = DEFAULT_TEACHER_GAP_BOOST,
 ) -> str:
     recipe = resolve_anima_lm_target(lm_target)
     return (
@@ -574,6 +720,8 @@ def live_train_command(
         f"  --model_id {model_id} \\\n"
         f"  --rank {rank} --resolution {resolution} "
         f"--sample_steps {sample_steps} --cfg {cfg} \\\n"
-        f"  --lr {lr} --lm_target {recipe} --sample_every {int(sample_every)} \\\n"
+        f"  --lr {lr} --lm_target {recipe} --traj_steps {int(traj_steps)} \\\n"
+        f"  --teacher_gap_boost {float(teacher_gap_boost)} "
+        f"--sample_every {int(sample_every)} \\\n"
         f"  --device {device} --save_dir {save_dir}"
     )

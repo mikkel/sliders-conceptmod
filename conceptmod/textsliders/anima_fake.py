@@ -208,6 +208,7 @@ class FakeAnimaBackend:
             self.device = torch.device("cpu")
         self.rank = rank
         self.latent_shape = (LATENT_CHANNELS, LATENT_HW, LATENT_HW)
+        self.num_train_timesteps = 1000
         torch.manual_seed(seed)
         self.transformer = AnimaFakeDiT(seed=seed).to(self.device)
         self.loras = attach_anima_lora(self.transformer, rank=rank, alpha=float(rank))
@@ -331,6 +332,10 @@ class FakeAnimaModularPipe:
         self.guider = SimpleNamespace(
             config=SimpleNamespace(guidance_scale=DEFAULT_CFG),
             guidance_scale=DEFAULT_CFG,
+        )
+        # Same FlowMatch Euler contract as live Anima (thin loop, not pipe).
+        self.scheduler = SimpleNamespace(
+            config=SimpleNamespace(num_train_timesteps=1000)
         )
         self.last_guidance_scale = float(DEFAULT_CFG)
         self.last_prompt = ""

@@ -23,17 +23,43 @@ Train and in-process sample use the **same bare strings**.
 `rows[i].infer_prompt` / `neutral` is exactly the `prompt=` passed to
 `pipe(...)`. No attribute-prefix strip.
 
-| scale | student | teacher (`--lm_target direct`, default) | teacher (`cfg_delta`) |
-|---|---|---|---|
-| **+1** | infer / neu caption | `v(z, t, + concept)` frozen | `v(+) − v('')` |
-| **0** | infer / neu | `v(z, t, neu)` frozen | `v(neu) − v('')` |
-| **−1** | unscored canary only | — | — |
+| scale | student | teacher (`--lm_target trajectory`, default) | `direct` (1-step) | `cfg_delta` (1-step) |
+|---|---|---|---|---|
+| **+1** | infer / neu caption | short Euler traj of frozen **plus** | `v(z, t, + concept)` frozen | `v(+) − v('')` |
+| **0** | infer / neu | light identity vs frozen **neu** traj | `v(z, t, neu)` frozen | `v(neu) − v('')` |
+| **−1** | unscored canary only | — | — | — |
 
-`--lm_target direct` (default, recommended for expression): 
+`--lm_target trajectory` (default, live smile): sample `z_T ~ N(0,I)`
+at infer noise, run **K** FlowMatch Euler steps (`--traj_steps`,
+default **4**) with the frozen pipeline on the **plus** caption →
+`x_plus` (no grad). Same schedule from the same `z_T` with the adapter
+on and the **neu/infer** caption → `x_student`. Loss is
+
+```
+MSE(x_student, x_plus) + λ_id * MSE(x_zero, x_neu)
+```
+
+`x_zero` is scale-0 / disabled-adapter on the same short schedule;
+`x_neu` is the frozen neu trajectory. `λ_id` is
+`--traj_identity_weight` (default **0.25**, light; `0` = off).
+
+The loop is a **thin Euler/flow over `predict_v`**, not
+`ModularPipeline` denoise (`pipe(...)` has no grad through the DiT).
+It matches Anima's `FlowMatchEulerDiscreteScheduler.step`:
+
+```
+σ = linspace(1, 1/K, K)  ∪  {0}
+x ← x + (σ_next − σ) * v(x, σ)
+```
+
+`--lm_target direct` is 1-step
 `MSE(v(neu, adapter), v(pos, frozen)) + MSE(v(neu, scale 0), v(neu, frozen))`.
-Scale 0 matches neu. Neu+LoRA matches plus velocity.
+`--lm_target cfg_delta` is the older UNI CFG-delta recipe. Both stay
+as flags. **Do not retry them for smile** — see below.
 
-`--lm_target cfg_delta` is the older UNI CFG-delta recipe.
+`--teacher_gap_boost` (default **1**, off) is for `direct` /
+`cfg_delta` only: train toward `v_neu + boost * (v_pos − v_neu)` with
+`boost > 1`. Not a substitute for trajectory.
 
 Velocity-space CFG is conceptmod's `v(z, t, c) − v(z, t, '')`. Live
 sample guidance is **4**. Training cycles **all yaml rows** (woman +
@@ -54,7 +80,9 @@ rank 16 on attn `to_q` / `to_k` / `to_v` / `to_out.0`. Do **not** train
 | sample steps | **40** |
 | CFG (guider) | **4** |
 | lr | **`1e-4`** (DiT LoRA; `1e-2` is not sane — prior RunPod run fitted loss ~8e-4 then any nonzero scale collapsed denoise to RGB noise) |
-| `--lm_target` | **`direct`** (expression). `cfg_delta` is UNI CFG deltas. Music 3 stays `v9`. |
+| `--lm_target` | **`trajectory`** (K-step FlowMatch Euler). `direct` / `cfg_delta` kept. Music 3 stays `v9`. |
+| `--traj_steps` | **4** (live option: 8) |
+| `--teacher_gap_boost` | **1** (off; 1-step recipes only) |
 | `--sample_every` | **100** (end-of-train gate always runs) |
 | control | `a bowl of fruit on a table` |
 | sample seed | 42 |
@@ -66,9 +94,13 @@ HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
   --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
   --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
   --rank 16 --resolution 768 --sample_steps 40 --cfg 4 \
-  --lr 1e-4 --lm_target direct --sample_every 100 \
+  --lr 1e-4 --lm_target trajectory --traj_steps 4 \
+  --teacher_gap_boost 1 --sample_every 100 \
   --device cuda:0 --save_dir models/smile-anima
 ```
+
+`--traj_steps 8` is the longer live option. `--teacher_gap_boost 4`
+only applies to a `direct` / `cfg_delta` debug run.
 
 `--lr` stays overridable. CircleStone's own finetune note is even
 lower (`~2e-5` for rank 32); `1e-4` is the trainer default.
@@ -123,6 +155,27 @@ The job **fails closed**:
    never `pipe.named_parameters()`.
 2. A CPU `torch.Generator` cannot drive a CUDA `torch.randn`. `_sample_zt`
    draws noise on CPU and `.to(device)`.
+
+## Why 1-step fails (v-space gap is tiny)
+
+v3 stock images clearly differ (closed-mouth neu vs toothy plus). v4
+matched train captions to those same infer/neu strings and fitted
+`--lm_target direct`. A velocity diagnostic on the trained adapter
+(seed 42, `LiveAnimaBackend.predict_v`, `t ∈ {100, 300, 500, 700}`)
+found:
+
+- `cos(v(pos, frozen), v(neu, frozen)) ≈ 0.99993` (MSE ≈ 0.00037) —
+  the one-step teacher gap is microscopic even though the **images**
+  differ.
+- Adapter Δ is ~3–7× larger than that teacher Δ, with only weak
+  alignment (mean δ-cos adapter-vs-plus ≈ 0.28).
+- `v(neu, scale=1)` is a **tie** vs frozen plus/neu; scale 0 matches
+  neu perfectly.
+
+So 1-step `direct` / `cfg_delta` UNI cannot carry expression on Anima.
+Need multi-step/trajectory (or a CFG-amplified 1-step teacher via
+`--teacher_gap_boost > 1`), **not** another `to_v` 200-step 1-step
+retry. `--lm_target trajectory` is the live recipe.
 
 ## Stock teacher smoke (before trusting a slider)
 
