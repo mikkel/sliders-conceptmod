@@ -11,6 +11,7 @@ exists and is frozen. Frozen ref = adapter disabled (scale 0).
 
 from __future__ import annotations
 
+import warnings
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -101,6 +102,9 @@ class AnimaFakeDiT(nn.Module):
             "smiling",
             "smile",
             "grinning",
+            "happy",
+            "joyful",
+            "teeth",
             "old",
             "young",
             "red",
@@ -322,7 +326,13 @@ class FakeAnimaModularPipe:
     def __init__(self, backend: FakeAnimaBackend):
         self.backend = backend
         self.transformer = backend.transformer
-        self.guider = SimpleNamespace(guidance_scale=DEFAULT_CFG)
+        # Same shape as live ClassifierFreeGuidance: config.guidance_scale
+        # is the real field. A top-level pipe(guidance_scale=) is ignored.
+        self.guider = SimpleNamespace(
+            config=SimpleNamespace(guidance_scale=DEFAULT_CFG),
+            guidance_scale=DEFAULT_CFG,
+        )
+        self.last_guidance_scale = float(DEFAULT_CFG)
 
     def __call__(
         self,
@@ -332,10 +342,19 @@ class FakeAnimaModularPipe:
         num_inference_steps: int = 8,
         generator=None,
         output_type: str = "pil",
-        guidance_scale: float | None = None,
-        **_kwargs,
+        **kwargs,
     ):
-        del num_inference_steps, guidance_scale
+        del num_inference_steps
+        if "guidance_scale" in kwargs:
+            warnings.warn(
+                "Unexpected input 'guidance_scale' … ignored",
+                stacklevel=2,
+            )
+        config = getattr(self.guider, "config", None)
+        cfg = getattr(config, "guidance_scale", None)
+        if cfg is None:
+            cfg = getattr(self.guider, "guidance_scale", DEFAULT_CFG)
+        self.last_guidance_scale = float(cfg)
         h = max(8, int(height))
         w = max(8, int(width))
         scale = 1.0

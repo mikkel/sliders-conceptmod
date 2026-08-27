@@ -15,6 +15,7 @@ from conceptmod.textsliders.anima_fake import (
 )
 from conceptmod.textsliders.anima_slider import (
     DEFAULT_CFG,
+    DEFAULT_CONCEPT_WORDS,
     DEFAULT_CONTROL_PROMPT,
     DEFAULT_LR,
     DEFAULT_MODEL_ID,
@@ -24,6 +25,10 @@ from conceptmod.textsliders.anima_slider import (
     DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
     LORA_TARGETS,
+    MAN_NEU,
+    MAN_PLUS,
+    WOMAN_NEU,
+    WOMAN_PLUS,
     AnimaSampleGateError,
     align_unused_positions,
     anima_cfg_delta,
@@ -39,14 +44,18 @@ from conceptmod.textsliders.anima_slider import (
     load_anima_prompts,
     looks_like_rgb_noise,
     minus_canary_cosine,
+    parse_concept_words,
     row_token_plan,
     splice_unused_embeds,
+    stock_teacher_smoke_captions,
     unused_token_mask,
     unused_vocab,
     word_tokens,
 )
 from conceptmod.textsliders.train_lora_anima import (
+    _call_modular_pipe,
     _sample_zt,
+    apply_anima_guider_cfg,
     freeze_anima_conditioner,
     load_live_backend,
     parse_args,
@@ -94,6 +103,8 @@ def test_anima_cli_defaults_match_live_card():
     assert card["sample_scales"] == list(DEFAULT_SAMPLE_SCALES)
     assert card["sample_seed"] == 42
     assert "PEFT" in card["sample_gate"]
+    assert card["stock_teacher_smoke"]["woman"]["neu"] == WOMAN_NEU
+    assert card["stock_teacher_smoke"]["woman"]["plus"] == WOMAN_PLUS
     assert card["device"] == "cuda:0"
     assert card["music3_default_untouched"] == {
         "lm_target": "v9",
@@ -192,13 +203,31 @@ def test_splice_keeps_concept_copies_unused():
 def test_yaml_expands_attributes_and_omits_minus():
     rows, meta = load_anima_prompts(PROMPTS)
     assert meta.plus_label == "smiling"
+    assert meta.concept_words == DEFAULT_CONCEPT_WORDS
+    assert parse_concept_words(meta.concept_words) == [
+        "smiling",
+        "smile",
+        "happy",
+        "joyful",
+        "teeth",
+    ]
     assert all(not row.has_minus_canary for row in rows)
     assert {row.attributes[0] for row in rows} == {"indoor", "portrait"}
     assert all(row.positive.startswith(row.attributes[0]) for row in rows)
+    assert all("neutral expression, closed mouth" in row.neutral for row in rows)
+    assert all("neutral expression, closed mouth" in row.target for row in rows)
+    assert all("big smile showing teeth" in row.positive for row in rows)
+    assert all("happy joyful expression" in row.positive for row in rows)
+    assert all("smile" not in row.neutral for row in rows)
+    assert all("teeth" not in row.neutral for row in rows)
     plan = row_token_plan(rows[0])
-    assert "smiling" in plan["concept"]
-    assert "indoor" in plan["unused"] or "portrait" in plan["unused"]
+    for word in ("smile", "happy", "joyful", "teeth"):
+        assert word in plan["concept"]
+        assert word not in plan["unused"]
     assert "smiling" not in plan["unused"]
+    assert "indoor" in plan["unused"] or "portrait" in plan["unused"]
+    assert "woman" in plan["unused"]
+    assert "chair" in plan["unused"]
 
 
 def test_canary_yaml_does_not_create_minus_teacher():
@@ -287,10 +316,11 @@ def test_dummy_train_fits_uni_without_hub(tmp_path):
     assert meta["seed"] == 42
     assert meta["scales"] == [0.0, 0.25, 0.5, 1.0]
     prompts = {row["prompt"] for row in meta["samples"]}
-    assert "a woman sitting on a chair" in prompts
-    assert "a man reading at a table" in prompts
+    assert WOMAN_NEU in prompts
+    assert MAN_NEU in prompts
     assert "a bowl of fruit on a table" in prompts
     assert all(not row["looks_like_noise"] for row in meta["samples"])
+    assert all(row.get("cfg_via") == "guider.config.guidance_scale" for row in meta["samples"])
     assert len(list(samples.glob("*.png"))) == 12
 
 
@@ -405,11 +435,13 @@ def test_infer_sample_prompts_are_neu_plus_fruit_bowl():
     rows, _meta = load_anima_prompts(PROMPTS)
     prompts = infer_sample_prompts(rows)
     assert prompts == [
-        "a woman sitting on a chair",
-        "a man reading at a table",
+        WOMAN_NEU,
+        MAN_NEU,
         "a bowl of fruit on a table",
     ]
-    assert all("smiling" not in p for p in prompts)
+    assert all("smile" not in p for p in prompts)
+    assert all("teeth" not in p for p in prompts)
+    assert all("happy" not in p for p in prompts)
 
 
 def test_rgb_noise_gate_catches_static_and_passes_ramps():
@@ -450,3 +482,92 @@ def test_peft_adapter_scale_uses_disable_not_merge():
     out = backend.pipe(prompt="a woman sitting on a chair", height=32, width=32)
     assert out.images
     assert not looks_like_rgb_noise(out.images[0])
+
+
+def test_stock_teacher_smoke_is_v3_closed_mouth_vs_teeth():
+    smoke = stock_teacher_smoke_captions()
+    assert smoke["woman"]["neu"] == WOMAN_NEU
+    assert smoke["woman"]["plus"] == WOMAN_PLUS
+    assert smoke["man"]["neu"] == MAN_NEU
+    assert smoke["man"]["plus"] == MAN_PLUS
+    assert smoke["concept_words"] == DEFAULT_CONCEPT_WORDS
+    assert "closed mouth" in smoke["woman"]["neu"]
+    assert "teeth" in smoke["woman"]["plus"]
+    assert "CFG teacher" in smoke["note"]
+
+
+def test_modular_pipe_sets_guider_config_cfg():
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0)
+    pipe = backend.pipe
+    pipe.guider.config.guidance_scale = 1.0
+    pipe.guider.guidance_scale = 1.0
+    images = _call_modular_pipe(
+        pipe,
+        WOMAN_NEU,
+        steps=2,
+        height=32,
+        width=32,
+        cfg=4.0,
+        seed=0,
+        device=backend.device,
+    )
+    assert images
+    assert pipe.last_guidance_scale == 4.0
+    # Restore after the call so later samples do not leak CFG.
+    assert pipe.guider.config.guidance_scale == 1.0
+    assert pipe.guider.guidance_scale == 1.0
+
+
+def test_modular_pipe_ignores_top_level_guidance_scale():
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0)
+    pipe = backend.pipe
+    pipe.guider.config.guidance_scale = 1.0
+    with pytest.warns(UserWarning, match="guidance_scale"):
+        pipe(prompt=WOMAN_NEU, height=16, width=16, guidance_scale=4.0)
+    assert pipe.last_guidance_scale == 1.0
+
+
+def test_modular_cfg_fails_closed_without_guider():
+    class _NoGuider:
+        def __call__(self, **_kwargs):
+            raise AssertionError("must not sample at CFG 1")
+
+    with pytest.raises(RuntimeError, match="guider"):
+        apply_anima_guider_cfg(_NoGuider(), 4.0)
+    with pytest.raises(RuntimeError, match="CFG 4"):
+        _call_modular_pipe(
+            _NoGuider(),
+            WOMAN_NEU,
+            steps=1,
+            height=8,
+            width=8,
+            cfg=4.0,
+            seed=0,
+            device="cpu",
+        )
+
+
+def test_v3_unused_hold_skips_declared_concept_words():
+    unused = unused_vocab(
+        WOMAN_NEU,
+        WOMAN_NEU,
+        attributes=["indoor", "portrait"],
+        concept_words=DEFAULT_CONCEPT_WORDS,
+    )
+    pos = word_tokens(WOMAN_PLUS)
+    concept = concept_tokens(WOMAN_PLUS, unused)
+    for word in ("smile", "happy", "joyful", "teeth"):
+        assert word in concept
+        assert word not in unused
+    assert "smiling" not in unused
+    assert "woman" in unused
+    assert "chair" in unused
+    assert "indoor" in unused
+    assert "mouth" in unused
+    mask = unused_token_mask(pos, unused)
+    held = [tok for tok, keep in zip(pos, mask) if keep]
+    skipped = [tok for tok, keep in zip(pos, mask) if not keep]
+    assert "smile" in skipped
+    assert "teeth" in skipped
+    assert "woman" in held
+    assert "chair" in held
