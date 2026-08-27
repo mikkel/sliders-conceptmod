@@ -7,12 +7,13 @@ network:
   rank: 16
   alpha: 16.0
   training_method: lora
+  lora_targets: conditioner
   targets:
-    - to_q
-    - to_k
-    - to_v
-    - to_out.0
-  train_text_conditioner: false
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  train_text_conditioner: true
 train:
   precision: bfloat16
   iterations: 500

@@ -5,10 +5,13 @@ Live card (documented by ``scripts/smoke_anima_slider.py``):
 
     model  circlestone-labs/Anima-Base-v1.0-Diffusers
     arch   2B Cosmos-Predict2 DiT, Qwen3+T5, Qwen-Image VAE
-    lora   rank 16 on attn to_q / to_k / to_v / to_out.0
-    res    768   sample 40 steps   CFG 4   lr 1e-4
-    frozen base transformer with adapter disabled
-    never  train text_conditioner
+    lora   --lora_targets conditioner (smile default-on)
+           AnimaTextConditioner q_proj/k_proj/v_proj/o_proj rank 16
+           dit = old transformer-only to_q/to_k/to_v/to_out.0
+           dit+conditioner = joint. Qwen3 text_encoder is not adapted.
+    res    768 (4090 smile retrain: 512)
+    sample 40 steps   CFG 4   lr 1e-4
+    frozen text_encoder; conditioner frozen unless lora_targets includes it
     sample in-process PEFT pipe(prompt=...) at 0 / 0.25 / 0.5 / 1.0
     lm     --lm_target trajectory (K-step FlowMatch Euler; direct /
            cfg_delta kept). 1-step v-space gap is microscopic on Anima.
@@ -50,10 +53,13 @@ if str(_REPO_ROOT) not in sys.path:
 from conceptmod.textsliders.anima_fake import FakeAnimaBackend, write_plus_alignment
 from conceptmod.textsliders.anima_slider import (
     ANIMA_LM_TARGETS,
+    ANIMA_LORA_TARGET_CHOICES,
+    CONDITIONER_LORA_TARGETS,
     DEFAULT_CFG,
     DEFAULT_CONTROL_PROMPT,
     DEFAULT_HOLD_WEIGHT,
     DEFAULT_LM_TARGET,
+    DEFAULT_LORA_TARGETS,
     DEFAULT_LR,
     DEFAULT_MODEL_ID,
     DEFAULT_RANK,
@@ -65,8 +71,7 @@ from conceptmod.textsliders.anima_slider import (
     DEFAULT_TEACHER_GAP_BOOST,
     DEFAULT_TRAJ_IDENTITY_WEIGHT,
     DEFAULT_TRAJ_STEPS,
-    FROZEN_MODULES,
-    LORA_TARGETS,
+    DIT_LORA_TARGETS,
     anima_boost_teacher,
     anima_cfg_delta,
     anima_direct_loss,
@@ -88,6 +93,7 @@ from conceptmod.textsliders.anima_slider import (
     looks_like_rgb_noise,
     minus_canary_cosine,
     resolve_anima_lm_target,
+    resolve_anima_lora_targets,
     row_token_plan,
 )
 
@@ -101,6 +107,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--prompts_file", type=str, default=str(DEFAULT_PROMPTS))
     parser.add_argument("--model_id", type=str, default=DEFAULT_MODEL_ID)
     parser.add_argument("--rank", type=int, default=DEFAULT_RANK)
+    parser.add_argument(
+        "--lora_targets",
+        type=str,
+        choices=ANIMA_LORA_TARGET_CHOICES,
+        default=DEFAULT_LORA_TARGETS,
+        help=(
+            "Which modules get PEFT LoRA. Smile default-on path is "
+            "conditioner (AnimaTextConditioner q_proj/k_proj/v_proj/o_proj). "
+            "dit is the old transformer-only recipe (v1–v5). "
+            "dit+conditioner is joint. Qwen3 text_encoder is not adapted "
+            "(28-layer / ~1.2GB). Documented in docs/anima-slider.md."
+        ),
+    )
     parser.add_argument("--alpha", type=float, default=None)
     parser.add_argument("--resolution", type=int, default=DEFAULT_RESOLUTION)
     parser.add_argument(
@@ -246,12 +265,21 @@ def _sample_zt(backend, seed: int, step: int):
     return z, t
 
 
-def freeze_anima_conditioner(pipe) -> None:
+def _is_lora_param_name(name: str) -> bool:
+    lower = name.lower()
+    return "lora_" in lower or ".lora." in lower
+
+
+def freeze_anima_conditioner(pipe, train_conditioner: bool = False) -> None:
     """ModularPipeline is not an ``nn.Module``. Freeze via components.
 
     Do **not** call ``pipe.named_parameters()`` — that AttributeError'd
     on the live RunPod box. Walk ``pipe.text_conditioner`` and
     ``pipe.transformer`` instead.
+
+    When ``train_conditioner`` is True, freeze conditioner *base* weights
+    but leave PEFT ``lora_*`` params trainable. Default False keeps the
+    old CircleStone freeze (no silent text-module training).
     """
     cond = getattr(pipe, "text_conditioner", None)
     transformer = getattr(pipe, "transformer", None)
@@ -273,32 +301,72 @@ def freeze_anima_conditioner(pipe) -> None:
             continue
         seen.add(ident)
         for name, param in module.named_parameters():
-            if module is cond or "text_conditioner" in name:
-                param.requires_grad_(False)
+            is_cond = module is cond or "text_conditioner" in name
+            if not is_cond:
+                continue
+            if train_conditioner and _is_lora_param_name(name):
+                param.requires_grad_(True)
+                continue
+            param.requires_grad_(False)
 
 
-def _assert_not_training_conditioner(backend) -> None:
-    cond = getattr(getattr(backend, "transformer", None), "text_conditioner", None)
+def _conditioner_module(backend):
+    pipe = getattr(backend, "pipe", None)
+    cond = getattr(pipe, "text_conditioner", None) if pipe is not None else None
     if cond is None:
-        cond = getattr(getattr(backend, "pipe", None), "text_conditioner", None)
-    if cond is None:
-        return
-    for name, param in cond.named_parameters():
-        if param.requires_grad:
-            raise RuntimeError(
-                f"text_conditioner.{name} is trainable; Anima LoRA is "
-                "transformer-only (CircleStone)"
-            )
+        cond = getattr(getattr(backend, "transformer", None), "text_conditioner", None)
+    return cond
+
+
+def _assert_lora_train_state(backend, spec) -> None:
+    """Fail closed if conditioner trainability does not match the flag."""
+    cond = _conditioner_module(backend)
+    cond_trainable = False
+    if cond is not None:
+        cond_trainable = any(p.requires_grad for p in cond.parameters())
+    names = []
+    named = getattr(backend, "named_trainable", None)
+    if callable(named):
+        names = list(named())
+    if any("text_conditioner" in n for n in names):
+        cond_trainable = True
+    if spec.train_conditioner and not cond_trainable:
+        raise RuntimeError(
+            "lora_targets includes conditioner but no text_conditioner "
+            "params are trainable"
+        )
+    if not spec.train_conditioner and cond_trainable:
+        raise RuntimeError(
+            "text_conditioner is trainable; pass --lora_targets dit to "
+            "keep the LLM adapter frozen"
+        )
+
+
+def _peft_modules(backend) -> list:
+    """Every PEFT-wrapped module (DiT and/or conditioner). Dummy is one API."""
+    if hasattr(backend, "set_lora_scale") or hasattr(backend, "disable_adapter"):
+        return [backend]
+    pipe = getattr(backend, "pipe", None)
+    spec = getattr(backend, "lora_spec", None)
+    modules: list = []
+    if pipe is not None:
+        if spec is None or spec.train_dit:
+            transformer = getattr(pipe, "transformer", None)
+            if transformer is not None:
+                modules.append(transformer)
+        if spec is not None and spec.train_conditioner:
+            cond = getattr(pipe, "text_conditioner", None)
+            if cond is not None:
+                modules.append(cond)
+    if not modules:
+        fallback = getattr(backend, "transformer", backend)
+        modules.append(fallback)
+    return modules
 
 
 def _peft_module(backend):
-    """PEFT lives on ``pipe.transformer`` live; dummy exposes backend APIs."""
-    if hasattr(backend, "set_lora_scale") or hasattr(backend, "disable_adapter"):
-        return backend
-    pipe = getattr(backend, "pipe", None)
-    if pipe is not None and getattr(pipe, "transformer", None) is not None:
-        return pipe.transformer
-    return getattr(backend, "transformer", backend)
+    """PEFT lives on adapted pipe modules; dummy exposes backend APIs."""
+    return _peft_modules(backend)[0]
 
 
 def _try_set_adapter_scale(module, scale: float) -> bool:
@@ -340,27 +408,46 @@ def _enable_adapter(module) -> None:
 
 
 @contextmanager
+def _disable_peft_modules(modules):
+    """Nest PEFT ``disable_adapter`` / scale-0 on every adapted module."""
+    exits: list[Any] = []
+    scaled: list[Any] = []
+    try:
+        for module in modules:
+            disable = getattr(module, "disable_adapter", None)
+            if callable(disable):
+                ctx = disable()
+                if hasattr(ctx, "__enter__"):
+                    ctx.__enter__()
+                    exits.append(ctx)
+                    continue
+            if _try_set_adapter_scale(module, 0.0):
+                scaled.append(module)
+                continue
+            raise RuntimeError("cannot disable PEFT adapter for scale 0.0 sample")
+        yield
+    finally:
+        for ctx in reversed(exits):
+            ctx.__exit__(None, None, None)
+        for module in scaled:
+            _try_set_adapter_scale(module, 1.0)
+
+
+@contextmanager
 def peft_adapter_scale(backend, scale: float):
-    """In-process PEFT scale. Scale 0 uses ``disable_adapter`` when present."""
-    module = _peft_module(backend)
+    """In-process PEFT scale on every adapted module (DiT and/or conditioner)."""
+    modules = _peft_modules(backend)
     target = float(scale)
     if abs(target) < 1e-12:
-        disable = getattr(module, "disable_adapter", None)
-        if callable(disable):
-            ctx = disable()
-            if hasattr(ctx, "__enter__"):
-                with ctx:
-                    yield
-                return
-        if _try_set_adapter_scale(module, 0.0):
-            try:
-                yield
-            finally:
-                _try_set_adapter_scale(module, 1.0)
-            return
-        raise RuntimeError("cannot disable PEFT adapter for scale 0.0 sample")
-    _enable_adapter(module)
-    if not _try_set_adapter_scale(module, target):
+        with _disable_peft_modules(modules):
+            yield
+        return
+    enabled_any = False
+    for module in modules:
+        _enable_adapter(module)
+        if _try_set_adapter_scale(module, target):
+            enabled_any = True
+    if not enabled_any:
         raise RuntimeError(
             f"cannot set PEFT adapter scale to {target}: need "
             "disable_adapter / set_adapter_scale / adapter weights "
@@ -369,7 +456,8 @@ def peft_adapter_scale(backend, scale: float):
     try:
         yield
     finally:
-        _try_set_adapter_scale(module, 1.0)
+        for module in modules:
+            _try_set_adapter_scale(module, 1.0)
 
 
 def _slug(text: str) -> str:
@@ -530,7 +618,7 @@ def _call_modular_pipe(
     device,
     latent_shape=None,
 ):
-    """Same ``pipe(prompt=...)`` path as live infer. PEFT stays on transformer.
+    """Same ``pipe(prompt=...)`` path as live infer. PEFT stays attached.
 
     CFG is applied on the guider (``guider.config.guidance_scale``). Do
     **not** pass ``guidance_scale=`` — Anima ModularPipeline ignores it.
@@ -574,7 +662,7 @@ def emit_inprocess_samples(
     if pipe is None or not callable(pipe):
         raise RuntimeError(
             "in-process Anima sample needs backend.pipe(prompt=...) "
-            "with PEFT still attached to pipe.transformer"
+            "with PEFT still attached to adapted pipe modules"
         )
     prompts = infer_sample_prompts(rows, getattr(args, "control_prompt", DEFAULT_CONTROL_PROMPT))
     scales = list(DEFAULT_SAMPLE_SCALES)
@@ -658,17 +746,39 @@ def _should_sample(step: int, args: argparse.Namespace, *, last: bool) -> bool:
     return False
 
 
+def _sidecar_lora_fields(spec) -> dict[str, Any]:
+    return {
+        "lora_targets": spec.label,
+        "dit_lora_targets": list(DIT_LORA_TARGETS) if spec.train_dit else [],
+        "conditioner_lora_targets": (
+            list(CONDITIONER_LORA_TARGETS) if spec.train_conditioner else []
+        ),
+        "train_text_conditioner": spec.train_conditioner,
+        "train_dit": spec.train_dit,
+        "adapted_modules": spec.adapted_module_names,
+        "frozen_modules": list(spec.frozen_modules),
+    }
+
+
 def train_dummy(args: argparse.Namespace) -> dict:
     device = _device(str(args.device), dummy=True)
     rows, meta = load_anima_prompts(args.prompts_file)
     if not rows:
         raise ValueError("no anima prompt rows")
     rank = int(args.rank)
-    backend = FakeAnimaBackend(device=str(device), rank=rank, seed=int(args.seed))
-    _assert_not_training_conditioner(backend)
+    spec = resolve_anima_lora_targets(getattr(args, "lora_targets", DEFAULT_LORA_TARGETS))
+    backend = FakeAnimaBackend(
+        device=str(device),
+        rank=rank,
+        seed=int(args.seed),
+        lora_targets=spec.label,
+    )
+    _assert_lora_train_state(backend, spec)
     params = backend.trainable_parameters()
     names = backend.named_trainable()
-    if any("text_conditioner" in n for n in names):
+    if spec.train_conditioner and not any("text_conditioner" in n for n in names):
+        raise RuntimeError("dummy conditioner LoRA enabled but not attached")
+    if not spec.train_conditioner and any("text_conditioner" in n for n in names):
         raise RuntimeError("dummy LoRA attached to text_conditioner")
     opt = torch.optim.AdamW(params, lr=float(args.lr))
     history: list[float] = []
@@ -734,8 +844,7 @@ def train_dummy(args: argparse.Namespace) -> dict:
         "lm_target": lm_target,
         "sample_every": int(args.sample_every),
         "device": str(device),
-        "lora_targets": list(LORA_TARGETS),
-        "frozen_modules": list(FROZEN_MODULES),
+        **_sidecar_lora_fields(spec),
         "recipe": anima_recipe_label(lm_target),
         "traj_steps": int(args.traj_steps),
         "traj_identity_weight": float(args.traj_identity_weight),
@@ -784,17 +893,21 @@ class LiveAnimaBackend:
     """Thin wrapper around a local Anima ModularPipeline.
 
     Adapted from conceptmod's Anima backend (encode / velocity / disable
-    adapter) without bringing the DSL trainer. LoRA is PEFT on
-    ``to_q/to_k/to_v/to_out.0`` only. ``text_conditioner`` stays frozen.
+    adapter) without bringing the DSL trainer. PEFT attaches to
+    ``transformer`` and/or ``text_conditioner`` per ``lora_spec``.
+    Qwen3 ``text_encoder`` stays frozen.
     """
 
-    def __init__(self, pipe, device: torch.device, resolution: int):
+    def __init__(self, pipe, device: torch.device, resolution: int, lora_spec):
         self.pipe = pipe
         self.device = device
         self.resolution = resolution
+        self.lora_spec = lora_spec
         self.compute_dtype = torch.bfloat16
         self.max_sequence_length = 512
-        base = pipe.transformer.get_base_model()
+        transformer = pipe.transformer
+        get_base = getattr(transformer, "get_base_model", None)
+        base = get_base() if callable(get_base) else transformer
         scale = pipe.vae_scale_factor
         h = resolution // scale
         self.latent_shape = (base.config.in_channels, 1, h, h)
@@ -802,6 +915,7 @@ class LiveAnimaBackend:
             1, 1, resolution, resolution, device=device, dtype=torch.bfloat16
         )
         self._text_cache: dict[str, torch.Tensor] = {}
+        self._qwen_t5_cache: dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = {}
         sched = getattr(pipe, "scheduler", None)
         cfg = getattr(sched, "config", None)
         self.num_train_timesteps = int(
@@ -809,14 +923,27 @@ class LiveAnimaBackend:
         )
 
     def encode_text(self, prompt: str) -> tuple[torch.Tensor, list[str]]:
-        if prompt not in self._text_cache:
-            self._text_cache[prompt] = self._encode_raw(prompt)
-        embeds = self._text_cache[prompt]
-        return embeds, []
+        if not self.lora_spec.train_conditioner:
+            if prompt not in self._text_cache:
+                self._text_cache[prompt] = self._encode_raw(prompt)
+            return self._text_cache[prompt], []
+        return self._encode_raw(prompt), []
 
-    def _encode_raw(self, prompt: str) -> torch.Tensor:
+    def _conditioner_dtype(self):
+        cond = self.pipe.text_conditioner
+        dtype = getattr(cond, "dtype", None)
+        if dtype is not None:
+            return dtype
+        try:
+            return next(cond.parameters()).dtype
+        except StopIteration:
+            return self.compute_dtype
+
+    def _qwen_t5_pack(self, prompt: str):
+        """Frozen Qwen3 + T5 ids. Cached; never backprop through the encoder."""
+        if prompt in self._qwen_t5_cache:
+            return self._qwen_t5_cache[prompt]
         prompts = [prompt]
-        cond_dtype = self.pipe.text_conditioner.dtype
         tok = self.pipe.tokenizer(
             prompts,
             padding="longest",
@@ -829,10 +956,11 @@ class LiveAnimaBackend:
         if ids.shape[-1] == 0:
             ids = ids.new_zeros((ids.shape[0], 1))
             mask = mask.new_zeros((mask.shape[0], 1))
-        qwen = self.pipe.text_encoder(
-            input_ids=ids, attention_mask=mask, output_hidden_states=False
-        ).last_hidden_state
-        qwen = qwen * mask.to(qwen.dtype).unsqueeze(-1)
+        with torch.no_grad():
+            qwen = self.pipe.text_encoder(
+                input_ids=ids, attention_mask=mask, output_hidden_states=False
+            ).last_hidden_state
+            qwen = qwen * mask.to(qwen.dtype).unsqueeze(-1)
         t5 = self.pipe.t5_tokenizer(
             prompts,
             padding="longest",
@@ -840,10 +968,22 @@ class LiveAnimaBackend:
             truncation=True,
             return_tensors="pt",
         )
+        pack = (
+            qwen.detach(),
+            mask,
+            t5.input_ids.to(self.device),
+            t5.attention_mask.to(self.device),
+        )
+        self._qwen_t5_cache[prompt] = pack
+        return pack
+
+    def _encode_raw(self, prompt: str) -> torch.Tensor:
+        qwen, mask, t5_ids, t5_mask = self._qwen_t5_pack(prompt)
+        cond_dtype = self._conditioner_dtype()
         cond = self.pipe.text_conditioner(
             source_hidden_states=qwen.to(device=self.device, dtype=cond_dtype),
-            target_input_ids=t5.input_ids.to(self.device),
-            target_attention_mask=t5.attention_mask.to(self.device),
+            target_input_ids=t5_ids,
+            target_attention_mask=t5_mask,
             source_attention_mask=mask,
         )
         return cond.float().to(self.device)
@@ -867,29 +1007,65 @@ class LiveAnimaBackend:
         return out.float()
 
     def predict_v(self, prompt, z, timestep, frozen=False, scale=None):
-        embeds, _ = self.encode_text(prompt)
+        # Encode under the same adapter scale as the DiT so conditioner
+        # LoRA (when enabled) actually sees scale 0 / frozen / 0.25.
         if frozen or scale == 0.0:
-            with torch.no_grad(), self.pipe.transformer.disable_adapter():
+            with torch.no_grad(), peft_adapter_scale(self, 0.0):
+                embeds, _ = self.encode_text(prompt)
                 return self._forward(z, timestep, embeds)
+        if scale is not None and abs(float(scale) - 1.0) > 1e-8:
+            with peft_adapter_scale(self, float(scale)):
+                embeds, _ = self.encode_text(prompt)
+                return self._forward(z, timestep, embeds)
+        embeds, _ = self.encode_text(prompt)
         return self._forward(z, timestep, embeds)
 
     def text_features(self, prompt, frozen=False, scale=None):
+        if frozen or scale == 0.0:
+            with torch.no_grad(), peft_adapter_scale(self, 0.0):
+                return self.encode_text(prompt)
         embeds, tokens = self.encode_text(prompt)
         return embeds, tokens
 
+    def _adapted_nn_modules(self):
+        modules = []
+        if self.lora_spec.train_dit:
+            modules.append(self.pipe.transformer)
+        if self.lora_spec.train_conditioner:
+            modules.append(self.pipe.text_conditioner)
+        return modules
+
     def trainable_parameters(self):
-        self.pipe.transformer.train()
-        params = [p for p in self.pipe.transformer.parameters() if p.requires_grad]
+        params = []
+        for module in self._adapted_nn_modules():
+            module.train()
+            params.extend(p for p in module.parameters() if p.requires_grad)
         if not params:
             raise RuntimeError("Anima PEFT returned no trainable params")
         return params
 
     def named_trainable(self):
-        return [
-            n
-            for n, p in self.pipe.transformer.named_parameters()
-            if p.requires_grad
-        ]
+        names = []
+        if self.lora_spec.train_dit:
+            names.extend(
+                n
+                for n, p in self.pipe.transformer.named_parameters()
+                if p.requires_grad
+            )
+        if self.lora_spec.train_conditioner:
+            names.extend(
+                f"text_conditioner.{n}"
+                for n, p in self.pipe.text_conditioner.named_parameters()
+                if p.requires_grad
+            )
+        return names
+
+
+def _attach_peft(module, rank: int, alpha: int, targets: list[str]):
+    from peft import LoraConfig, get_peft_model
+
+    config = LoraConfig(r=int(rank), lora_alpha=int(alpha), target_modules=list(targets))
+    return get_peft_model(module, config)
 
 
 def load_live_backend(args: argparse.Namespace, device: torch.device):
@@ -901,12 +1077,12 @@ def load_live_backend(args: argparse.Namespace, device: torch.device):
         os.environ["HF_HUB_OFFLINE"] = "0"
     try:
         from diffusers import ModularPipeline
-        from peft import LoraConfig, get_peft_model
     except ImportError as exc:
         raise RuntimeError(
             "live Anima needs diffusers + peft. Use --dummy for CPU tests."
         ) from exc
 
+    spec = resolve_anima_lora_targets(getattr(args, "lora_targets", DEFAULT_LORA_TARGETS))
     kwargs = {"local_files_only": not bool(args.allow_hub)}
     try:
         pipe = ModularPipeline.from_pretrained(args.model_id, **kwargs)
@@ -919,15 +1095,44 @@ def load_live_backend(args: argparse.Namespace, device: torch.device):
             "CI must use --dummy. See scripts/smoke_anima_slider.py."
         ) from exc
 
-    config = LoraConfig(
-        r=int(args.rank),
-        lora_alpha=int(args.alpha or args.rank),
-        target_modules=list(LORA_TARGETS),
+    rank = int(args.rank)
+    alpha = int(args.alpha or args.rank)
+    try:
+        if spec.train_dit:
+            pipe.transformer = _attach_peft(
+                pipe.transformer, rank, alpha, list(DIT_LORA_TARGETS)
+            )
+            pipe.transformer.to(device)
+        if spec.train_conditioner:
+            pipe.text_conditioner = _attach_peft(
+                pipe.text_conditioner, rank, alpha, list(CONDITIONER_LORA_TARGETS)
+            )
+            pipe.text_conditioner.to(device)
+    except ImportError as exc:
+        raise RuntimeError(
+            "live Anima needs diffusers + peft. Use --dummy for CPU tests."
+        ) from exc
+
+    if spec.train_conditioner:
+        transformer = pipe.transformer
+        enable_ckpt = getattr(transformer, "enable_gradient_checkpointing", None)
+        if callable(enable_ckpt):
+            try:
+                enable_ckpt()
+            except Exception:
+                pass
+        cond = pipe.text_conditioner
+        enable_cond = getattr(cond, "enable_gradient_checkpointing", None)
+        if callable(enable_cond):
+            try:
+                enable_cond()
+            except Exception:
+                pass
+
+    freeze_anima_conditioner(pipe, train_conditioner=spec.train_conditioner)
+    return LiveAnimaBackend(
+        pipe, device, resolution=int(args.resolution), lora_spec=spec
     )
-    pipe.transformer = get_peft_model(pipe.transformer, config)
-    pipe.transformer.to(device)
-    freeze_anima_conditioner(pipe)
-    return LiveAnimaBackend(pipe, device, resolution=int(args.resolution))
 
 
 def _cycle_row(rows, plans, step: int):
@@ -1073,8 +1278,8 @@ def train_live(args: argparse.Namespace) -> dict:
             "--device cuda:0 with local weights."
         )
     backend = load_live_backend(args, device)
-    if any("text_conditioner" in n for n in backend.named_trainable()):
-        raise RuntimeError("text_conditioner must stay frozen")
+    spec = backend.lora_spec
+    _assert_lora_train_state(backend, spec)
     rows, meta = load_anima_prompts(args.prompts_file)
     lm_target = resolve_anima_lm_target(getattr(args, "lm_target", DEFAULT_LM_TARGET))
     plans = [row_token_plan(row) for row in rows]
@@ -1113,7 +1318,12 @@ def train_live(args: argparse.Namespace) -> dict:
             sample_records = emit_inprocess_samples(
                 backend, args, save_dir, step=step + 1, rows=rows, dummy=False
             )
-    backend.pipe.transformer.save_pretrained(str(save_dir / f"{args.name}_lora"))
+    if spec.train_dit:
+        backend.pipe.transformer.save_pretrained(str(save_dir / f"{args.name}_lora"))
+    if spec.train_conditioner:
+        backend.pipe.text_conditioner.save_pretrained(
+            str(save_dir / f"{args.name}_conditioner_lora")
+        )
     sample_records = emit_inprocess_samples(
         backend, args, save_dir, step=total, rows=rows, dummy=False
     )
@@ -1129,8 +1339,7 @@ def train_live(args: argparse.Namespace) -> dict:
         "lm_target": lm_target,
         "sample_every": int(args.sample_every),
         "device": str(device),
-        "lora_targets": list(LORA_TARGETS),
-        "frozen_modules": list(FROZEN_MODULES),
+        **_sidecar_lora_fields(spec),
         "recipe": anima_recipe_label(lm_target),
         "traj_steps": int(args.traj_steps),
         "traj_identity_weight": float(args.traj_identity_weight),
@@ -1192,6 +1401,7 @@ def train(args: argparse.Namespace) -> dict:
             traj_steps=int(args.traj_steps),
             traj_identity_weight=float(args.traj_identity_weight),
             teacher_gap_boost=float(args.teacher_gap_boost),
+            lora_targets=str(args.lora_targets),
         )
         print(json.dumps(card, indent=2))
         print()
@@ -1209,6 +1419,7 @@ def train(args: argparse.Namespace) -> dict:
             sample_every=int(args.sample_every),
             traj_steps=int(args.traj_steps),
             teacher_gap_boost=float(args.teacher_gap_boost),
+            lora_targets=str(args.lora_targets),
         ))
         return card
     if args.dummy:

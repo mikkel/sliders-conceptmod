@@ -77,8 +77,16 @@ TURBO_CONVERT_COSMOS_SCRIPT = (
 # Community Anima-1.0-Turbo-Diffusers is v1.0 only and the wrong VAE
 # class. Do not train or convert from it.
 TURBO_IGNORE_COMMUNITY = "Anima-1.0-Turbo-Diffusers"
+# DiT attn names (CosmosTransformer3DModel). Conditioner uses q/k/v/o_proj.
 LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
-# CircleStone: do not train the LLM adapter.
+DIT_LORA_TARGETS = LORA_TARGETS
+CONDITIONER_LORA_TARGETS = ("q_proj", "k_proj", "v_proj", "o_proj")
+ANIMA_LORA_TARGET_CHOICES = ("dit", "conditioner", "dit+conditioner")
+# Smile default-on path: PEFT on AnimaTextConditioner (~269M), not Qwen3.
+# dit is the old transformer-only recipe (v1–v5). Not silent: --print_card
+# and docs/anima-slider.md state which modules are trained.
+DEFAULT_LORA_TARGETS = "conditioner"
+# Legacy dit-only freeze list. Prefer AnimaLoraSpec.frozen_modules.
 FROZEN_MODULES = ("text_conditioner",)
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 # Uniform uint8 RGB static is ~127.5 / 73.9. The dead RunPod LoRA
@@ -395,6 +403,81 @@ def resolve_anima_lm_target(lm_target: str | None = None) -> str:
     return recipe
 
 
+@dataclass(frozen=True)
+class AnimaLoraSpec:
+    """Which Anima modules receive PEFT LoRA.
+
+    Smile default is ``conditioner`` (AnimaTextConditioner). Qwen3
+    ``text_encoder`` is never adapted here: 28 layers / ~1.2GB, VRAM-heavy,
+    and the caption-level smile already lives in the 6-layer ~269M
+    conditioner that maps Qwen hidden states + T5 ids to Cosmos embeds.
+    """
+
+    label: str
+    train_dit: bool
+    train_conditioner: bool
+
+    @property
+    def train_text_conditioner(self) -> bool:
+        return self.train_conditioner
+
+    @property
+    def frozen_modules(self) -> tuple[str, ...]:
+        frozen = ["text_encoder"]
+        if not self.train_conditioner:
+            frozen.append("text_conditioner")
+        return tuple(frozen)
+
+    @property
+    def active_attn_targets(self) -> list[str]:
+        names: list[str] = []
+        if self.train_dit:
+            names.extend(DIT_LORA_TARGETS)
+        if self.train_conditioner:
+            names.extend(CONDITIONER_LORA_TARGETS)
+        return names
+
+    @property
+    def adapted_module_names(self) -> list[str]:
+        names: list[str] = []
+        if self.train_dit:
+            names.append("transformer")
+        if self.train_conditioner:
+            names.append("text_conditioner")
+        return names
+
+
+def resolve_anima_lora_targets(lora_targets: str | None = None) -> AnimaLoraSpec:
+    """Parse ``dit`` / ``conditioner`` / ``dit+conditioner``.
+
+    Aliases: ``transformer`` → ``dit``, ``text_conditioner`` / ``cond`` →
+    ``conditioner``. Qwen ``text_encoder`` is rejected (not a smile target).
+    """
+    raw = str(lora_targets if lora_targets is not None else DEFAULT_LORA_TARGETS)
+    label = raw.strip().lower().replace(" ", "")
+    aliases = {
+        "transformer": "dit",
+        "text_conditioner": "conditioner",
+        "cond": "conditioner",
+        "dit+text_conditioner": "dit+conditioner",
+        "transformer+conditioner": "dit+conditioner",
+        "transformer+text_conditioner": "dit+conditioner",
+    }
+    label = aliases.get(label, label)
+    if label not in ANIMA_LORA_TARGET_CHOICES:
+        raise ValueError(
+            f"anima lora_targets must be one of {ANIMA_LORA_TARGET_CHOICES}, "
+            f"got {lora_targets!r}. Qwen text_encoder is not adapted "
+            "(28-layer / ~1.2GB); use conditioner for caption-level smile."
+        )
+    parts = set(label.split("+"))
+    return AnimaLoraSpec(
+        label=label,
+        train_dit="dit" in parts,
+        train_conditioner="conditioner" in parts,
+    )
+
+
 def anima_unused_hold_loss(
     pred: torch.Tensor,
     tgt: torch.Tensor,
@@ -659,19 +742,42 @@ def live_train_card(
     traj_steps: int = DEFAULT_TRAJ_STEPS,
     traj_identity_weight: float = DEFAULT_TRAJ_IDENTITY_WEIGHT,
     teacher_gap_boost: float = DEFAULT_TEACHER_GAP_BOOST,
+    lora_targets: str = DEFAULT_LORA_TARGETS,
 ) -> dict[str, Any]:
     """Documented live train card. CI never downloads these weights."""
     recipe = resolve_anima_lm_target(lm_target)
+    spec = resolve_anima_lora_targets(lora_targets)
     return {
         "name": name,
         "model_id": model_id,
         "arch": "2B Cosmos-Predict2 DiT, Qwen3+T5, Qwen-Image VAE",
         "lora": {
+            "lora_targets": spec.label,
             "rank": rank,
             "alpha": float(rank),
-            "targets": list(LORA_TARGETS),
-            "train_text_conditioner": False,
-            "frozen_ref": "base transformer with adapter disabled",
+            "targets": spec.active_attn_targets,
+            "dit_targets": list(DIT_LORA_TARGETS),
+            "conditioner_targets": list(CONDITIONER_LORA_TARGETS),
+            "train_dit": spec.train_dit,
+            "train_text_conditioner": spec.train_conditioner,
+            "train_text_encoder": False,
+            "adapted_modules": spec.adapted_module_names,
+            "frozen_modules": list(spec.frozen_modules),
+            "frozen_ref": "base modules with PEFT adapters disabled",
+            "save": (
+                "{name}_conditioner_lora when conditioner is on; "
+                "{name}_lora when dit is on"
+            ),
+            "text_encoder_note": (
+                "Qwen3 text_encoder (28-layer, ~1.2GB) is not adapted. "
+                "Caption-level smile lives in AnimaTextConditioner "
+                "(6-layer, ~269M, q_proj/k_proj/v_proj/o_proj)."
+            ),
+            "vram_note": (
+                "4090 ~24GB: smile retrain with --lora_targets conditioner "
+                "--resolution 512 --rank 16. dit-only 768 traj_steps=4 was "
+                "~23GB. dit+conditioner needs rank 8 or 512."
+            ),
         },
         "resolution": resolution,
         "sample_steps": sample_steps,
@@ -717,6 +823,13 @@ def live_train_card(
         "recipe": anima_recipe_label(recipe),
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
         "turbo": "preview_only",
+        "smile_retrain_4090": live_train_command(
+            resolution=512,
+            lora_targets="conditioner",
+            rank=rank,
+            lr=lr,
+            traj_steps=traj_steps,
+        ),
     }
 
 
@@ -736,14 +849,17 @@ def live_train_command(
     sample_every: int = DEFAULT_SAMPLE_EVERY,
     traj_steps: int = DEFAULT_TRAJ_STEPS,
     teacher_gap_boost: float = DEFAULT_TEACHER_GAP_BOOST,
+    lora_targets: str = DEFAULT_LORA_TARGETS,
 ) -> str:
     recipe = resolve_anima_lm_target(lm_target)
+    spec = resolve_anima_lora_targets(lora_targets)
     return (
         "HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \\\n"
         f"  --name {name} \\\n"
         f"  --prompts_file {prompts_file} \\\n"
         f"  --model_id {model_id} \\\n"
-        f"  --rank {rank} --resolution {resolution} "
+        f"  --lora_targets {spec.label} --rank {rank} "
+        f"--resolution {resolution} "
         f"--sample_steps {sample_steps} --cfg {cfg} \\\n"
         f"  --lr {lr} --lm_target {recipe} --traj_steps {int(traj_steps)} \\\n"
         f"  --teacher_gap_boost {float(teacher_gap_boost)} "

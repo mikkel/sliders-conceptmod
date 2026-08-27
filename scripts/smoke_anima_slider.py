@@ -9,10 +9,11 @@ Live train card
 ---------------
 model_id        circlestone-labs/Anima-Base-v1.0-Diffusers
 arch            2B Cosmos-Predict2 DiT, Qwen3+T5, Qwen-Image VAE
-lora            rank 16 on attn to_q / to_k / to_v / to_out.0
-                do not train text_conditioner
-frozen ref      base transformer with adapter disabled
-resolution      768
+lora            --lora_targets conditioner (smile default-on)
+                AnimaTextConditioner q_proj / k_proj / v_proj / o_proj
+                dit = old transformer-only; Qwen3 text_encoder not adapted
+frozen ref      base modules with adapters disabled
+resolution      768 (4090 smile retrain: 512)
 sample_steps    40
 cfg             4
 lr              1e-4
@@ -29,7 +30,7 @@ HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \\
   --name smile-anima \\
   --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \\
   --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \\
-  --rank 16 --resolution 768 --sample_steps 40 --cfg 4 \\
+  --lora_targets conditioner --rank 16 --resolution 768 --sample_steps 40 --cfg 4 \\
   --lr 1e-4 --lm_target trajectory --traj_steps 4 \\
   --teacher_gap_boost 1 --sample_every 100 \\
   --device cuda:0 --save_dir models/smile-anima

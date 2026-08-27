@@ -15,10 +15,12 @@ from conceptmod.textsliders.anima_fake import (
     write_plus_alignment,
 )
 from conceptmod.textsliders.anima_slider import (
+    CONDITIONER_LORA_TARGETS,
     DEFAULT_CFG,
     DEFAULT_CONCEPT_WORDS,
     DEFAULT_CONTROL_PROMPT,
     DEFAULT_LM_TARGET,
+    DEFAULT_LORA_TARGETS,
     DEFAULT_LR,
     DEFAULT_MODEL_ID,
     DEFAULT_RANK,
@@ -59,6 +61,7 @@ from conceptmod.textsliders.anima_slider import (
     minus_canary_cosine,
     parse_concept_words,
     resolve_anima_lm_target,
+    resolve_anima_lora_targets,
     row_token_plan,
     splice_unused_embeds,
     stock_teacher_smoke_captions,
@@ -119,11 +122,17 @@ def test_anima_cli_defaults_match_live_card():
     assert args.sample_seed == DEFAULT_SAMPLE_SEED == 42
     assert args.dummy is False
     assert args.allow_hub is False
+    assert args.lora_targets == DEFAULT_LORA_TARGETS == "conditioner"
     card = live_train_card()
     assert card["model_id"] == DEFAULT_MODEL_ID
     assert card["lora"]["rank"] == 16
-    assert card["lora"]["targets"] == list(LORA_TARGETS)
-    assert card["lora"]["train_text_conditioner"] is False
+    assert card["lora"]["lora_targets"] == "conditioner"
+    assert card["lora"]["targets"] == list(CONDITIONER_LORA_TARGETS)
+    assert card["lora"]["train_text_conditioner"] is True
+    assert card["lora"]["train_dit"] is False
+    assert card["lora"]["train_text_encoder"] is False
+    assert card["lora"]["frozen_modules"] == ["text_encoder"]
+    assert "AnimaTextConditioner" in card["lora"]["text_encoder_note"]
     assert card["resolution"] == 768
     assert card["sample_steps"] == 40
     assert card["cfg"] == 4.0
@@ -158,7 +167,10 @@ def test_anima_cli_defaults_match_live_card():
     assert "--lm_target trajectory" in cmd
     assert "--traj_steps 4" in cmd
     assert "--sample_every 100" in cmd
+    assert "--lora_targets conditioner" in cmd
     assert "HF_HUB_OFFLINE=1" in cmd
+    assert "--lora_targets conditioner" in card["smile_retrain_4090"]
+    assert "--resolution 512" in card["smile_retrain_4090"]
 
 
 def test_cfg_delta_is_v_cond_minus_v_empty():
@@ -325,6 +337,124 @@ def test_fake_lora_targets_and_frozen_conditioner():
     assert FAKE_LORA_TARGETS == LORA_TARGETS
 
 
+def test_lora_targets_resolver_and_cli():
+    spec = resolve_anima_lora_targets()
+    assert spec.label == "conditioner"
+    assert spec.train_conditioner is True
+    assert spec.train_dit is False
+    assert spec.frozen_modules == ("text_encoder",)
+    assert spec.active_attn_targets == list(CONDITIONER_LORA_TARGETS)
+    dit = resolve_anima_lora_targets("dit")
+    assert dit.train_dit is True
+    assert dit.train_conditioner is False
+    assert "text_conditioner" in dit.frozen_modules
+    joint = resolve_anima_lora_targets("dit+conditioner")
+    assert joint.train_dit is True
+    assert joint.train_conditioner is True
+    assert joint.frozen_modules == ("text_encoder",)
+    alias = resolve_anima_lora_targets("text_conditioner")
+    assert alias.label == "conditioner"
+    with pytest.raises(ValueError, match="text_encoder"):
+        resolve_anima_lora_targets("text_encoder")
+    with pytest.raises(ValueError, match="lora_targets"):
+        resolve_anima_lora_targets("v9")
+    args = parse_args(["--lora_targets", "dit"])
+    assert args.lora_targets == "dit"
+    joint_args = parse_args(["--lora_targets", "dit+conditioner"])
+    assert joint_args.lora_targets == "dit+conditioner"
+
+
+def test_dummy_conditioner_trainable_when_enabled():
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0, lora_targets="conditioner")
+    names = backend.named_trainable()
+    assert names
+    assert any("text_conditioner" in n for n in names)
+    joined = " ".join(names)
+    for target in CONDITIONER_LORA_TARGETS:
+        assert target in joined
+    assert not any("to_q" in n or "to_k" in n for n in names)
+    assert backend.lora_spec.train_conditioner is True
+    params = backend.trainable_parameters()
+    assert params
+    assert all(p.requires_grad for p in params)
+
+
+def test_dummy_conditioner_frozen_when_disabled():
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0, lora_targets="dit")
+    names = backend.named_trainable()
+    assert names
+    assert not any("text_conditioner" in n for n in names)
+    cond = backend.transformer.text_conditioner
+    assert all(not p.requires_grad for p in cond.parameters())
+    from conceptmod.textsliders.train_lora_anima import _assert_lora_train_state
+
+    _assert_lora_train_state(backend, resolve_anima_lora_targets("dit"))
+    with pytest.raises(RuntimeError, match="trainable"):
+        _assert_lora_train_state(backend, resolve_anima_lora_targets("conditioner"))
+
+
+def test_dummy_train_conditioner_only(tmp_path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--steps",
+            "6",
+            "--device",
+            "cpu",
+            "--name",
+            "anima-cond",
+            "--prompts_file",
+            str(PROMPTS),
+            "--save_dir",
+            str(tmp_path),
+            "--rank",
+            "4",
+            "--lora_targets",
+            "conditioner",
+        ]
+    )
+    sidecar = train_dummy(args)
+    assert sidecar["lora_targets"] == "conditioner"
+    assert sidecar["train_text_conditioner"] is True
+    assert sidecar["train_dit"] is False
+    assert sidecar["conditioner_lora_targets"] == list(CONDITIONER_LORA_TARGETS)
+    assert sidecar["dit_lora_targets"] == []
+    assert sidecar["frozen_modules"] == ["text_encoder"]
+    assert sidecar["adapted_modules"] == ["text_conditioner"]
+    assert sidecar["loss_last"] is not None
+    assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
+
+
+def test_dummy_train_dit_plus_conditioner(tmp_path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--steps",
+            "4",
+            "--device",
+            "cpu",
+            "--name",
+            "anima-joint",
+            "--prompts_file",
+            str(PROMPTS),
+            "--save_dir",
+            str(tmp_path),
+            "--rank",
+            "4",
+            "--lora_targets",
+            "dit+conditioner",
+        ]
+    )
+    sidecar = train_dummy(args)
+    assert sidecar["lora_targets"] == "dit+conditioner"
+    assert sidecar["train_dit"] is True
+    assert sidecar["train_text_conditioner"] is True
+    assert sidecar["dit_lora_targets"] == list(LORA_TARGETS)
+    assert sidecar["conditioner_lora_targets"] == list(CONDITIONER_LORA_TARGETS)
+    assert sidecar["adapted_modules"] == ["transformer", "text_conditioner"]
+    assert sidecar["frozen_modules"] == ["text_encoder"]
+
+
 def test_dummy_train_fits_uni_without_hub(tmp_path):
     args = parse_args(
         [
@@ -345,13 +475,17 @@ def test_dummy_train_fits_uni_without_hub(tmp_path):
             "0",
             "--lr",
             "5e-2",
+            "--lora_targets",
+            "dit",
         ]
     )
     sidecar = train_dummy(args)
     assert sidecar["dummy"] is True
     assert sidecar["model_id"] == DEFAULT_MODEL_ID
-    assert sidecar["lora_targets"] == list(LORA_TARGETS)
-    assert sidecar["frozen_modules"] == ["text_conditioner"]
+    assert sidecar["lora_targets"] == "dit"
+    assert sidecar["train_text_conditioner"] is False
+    assert sidecar["dit_lora_targets"] == list(LORA_TARGETS)
+    assert sidecar["frozen_modules"] == ["text_encoder", "text_conditioner"]
     assert sidecar["minus_canary"] is False
     assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
     assert sidecar["lm_target"] == "trajectory"
@@ -464,10 +598,18 @@ def test_print_card_does_not_train():
     out = train(parse_args(["--print_card"]))
     assert out["model_id"] == DEFAULT_MODEL_ID
     assert out["lora"]["rank"] == 16
+    assert out["lora"]["lora_targets"] == "conditioner"
+    assert out["lora"]["train_text_conditioner"] is True
+    assert out["lora"]["train_text_encoder"] is False
     assert out["lr"] == 1e-4
     assert out["lm_target"] == "trajectory"
     assert out["traj_steps"] == 4
     assert "MSE(x_student, x_plus)" in out["traj_loss"]
+    dit = train(parse_args(["--print_card", "--lora_targets", "dit"]))
+    assert dit["lora"]["lora_targets"] == "dit"
+    assert dit["lora"]["train_text_conditioner"] is False
+    assert dit["lora"]["train_dit"] is True
+    assert "text_conditioner" in dit["lora"]["frozen_modules"]
 
 
 def test_sample_zt_draws_on_cpu_then_moves():
@@ -491,6 +633,25 @@ def test_freeze_conditioner_does_not_need_pipe_named_parameters():
     freeze_anima_conditioner(pipe)
     assert all(not param.requires_grad for param in pipe.text_conditioner.parameters())
     assert all(param.requires_grad for param in pipe.transformer.parameters())
+
+
+def test_freeze_conditioner_keeps_lora_params_when_training():
+    class _Cond(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.base = torch.nn.Linear(2, 2)
+            self.lora_A = torch.nn.Linear(2, 1, bias=False)
+
+    class _NotAModule:
+        def __init__(self):
+            self.text_conditioner = _Cond()
+            self.transformer = torch.nn.Linear(2, 2)
+
+    pipe = _NotAModule()
+    freeze_anima_conditioner(pipe, train_conditioner=True)
+    assert all(not p.requires_grad for p in pipe.text_conditioner.base.parameters())
+    assert all(p.requires_grad for p in pipe.text_conditioner.lora_A.parameters())
+    assert all(p.requires_grad for p in pipe.transformer.parameters())
 
 
 def test_infer_sample_prompts_are_neu_plus_fruit_bowl():
