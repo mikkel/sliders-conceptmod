@@ -69,10 +69,6 @@ from analysis.slider2d.sheet import (
 )
 from conceptmod.textsliders.slider_targets import LEAK_HOLD_WEIGHT as LIVE_HOLD
 
-# Caption-pole even motion. Logged, never gated. Distinct from leftover
-# leak (unused ê). Clean bipolar wants leak_frac ≤ this floor.
-BIPOLAR_MIRROR_FLOOR = -0.80
-
 
 # Compiled gate. Identical numbers to the sheet cell; leftover leak uses
 # the same 0.20 lock the hidden-geometry cells already share.
@@ -185,31 +181,6 @@ RACE_RECIPES = frozenset(
     }
 )
 
-# High-leak / blend / midpoint cousins the leak_frac chart must keep next
-# to the race rows. Skip any of these that have no leftover_bipolar reading.
-HIGH_LEAK_RECIPES = frozenset(
-    {
-        "hub",
-        "hold_e_raw_l1",
-        "hold_e_raw_l8",
-        "hold_e_raw_synonym_l8",
-        "project_short_u",
-        "project_rich_u",
-        "leftover_hold_l1",
-        "leftover_hold_l8",
-        "pair_odd_midpoint",
-        "pair_odd_sub_e",
-        "faithful_sub_e",
-        "semantic_kl_sub_e",
-        "semantic_kl_midpoint",
-        "dual_band_midpoint",
-    }
-)
-
-SAME_DIR_BAND = "same-dir"
-WEAK_OPPOSITE_BAND = "weak-opposite"
-BIPOLAR_MIRROR_BAND = "bipolar-mirror"
-
 
 def na(value: Any) -> Any:
     """JSON-friendly missing metric. ``None`` stays ``None``."""
@@ -284,16 +255,13 @@ def cell_works(
     strength: float | None = None,
     pair_odd_cos: float | None = None,
     collapse: float | None = None,
-    leak_frac: float | None = None,
-    same_dir: float | None = None,
 ) -> bool | None:
-    """One cell's gate. ``pair_odd_cos`` / ``collapse`` / ``leak_frac`` /
-    ``same_dir`` are accepted and ignored.
+    """One cell's gate. ``pair_odd_cos`` / ``collapse`` are accepted and ignored.
 
     ``None`` means the cell does not exist for this recipe (do not treat
     that as a pass).
     """
-    del pair_odd_cos, collapse, leak_frac, same_dir
+    del pair_odd_cos, collapse
     if leak is None and on_sheet_kept is None and intended_cos is None and strength is None:
         return None
     leak_pass = leak_ok(leak)
@@ -330,8 +298,6 @@ def compiled_verdict(
     pair_odd_cos: float | None = None,
     loss: float | None = None,
     pperc: float | None = None,
-    leak_frac: float | None = None,
-    same_dir: float | None = None,
 ) -> str:
     """Join every cell a recipe has a reading on.
 
@@ -340,11 +306,10 @@ def compiled_verdict(
     verdict for ``semantic_kl_poles``, live's energy win and gender garble
     at once.
 
-    ``pair_odd_cos``, ``loss``, ``pperc``, ``leak_frac`` and ``same_dir``
-    are accepted and ignored so a caller cannot accidentally feed a
-    Goodhart column into the score.
+    ``pair_odd_cos``, ``loss`` and ``pperc`` are accepted and ignored so a
+    caller cannot accidentally feed a Goodhart column into the score.
     """
-    del pair_odd_cos, loss, pperc, leak_frac, same_dir
+    del pair_odd_cos, loss, pperc
     readings = [v for v in cells.values() if v is not None]
     if not readings:
         return UNSCORED
@@ -373,8 +338,7 @@ def exam_score(
     count. ``unused_e`` / the #22 sheet cells are other questions. A pair
     the recipe has no reading on is skipped, not a free 1.0. No live-pair
     reading at all is ``None`` (sort last). Pair-odd cos, ±1 collapse,
-    pole loss, ``p%`` / ``n%``, ``leak_frac`` and ``same_dir`` are not
-    inputs.
+    pole loss and ``p%`` / ``n%`` are not inputs.
     """
     scores: list[float] = []
     for cell in EXAM_SCORE_PAIRS:
@@ -415,46 +379,6 @@ def _pick(row: dict | None, key: str, default: Any = None) -> Any:
     if row is None:
         return default
     return row.get(key, default)
-
-
-def bipolar_from(*bags: dict | None) -> tuple[float | None, float | None]:
-    """``leftover_bipolar`` of the fitted ±1 student, leftover then gender then exam."""
-    leak_frac = None
-    same_dir = None
-    for bag in bags:
-        if not bag:
-            continue
-        if leak_frac is None and _finite(bag.get("leak_frac")):
-            leak_frac = float(bag["leak_frac"])
-        if same_dir is None and _finite(bag.get("same_dir")):
-            same_dir = float(bag["same_dir"])
-        if leak_frac is not None and same_dir is not None:
-            break
-    return leak_frac, same_dir
-
-
-def leak_band(leak_frac: float | None) -> str | None:
-    """Cluster label for the leak_frac chart. Not a compiled gate."""
-    if not _finite(leak_frac):
-        return None
-    value = float(leak_frac)
-    if value >= 0.0:
-        return SAME_DIR_BAND
-    if value > BIPOLAR_MIRROR_FLOOR:
-        return WEAK_OPPOSITE_BAND
-    return BIPOLAR_MIRROR_BAND
-
-
-def leak_frac_chart_rows(rows: list[dict]) -> list[dict]:
-    """Race + high-leak mix, sorted least bipolar → most bipolar.
-
-    Keeps leftover-gate / dual_band / faithful and the hub / hold / project
-    / midpoint cousins. ``barh`` puts the first item at the bottom, so
-    same-dir sits at the top and clean bipolar at the bottom. A recipe
-    with no ``leak_frac`` is skipped, not invented.
-    """
-    plotted = [r for r in rows if _finite(r.get("leak_frac"))]
-    return sorted(plotted, key=lambda r: float(r["leak_frac"]))
 
 
 def exam_cells_for(recipe_id: str, exam: dict[str, list[dict]] | None) -> dict:
@@ -510,8 +434,6 @@ def _row(
     swing_kept: float | None = None,
     pair_odd_cos: float | None = None,
     collapse: float | None = None,
-    leak_frac: float | None = None,
-    same_dir: float | None = None,
     intended_cos: float | None = None,
     content_cos: float | None = None,
     trainer_c_plus: float | None = None,
@@ -573,8 +495,6 @@ def _row(
         strength=leftover.get("strength", leftover.get("strength_on_u")),
         pair_odd_cos=pair_odd_cos,
         collapse=collapse,
-        leak_frac=leak_frac,
-        same_dir=same_dir,
     )
     gender_pass = cell_works(
         leak=gender_leak,
@@ -588,8 +508,6 @@ def _row(
         strength=gender.get("strength", gender.get("strength_on_u")),
         pair_odd_cos=gender.get("pair_odd_cos"),
         collapse=gender.get("collapse", gender.get("cos_plus_minus")),
-        leak_frac=gender.get("leak_frac"),
-        same_dir=gender.get("same_dir"),
     )
     # Recipes that only have leftover numbers should not inherit a
     # gender pass from a missing gender cell.
@@ -604,23 +522,11 @@ def _row(
     exam_overlap = {key: row["roll_overlap"] for key, row in exam_rows.items()}
     exam_swing = {key: row["roll_swing_kept"] for key, row in exam_rows.items()}
     score = exam_score(exam_overlap, exam_swing)
-    exam_first = next(
-        (exam_rows[key] for key in ("exam_divergent", "exam_close", "exam_unused_e") if key in exam_rows),
-        None,
-    )
-    if leak_frac is None or same_dir is None:
-        picked_lf, picked_sd = bipolar_from(leftover, gender, exam_first)
-        if leak_frac is None:
-            leak_frac = picked_lf
-        if same_dir is None:
-            same_dir = picked_sd
     verdict = compiled_verdict(
         cells=cells,
         pair_odd_cos=pair_odd_cos,
         loss=loss,
         pperc=_pick(exam_rows.get("exam_divergent"), "pperc"),
-        leak_frac=leak_frac,
-        same_dir=same_dir,
     )
     c_plus_distinct = (
         trainer_c_plus
@@ -669,8 +575,6 @@ def _row(
         "swing_kept": swing_kept,
         "pair_odd_cos": pair_odd_cos,
         "collapse": collapse,
-        "leak_frac": leak_frac,
-        "same_dir": same_dir,
         "intended_cos": intended_cos,
         "content_cos": content_cos,
         "trainer_c_plus": trainer_c_plus,
@@ -1291,9 +1195,6 @@ def gates_blob() -> dict:
         "collapse_scored": False,
         "pole_loss_scored": False,
         "perc_scored": False,
-        "leak_frac_scored": False,
-        "same_dir_scored": False,
-        "bipolar_mirror_floor": BIPOLAR_MIRROR_FLOOR,
         "prose": (
             "A recipe WORKS only if **every pair it has a reading on** passes. "
             "On a pair-exam cell that means the student's own continuation stays "
@@ -1308,10 +1209,8 @@ def gates_blob() -> dict:
             f"{COMPILED_LEAK_LOCK}, on-sheet kept ≥ {COMPILED_SHEET_LOCK}, "
             f"off-sheet mass ≤ {COMPILED_GARBLE_MAX}, argmax-on-sheet = "
             f"{COMPILED_ARGMAX_LOCK:g} and concept swing kept ≥ "
-            f"{COMPILED_SWING_FLOOR}. leftover leak is unused ê, not "
-            "leak_frac = cos(d+, d−). Pair-odd cos, ±1 collapse, leak_frac / "
-            "same_dir, the pole loss and p%/n% are logged and never scored. "
-            "The sortable number is "
+            f"{COMPILED_SWING_FLOOR}. Pair-odd cos, ±1 collapse, the pole loss "
+            "and p%/n% are logged and never scored. The sortable number is "
             "exam_score = min(overlap, swing) over the live exam pairs that "
             "row is read on (divergent / close). unused_e and the sheet cells "
             "are other questions and are not folded in. A pair with no reading "

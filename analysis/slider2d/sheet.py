@@ -75,7 +75,6 @@ from analysis.slider2d.highd import BEND_GENDER
 from conceptmod.textsliders.slider_targets import (
     DUAL_BAND_WEIGHT,
     LEAK_HOLD_WEIGHT,
-    leftover_bipolar,
     lm_axis_hold,
     lm_blind_projector,
     lm_dual_band_pole_loss,
@@ -915,7 +914,6 @@ def score_sheet(
             # Live log columns. Logged, never gated.
             "pair_odd_cos": cosine(d_plus, a),
             "collapse": cosine(d_plus, d_minus),
-            **leftover_bipolar(d_plus, d_minus),
             # The honest hidden-space lock: cos to the real pole displacement.
             "pole_cos": cosine(d_plus, pos - neu),
             "sheet_dir_kept": float(d_plus @ field.sheet_dir())

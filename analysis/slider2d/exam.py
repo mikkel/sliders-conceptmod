@@ -90,7 +90,6 @@ from analysis.slider2d.field import cosine
 from analysis.slider2d.sheet import nucleus
 from conceptmod.textsliders.slider_targets import (
     DUAL_BAND_WEIGHT,
-    leftover_bipolar,
     lm_axis_hold,
     lm_blind_projector,
     lm_dual_band_pole_loss,
@@ -1444,7 +1443,6 @@ def score_exam(
             # Live log columns. Logged, never gated.
             "pair_odd_cos": cosine(d_plus, a),
             "collapse": cosine(d_plus, d_minus),
-            **leftover_bipolar(d_plus, d_minus),
             "pole_cos": cosine(d_plus, pos - neu),
             "pperc": pperc,
             "nperc": nperc,
