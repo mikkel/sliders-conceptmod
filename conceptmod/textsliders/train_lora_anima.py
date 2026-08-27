@@ -10,6 +10,11 @@ Live card (documented by ``scripts/smoke_anima_slider.py``):
     frozen base transformer with adapter disabled
     never  train text_conditioner
     sample in-process PEFT pipe(prompt=...) at 0 / 0.25 / 0.5 / 1.0
+    lm     --lm_target direct (expression; cfg_delta is UNI CFG deltas)
+    every  --sample_every 100 (end-of-train gate always runs)
+
+Train and sample share bare infer/neu captions. Attributes are unused
+pins only — never prefixed onto target / positive / neutral.
 
 Default Music 3 trainer stays ``--lm_target v9`` / ``--pole_mode hidden``.
 This file does not rewrite Music 3 yamls.
@@ -42,19 +47,24 @@ if str(_REPO_ROOT) not in sys.path:
 
 from conceptmod.textsliders.anima_fake import FakeAnimaBackend, write_plus_alignment
 from conceptmod.textsliders.anima_slider import (
+    ANIMA_LM_TARGETS,
     DEFAULT_CFG,
     DEFAULT_CONTROL_PROMPT,
     DEFAULT_HOLD_WEIGHT,
+    DEFAULT_LM_TARGET,
     DEFAULT_LR,
     DEFAULT_MODEL_ID,
     DEFAULT_RANK,
     DEFAULT_RESOLUTION,
+    DEFAULT_SAMPLE_EVERY,
     DEFAULT_SAMPLE_SCALES,
     DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
     FROZEN_MODULES,
     LORA_TARGETS,
     anima_cfg_delta,
+    anima_direct_loss,
+    anima_direct_teachers,
     anima_uni_loss,
     anima_uni_teachers,
     anima_unused_hold_loss,
@@ -66,6 +76,7 @@ from conceptmod.textsliders.anima_slider import (
     load_anima_prompts,
     looks_like_rgb_noise,
     minus_canary_cosine,
+    resolve_anima_lm_target,
     row_token_plan,
 )
 
@@ -96,10 +107,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="verify-only fruit-bowl caption; never a teacher",
     )
     parser.add_argument(
+        "--lm_target",
+        type=str,
+        choices=ANIMA_LM_TARGETS,
+        default=DEFAULT_LM_TARGET,
+        help=(
+            "direct (default, expression): MSE(v(neu, adapter), v(pos, frozen)) "
+            "+ MSE(v(neu, scale 0), v(neu, frozen)). "
+            "cfg_delta: UNI CFG deltas. Music 3 --lm_target v9 is untouched."
+        ),
+    )
+    parser.add_argument(
         "--sample_every",
         type=int,
-        default=0,
-        help="in-process PEFT scale grid every N steps (0 = end of train only)",
+        default=DEFAULT_SAMPLE_EVERY,
+        help=(
+            "in-process PEFT scale grid every N steps "
+            f"(default {DEFAULT_SAMPLE_EVERY}; end-of-train gate always runs; "
+            "0 = end of train only)"
+        ),
     )
     parser.add_argument(
         "--sample_first_n",
@@ -579,20 +605,27 @@ def train_dummy(args: argparse.Namespace) -> dict:
     opt = torch.optim.AdamW(params, lr=float(args.lr))
     history: list[float] = []
     canary: list[float] = []
-    row = rows[0]
-    plan = row_token_plan(row)
-    infer = row.infer_prompt
-    plus_before = write_plus_alignment(backend, infer, row.positive, seed=int(args.seed))
+    lm_target = resolve_anima_lm_target(getattr(args, "lm_target", DEFAULT_LM_TARGET))
+    plans = [row_token_plan(row) for row in rows]
+    align_row = rows[0]
+    infer = align_row.infer_prompt
+    plus_before = write_plus_alignment(
+        backend, infer, align_row.positive, seed=int(args.seed)
+    )
 
     save_dir = Path(args.save_dir or DEFAULT_SAVE_DIR)
     save_dir.mkdir(parents=True, exist_ok=True)
     sample_records: list[dict] = []
+    trained_infer: list[str] = []
     total = int(args.steps)
     pbar = tqdm(range(total), disable=total < 3)
     for step in pbar:
+        row, plan = _cycle_row(rows, plans, step)
+        if row.infer_prompt not in trained_infer:
+            trained_infer.append(row.infer_prompt)
         z, t = _sample_zt(backend, int(args.seed), step)
-        loss, canary_v = _uni_step(
-            backend, row, plan, z, t, float(args.hold_weight)
+        loss, canary_v = _train_step(
+            backend, row, plan, z, t, float(args.hold_weight), lm_target
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -606,7 +639,9 @@ def train_dummy(args: argparse.Namespace) -> dict:
                 backend, args, save_dir, step=step + 1, rows=rows, dummy=True
             )
 
-    plus_after = write_plus_alignment(backend, infer, row.positive, seed=int(args.seed))
+    plus_after = write_plus_alignment(
+        backend, infer, align_row.positive, seed=int(args.seed)
+    )
     sample_records = emit_inprocess_samples(
         backend, args, save_dir, step=total, rows=rows, dummy=True
     )
@@ -619,12 +654,22 @@ def train_dummy(args: argparse.Namespace) -> dict:
         "sample_steps": int(args.sample_steps),
         "cfg": float(args.cfg),
         "lr": float(args.lr),
+        "lm_target": lm_target,
+        "sample_every": int(args.sample_every),
         "device": str(device),
         "lora_targets": list(LORA_TARGETS),
         "frozen_modules": list(FROZEN_MODULES),
-        "recipe": "uni_plus_neu + unused_token_hold",
+        "recipe": (
+            "direct velocity UNI + unused_token_hold"
+            if lm_target == "direct"
+            else "cfg_delta UNI + unused_token_hold"
+        ),
         "plus_label": meta.plus_label,
-        "minus_canary": bool(row.has_minus_canary),
+        "minus_canary": any(r.has_minus_canary for r in rows),
+        "train_infer_prompts": trained_infer,
+        "sample_infer_prompts": infer_sample_prompts(
+            rows, getattr(args, "control_prompt", DEFAULT_CONTROL_PROMPT)
+        ),
         "canary_cos_last": canary[-1] if canary else None,
         "plus_align_before": plus_before,
         "plus_align_after": plus_after,
@@ -797,8 +842,16 @@ def load_live_backend(args: argparse.Namespace, device: torch.device):
     return LiveAnimaBackend(pipe, device, resolution=int(args.resolution))
 
 
-def _uni_step(backend, row, plan, z, t, hold_weight: float):
+def _cycle_row(rows, plans, step: int):
+    """Cycle woman + man (and any other yaml rows). Never lock to rows[0]."""
+    idx = int(step) % len(rows)
+    return rows[idx], plans[idx]
+
+
+def _train_step(backend, row, plan, z, t, hold_weight: float, lm_target: str):
+    """Student +1 stays on infer/neu. + caption is teacher only (#62 analog)."""
     infer = row.infer_prompt
+    recipe = resolve_anima_lm_target(lm_target)
     with torch.no_grad():
         v_pos = backend.predict_v(row.positive, z, t, frozen=True)
         v_neu = backend.predict_v(row.neutral, z, t, frozen=True)
@@ -808,16 +861,26 @@ def _uni_step(backend, row, plan, z, t, hold_weight: float):
             if row.has_minus_canary
             else None
         )
-    teachers = anima_uni_teachers(v_pos, v_neu, v_null, v_neg)
-    s_plus = anima_cfg_delta(
-        backend.predict_v(infer, z, t, frozen=False, scale=1.0),
-        backend.predict_v("", z, t, frozen=False, scale=1.0),
-    )
-    s_zero = anima_cfg_delta(
-        backend.predict_v(infer, z, t, frozen=False, scale=0.0),
-        backend.predict_v("", z, t, frozen=False, scale=0.0),
-    )
-    loss = anima_uni_loss(s_plus, teachers["plus"], s_zero, teachers["zero"])
+    v_student_plus = backend.predict_v(infer, z, t, frozen=False, scale=1.0)
+    v_student_zero = backend.predict_v(infer, z, t, frozen=False, scale=0.0)
+    if recipe == "direct":
+        teachers = anima_direct_teachers(v_pos, v_neu)
+        s_plus = v_student_plus
+        s_zero = v_student_zero
+        loss = anima_direct_loss(s_plus, teachers["plus"], s_zero, teachers["zero"])
+        canary_student = anima_cfg_delta(v_student_plus.detach(), v_null)
+    else:
+        teachers = anima_uni_teachers(v_pos, v_neu, v_null, v_neg)
+        s_plus = anima_cfg_delta(
+            v_student_plus,
+            backend.predict_v("", z, t, frozen=False, scale=1.0),
+        )
+        s_zero = anima_cfg_delta(
+            v_student_zero,
+            backend.predict_v("", z, t, frozen=False, scale=0.0),
+        )
+        loss = anima_uni_loss(s_plus, teachers["plus"], s_zero, teachers["zero"])
+        canary_student = s_plus.detach()
     feat_s, tokens_s = backend.text_features(row.positive, frozen=False, scale=1.0)
     feat_n, tokens_n = backend.text_features(row.neutral, frozen=True)
     # Dummy tokenizer matches ``row_token_plan`` word ids. Live Qwen/T5
@@ -828,7 +891,7 @@ def _uni_step(backend, row, plan, z, t, hold_weight: float):
         )
     canary = None
     if v_neg is not None:
-        canary = float(minus_canary_cosine(s_plus.detach(), v_neg, v_null))
+        canary = float(minus_canary_cosine(canary_student, v_neg, v_null))
     return loss, canary
 
 
@@ -843,19 +906,23 @@ def train_live(args: argparse.Namespace) -> dict:
     if any("text_conditioner" in n for n in backend.named_trainable()):
         raise RuntimeError("text_conditioner must stay frozen")
     rows, meta = load_anima_prompts(args.prompts_file)
-    row = rows[0]
-    plan = row_token_plan(row)
+    lm_target = resolve_anima_lm_target(getattr(args, "lm_target", DEFAULT_LM_TARGET))
+    plans = [row_token_plan(row) for row in rows]
     opt = torch.optim.AdamW(backend.trainable_parameters(), lr=float(args.lr))
     history: list[float] = []
     canary: list[float] = []
     save_dir = Path(args.save_dir or DEFAULT_SAVE_DIR)
     save_dir.mkdir(parents=True, exist_ok=True)
     sample_records: list[dict] = []
+    trained_infer: list[str] = []
     total = int(args.steps)
     for step in tqdm(range(total)):
+        row, plan = _cycle_row(rows, plans, step)
+        if row.infer_prompt not in trained_infer:
+            trained_infer.append(row.infer_prompt)
         z, t = _sample_zt(backend, int(args.seed), step)
-        loss, canary_v = _uni_step(
-            backend, row, plan, z, t, float(args.hold_weight)
+        loss, canary_v = _train_step(
+            backend, row, plan, z, t, float(args.hold_weight), lm_target
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -880,12 +947,22 @@ def train_live(args: argparse.Namespace) -> dict:
         "sample_steps": int(args.sample_steps),
         "cfg": float(args.cfg),
         "lr": float(args.lr),
+        "lm_target": lm_target,
+        "sample_every": int(args.sample_every),
         "device": str(device),
         "lora_targets": list(LORA_TARGETS),
         "frozen_modules": list(FROZEN_MODULES),
-        "recipe": "uni_plus_neu + unused_token_hold",
+        "recipe": (
+            "direct velocity UNI + unused_token_hold"
+            if lm_target == "direct"
+            else "cfg_delta UNI + unused_token_hold"
+        ),
         "plus_label": meta.plus_label,
-        "minus_canary": bool(row.has_minus_canary),
+        "minus_canary": any(r.has_minus_canary for r in rows),
+        "train_infer_prompts": trained_infer,
+        "sample_infer_prompts": infer_sample_prompts(
+            rows, getattr(args, "control_prompt", DEFAULT_CONTROL_PROMPT)
+        ),
         "canary_cos_last": canary[-1] if canary else None,
         "loss_last": history[-1] if history else None,
         "steps": int(args.steps),
@@ -919,6 +996,8 @@ def train(args: argparse.Namespace) -> dict:
             device=str(args.device),
             lr=float(args.lr),
             control_prompt=str(args.control_prompt),
+            lm_target=str(args.lm_target),
+            sample_every=int(args.sample_every),
         )
         print(json.dumps(card, indent=2))
         print()
@@ -932,6 +1011,8 @@ def train(args: argparse.Namespace) -> dict:
             cfg=float(args.cfg),
             device=str(args.device),
             lr=float(args.lr),
+            lm_target=str(args.lm_target),
+            sample_every=int(args.sample_every),
         ))
         return card
     if args.dummy:

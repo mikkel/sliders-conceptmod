@@ -1,9 +1,14 @@
 # Anima image slider — UNI + unused-token hold.
 #
+# Bare captions. Do NOT prefix attributes onto target / positive /
+# neutral — that was the v3 train/sample mismatch (train saw
+# "indoor a woman…", sample stripped to the bare infer/neu).
+# attributes / pins stay for unused-token hold bookkeeping only.
+# Student +1 and in-process pipe(prompt=...) share these strings.
+#
 # neu must not already smile (stock Anima soft-smiles on a bare
-# "a woman sitting on a chair"). + is CFG teacher only; student +1
+# "a woman sitting on a chair"). + is teacher only; student +1
 # stays on neu/infer (#62 analog). Do not hold concept_words.
-# Unused attributes (indoor, portrait) stay pinned to encode(neu).
 #
 # Sana lesson: weak "happy" failed; a harder smile (teeth / joyful)
 # gave the teacher a real gap. No minus teacher. Do not copy Music 3

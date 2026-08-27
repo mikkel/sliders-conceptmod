@@ -13,19 +13,31 @@ whitespace tokenizer). No GPU train and no Hub weights in CI.
 ## UNI analog (not Music 3 lyric-hold)
 
 Anima has no lyric span. Student +1 stays on the **neu / infer** caption
-(#62 analog). The + caption is the CFG teacher only. Unused yaml
-`attributes` are prefixed and held to `encode(neu)`. Declared
+(#62 analog). The + caption is the teacher only. Unused yaml
+`attributes` (`indoor`, `portrait`) are **pins for unused-token hold
+bookkeeping only** — they are **not** prefixed onto captions. Declared
 `concept_words` (`smiling, smile, happy, joyful, teeth`) are **not**
 held. Minus is a canary only.
 
-| scale | student | teacher |
-|---|---|---|
-| **+1** | infer / neu caption | `v(z, t, + concept) − v('')` |
-| **0** | infer / neu | `v(z, t, neu) − v('')` |
-| **−1** | unscored canary only | — |
+Train and in-process sample use the **same bare strings**.
+`rows[i].infer_prompt` / `neutral` is exactly the `prompt=` passed to
+`pipe(...)`. No attribute-prefix strip.
+
+| scale | student | teacher (`--lm_target direct`, default) | teacher (`cfg_delta`) |
+|---|---|---|---|
+| **+1** | infer / neu caption | `v(z, t, + concept)` frozen | `v(+) − v('')` |
+| **0** | infer / neu | `v(z, t, neu)` frozen | `v(neu) − v('')` |
+| **−1** | unscored canary only | — | — |
+
+`--lm_target direct` (default, recommended for expression): 
+`MSE(v(neu, adapter), v(pos, frozen)) + MSE(v(neu, scale 0), v(neu, frozen))`.
+Scale 0 matches neu. Neu+LoRA matches plus velocity.
+
+`--lm_target cfg_delta` is the older UNI CFG-delta recipe.
 
 Velocity-space CFG is conceptmod's `v(z, t, c) − v(z, t, '')`. Live
-sample guidance is **4**.
+sample guidance is **4**. Training cycles **all yaml rows** (woman +
+man at least), not only `rows[0]`.
 
 Frozen ref = base transformer with the PEFT adapter **disabled**. LoRA
 rank 16 on attn `to_q` / `to_k` / `to_v` / `to_out.0`. Do **not** train
@@ -42,6 +54,8 @@ rank 16 on attn `to_q` / `to_k` / `to_v` / `to_out.0`. Do **not** train
 | sample steps | **40** |
 | CFG (guider) | **4** |
 | lr | **`1e-4`** (DiT LoRA; `1e-2` is not sane — prior RunPod run fitted loss ~8e-4 then any nonzero scale collapsed denoise to RGB noise) |
+| `--lm_target` | **`direct`** (expression). `cfg_delta` is UNI CFG deltas. Music 3 stays `v9`. |
+| `--sample_every` | **100** (end-of-train gate always runs) |
 | control | `a bowl of fruit on a table` |
 | sample seed | 42 |
 | sample scales | 0.0, 0.25, 0.5, 1.0 |
@@ -52,7 +66,8 @@ HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
   --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
   --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
   --rank 16 --resolution 768 --sample_steps 40 --cfg 4 \
-  --lr 1e-4 --device cuda:0 --save_dir models/smile-anima
+  --lr 1e-4 --lm_target direct --sample_every 100 \
+  --device cuda:0 --save_dir models/smile-anima
 ```
 
 `--lr` stays overridable. CircleStone's own finetune note is even
@@ -76,14 +91,19 @@ emits a scale grid through the same `ModularPipeline` path used for
 real infer (`pipe(prompt=...)`) **with PEFT still attached** to
 `pipe.transformer`:
 
-- prompts: infer/neu only (`a woman sitting on a chair, neutral expression, closed mouth`, `a man reading at a table, neutral expression, closed mouth`) plus the fruit-bowl control
+- prompts: **the same** infer/neu strings used at train time
+  (`a woman sitting on a chair, neutral expression, closed mouth`,
+  `a man reading at a table, neutral expression, closed mouth`) plus
+  the fruit-bowl control. `rows[0].infer_prompt` == `pipe(prompt=...)`.
 - scales: `0.0`, `0.25`, `0.5`, `1.0` via PEFT `disable_adapter` /
   `set_adapter_scale` / adapter weights — **not** a weight-merge
 - seed 42, 40 steps, resolution from args, guider CFG 4
 - PNGs + a tiny `mean`/`std` meta json under `save_dir/samples/`
 
-`--sample_every N` also writes the grid during training. `--sample_first_n N`
-writes it after each of the first N steps.
+`--sample_every` defaults to **100** and also writes the grid during
+training. End-of-train gate always runs. `--sample_first_n N` writes
+it after each of the first N steps. `--sample_every 0` is end-of-train
+only.
 
 CFG **4** is set on `guider.config.guidance_scale` (and any real field
 the guider exposes). Do **not** pass `guidance_scale=` into
@@ -134,10 +154,17 @@ print(stock_teacher_smoke_captions())
 ## Yaml
 
 `conceptmod/textsliders/data/prompts-anima.yaml`: closed-mouth neu vs
-hard-smile plus (v3), unused `attributes` pinned (`indoor`, `portrait`),
-`concept_words: smiling, smile, happy, joyful, teeth`. + is CFG teacher
-only; student +1 stays on neu/infer (#62 analog). Do not invent a new
-concept (keep smile/happy; not age).
+hard-smile plus (v3). Captions stay **bare** — unused `attributes`
+(`indoor`, `portrait`) are pins for hold bookkeeping, not caption
+prefixes. `concept_words: smiling, smile, happy, joyful, teeth`. + is
+teacher only; student +1 stays on neu/infer (#62 analog). Do not invent
+a new concept (keep smile/happy; not age).
+
+v3 miss: `load_anima_prompts` prefixed `indoor` / `portrait` onto train
+captions while `infer_sample_prompts` stripped them, so the LoRA never
+trained on the infer prompt we sampled. Scale 0 matched stock neu;
+scale 0.25 barely moved. Train now cycles woman + man on those same
+bare strings.
 
 ## Related
 

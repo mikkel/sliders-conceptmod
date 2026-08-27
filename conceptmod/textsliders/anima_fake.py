@@ -333,6 +333,8 @@ class FakeAnimaModularPipe:
             guidance_scale=DEFAULT_CFG,
         )
         self.last_guidance_scale = float(DEFAULT_CFG)
+        self.last_prompt = ""
+        self.prompts_seen: list[str] = []
 
     def __call__(
         self,
@@ -345,6 +347,8 @@ class FakeAnimaModularPipe:
         **kwargs,
     ):
         del num_inference_steps
+        self.last_prompt = str(prompt)
+        self.prompts_seen.append(str(prompt))
         if "guidance_scale" in kwargs:
             warnings.warn(
                 "Unexpected input 'guidance_scale' … ignored",
