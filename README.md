@@ -119,7 +119,7 @@ python trainscripts/imagesliders/train_lora-scale-xl.py --name 'eyesliderXL' --r
 
 ### Anima (opt-in yaml slider)
 
-Flow-matching 2B DiT (`circlestone-labs/Anima-Base-v1.0-Diffusers`). UNI: student +1 fits the + concept, scale 0 fits neu, unused tokens / attributes held to encode(neu). LoRA rank 16 on `to_q/to_k/to_v/to_out.0`. Does not train `text_conditioner`. Does not change Music 3 defaults. Train card and dummy smoke: `scripts/smoke_anima_slider.py`.
+Flow-matching 2B DiT (`circlestone-labs/Anima-Base-v1.0-Diffusers`). UNI: student +1 fits the + concept, scale 0 fits neu, unused tokens / attributes held to encode(neu). LoRA rank 16 on `to_q/to_k/to_v/to_out.0`. Does not train `text_conditioner`. Default `--lr 1e-4`. End-of-train in-process PEFT scale grid through `pipe(prompt=...)`. Does not change Music 3 defaults. Train card: `docs/anima-slider.md`. Dummy smoke: `scripts/smoke_anima_slider.py`.
 
 ```
 HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
@@ -127,7 +127,7 @@ HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
   --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
   --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
   --rank 16 --resolution 768 --sample_steps 40 --cfg 4 \
-  --device cuda:0 --save_dir models/smile-anima
+  --lr 1e-4 --device cuda:0 --save_dir models/smile-anima
 ```
 
 ## Editing Real Images

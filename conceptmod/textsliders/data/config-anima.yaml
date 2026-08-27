@@ -16,7 +16,7 @@ network:
 train:
   precision: bfloat16
   iterations: 500
-  lr: 0.01
+  lr: 0.0001
   cfg: 4.0
   sample_steps: 40
   resolution: 768

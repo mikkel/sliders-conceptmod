@@ -4,7 +4,7 @@
 # held to encode(neu). Concept word "smiling" is not held.
 # No minus teacher. Do not copy Music 3 lyric / <|audio_start|> fields.
 #
-# Live train card: scripts/smoke_anima_slider.py
+# Live train card: docs/anima-slider.md / scripts/smoke_anima_slider.py
 plus_label: smiling
 minus_label: ""
 recommended_range: [-2.0, 2.0]
