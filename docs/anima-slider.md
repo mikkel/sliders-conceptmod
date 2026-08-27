@@ -7,8 +7,9 @@ default Music 3 trainer** (`train_lora_music3.py` / `--lm_target v9` /
 `train_lm_slider_music3.py --pole_mode hidden`). Not Sana, Krea, ZiT,
 or MiniMax-H3 — those backends stay out of this card.
 
-CPU tests use `--dummy` (tiny `to_q/to_k/to_v/to_out.0` DiT +
-whitespace tokenizer). No GPU train and no Hub weights in CI.
+CPU tests use `--dummy` (tiny DiT `to_q/to_k/to_v/to_out.0` and
+conditioner `q_proj/k_proj/v_proj/o_proj` + whitespace tokenizer).
+No GPU train and no Hub weights in CI.
 
 ## UNI analog (not Music 3 lyric-hold)
 
@@ -65,9 +66,34 @@ Velocity-space CFG is conceptmod's `v(z, t, c) − v(z, t, '')`. Live
 sample guidance is **4**. Training cycles **all yaml rows** (woman +
 man at least), not only `rows[0]`.
 
-Frozen ref = base transformer with the PEFT adapter **disabled**. LoRA
-rank 16 on attn `to_q` / `to_k` / `to_v` / `to_out.0`. Do **not** train
-`text_conditioner` (CircleStone: the LLM adapter).
+Frozen ref = base modules with PEFT adapters **disabled**.
+
+## Text-path LoRA (smile default)
+
+Stock smile is almost entirely a **text-stack** effect. UNI on DiT
+sees a tiny v-space neu/plus gap (`cos ≈ 0.99993`), so a
+transformer-only adapter learns crop/identity instead of teeth.
+
+`--lora_targets` chooses which modules get PEFT. This is the explicit
+flag / default-on path — text modules are **not** trained unless the
+resolved target includes them. `--print_card` prints the active set.
+
+| `--lora_targets` | trained | frozen | attn names |
+|---|---|---|---|
+| **`conditioner`** (smile default) | `text_conditioner` (AnimaTextConditioner, ~269M, 6 layers) | Qwen3 `text_encoder`, DiT base | `q_proj` / `k_proj` / `v_proj` / `o_proj` |
+| `dit` | `transformer` (old v1–v5 recipe) | `text_conditioner`, `text_encoder` | `to_q` / `to_k` / `to_v` / `to_out.0` |
+| `dit+conditioner` | both adapters | `text_encoder` | both name sets |
+
+Qwen3 `text_encoder` (28-layer, ~1.2GB) is **not** adapted. The
+caption-level smile already lives in the conditioner that maps Qwen
+hidden states + T5 token ids to Cosmos embeds. Adapters save as
+`{name}_conditioner_lora` and/or `{name}_lora`.
+
+4090 ~24GB: dit-only 768 / `traj_steps=4` was already ~23GB. Smile
+retrain should use **conditioner-only at 512** (or `dit+conditioner`
+with rank 8). Gradient checkpointing is enabled on the DiT when the
+conditioner is trained so embeds can take a trajectory loss without
+doubling the 768 OOM.
 
 ## Live train card
 
@@ -75,8 +101,8 @@ rank 16 on attn `to_q` / `to_k` / `to_v` / `to_out.0`. Do **not** train
 |---|---|
 | hub id | `circlestone-labs/Anima-Base-v1.0-Diffusers` |
 | arch | 2B Cosmos-Predict2 DiT, Qwen3+T5, Qwen-Image VAE |
-| LoRA | rank 16 on `to_q/to_k/to_v/to_out.0` |
-| resolution | **768** |
+| LoRA | **`--lora_targets conditioner`** (default-on smile path). Rank 16 on `q_proj/k_proj/v_proj/o_proj`. `dit` keeps the old transformer-only recipe. Qwen3 `text_encoder` is not trained. |
+| resolution | **768** (4090 smile retrain: **512**) |
 | sample steps | **40** |
 | CFG (guider) | **4** |
 | lr | **`1e-4`** (DiT LoRA; `1e-2` is not sane — prior RunPod run fitted loss ~8e-4 then any nonzero scale collapsed denoise to RGB noise) |
@@ -93,11 +119,31 @@ HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
   --name smile-anima \
   --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
   --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
-  --rank 16 --resolution 768 --sample_steps 40 --cfg 4 \
+  --lora_targets conditioner --rank 16 --resolution 768 \
+  --sample_steps 40 --cfg 4 \
   --lr 1e-4 --lm_target trajectory --traj_steps 4 \
   --teacher_gap_boost 1 --sample_every 100 \
   --device cuda:0 --save_dir models/smile-anima
 ```
+
+Recommended **4090 24GB smile retrain** (fits; closed-mouth → smile at
+scale ~0.25 without needing DiT identity collapse):
+
+```bash
+HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
+  --name smile-anima \
+  --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
+  --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
+  --lora_targets conditioner --rank 16 --resolution 512 \
+  --sample_steps 40 --cfg 4 \
+  --lr 1e-4 --lm_target trajectory --traj_steps 4 \
+  --teacher_gap_boost 1 --sample_every 100 \
+  --device cuda:0 --save_dir models/smile-anima
+```
+
+`--lora_targets dit` is the old transformer-only recipe. Joint
+`--lora_targets dit+conditioner --rank 8 --resolution 512` if the
+conditioner-only smile is still weak.
 
 `--traj_steps 8` is the longer live option. `--teacher_gap_boost 4`
 only applies to a `direct` / `cfg_delta` debug run.
@@ -195,8 +241,8 @@ The prior live run never sampled **in-process** with the PEFT-wrapped
 training transformer. Post-hoc `W += scale*(α/r)*(B@A)` matched 224/224
 modules and still printed RGB noise at scale 0.01. The trainer now
 emits a scale grid through the same `ModularPipeline` path used for
-real infer (`pipe(prompt=...)`) **with PEFT still attached** to
-`pipe.transformer`:
+real infer (`pipe(prompt=...)`) **with PEFT still attached** to the
+adapted modules (`pipe.text_conditioner` and/or `pipe.transformer`):
 
 - prompts: **the same** infer/neu strings used at train time
   (`a woman sitting on a chair, neutral expression, closed mouth`,
@@ -225,9 +271,11 @@ The job **fails closed**:
 
 ## Live bugs this card patches
 
-1. `ModularPipeline` is **not** an `nn.Module`. Freeze
-   `text_conditioner` via `pipe.text_conditioner` / `pipe.transformer`,
-   never `pipe.named_parameters()`.
+1. `ModularPipeline` is **not** an `nn.Module`. Freeze the text stack
+   via `pipe.text_conditioner` / `pipe.transformer`, never
+   `pipe.named_parameters()`. When `--lora_targets` includes
+   `conditioner`, base conditioner weights stay frozen and PEFT
+   `lora_*` params stay trainable.
 2. A CPU `torch.Generator` cannot drive a CUDA `torch.randn`. `_sample_zt`
    draws noise on CPU and `.to(device)`.
 

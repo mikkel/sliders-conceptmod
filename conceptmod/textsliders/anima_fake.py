@@ -4,9 +4,11 @@ No Hub, no GPU, no 2B weights. Same geometry the live trainer feeds:
 
     v(z, t, c) − v(z, t, '')
 
-Attention linears are named ``to_q`` / ``to_k`` / ``to_v`` / ``to_out.0``
-so LoRA attaches exactly as CircleStone's Anima card. ``text_conditioner``
-exists and is frozen. Frozen ref = adapter disabled (scale 0).
+DiT attention linears are named ``to_q`` / ``to_k`` / ``to_v`` / ``to_out.0``.
+``text_conditioner`` uses live AnimaTextConditioner names
+``q_proj`` / ``k_proj`` / ``v_proj`` / ``o_proj`` so PEFT can attach there
+when ``--lora_targets conditioner`` (smile default). Frozen ref = adapter
+disabled (scale 0).
 """
 
 from __future__ import annotations
@@ -21,9 +23,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from conceptmod.textsliders.anima_slider import (
+    CONDITIONER_LORA_TARGETS,
     DEFAULT_CFG,
     DEFAULT_RANK,
+    DIT_LORA_TARGETS,
     LORA_TARGETS,
+    resolve_anima_lora_targets,
     word_tokens,
 )
 
@@ -59,6 +64,27 @@ class AnimaFakeAttention(nn.Module):
         return self.to_out[0](attn @ v)
 
 
+class AnimaFakeConditioner(nn.Module):
+    """Tiny stand-in for ``AnimaTextConditioner`` attn names.
+
+    Live conditioner uses ``q_proj`` / ``k_proj`` / ``v_proj`` / ``o_proj``
+    (not DiT ``to_q`` / ``to_k``). Identity-init so scale 0 matches the
+    class-table embeds; LoRA on these linears can move caption features.
+    """
+
+    def __init__(self, dim: int = TEXT_DIM):
+        super().__init__()
+        self.q_proj = nn.Linear(dim, dim, bias=False)
+        self.k_proj = nn.Linear(dim, dim, bias=False)
+        self.v_proj = nn.Linear(dim, dim, bias=False)
+        self.o_proj = nn.Linear(dim, dim, bias=False)
+        for layer in (self.q_proj, self.k_proj, self.v_proj, self.o_proj):
+            nn.init.eye_(layer.weight)
+
+    def forward(self, embeds: torch.Tensor) -> torch.Tensor:
+        return self.o_proj(self.v_proj(embeds))
+
+
 class AnimaFakeDiT(nn.Module):
     """``v = proj_out(attn(proj_in(z, t), text))``.
 
@@ -75,8 +101,9 @@ class AnimaFakeDiT(nn.Module):
         # Fixed class path: unused vs concept stay linearly separable so
         # UNI has a teacher the attn LoRA can actually chase.
         self.text_out = nn.Linear(TEXT_DIM, Z_DIM, bias=False)
-        # CircleStone forbids training this. Present so tests can assert.
-        self.text_conditioner = nn.Identity()
+        # Live AnimaTextConditioner stand-in. Frozen unless --lora_targets
+        # includes conditioner.
+        self.text_conditioner = AnimaFakeConditioner(TEXT_DIM)
         nn.init.normal_(self.proj_in.weight, std=0.02, generator=g)
         nn.init.zeros_(self.proj_in.bias)
         nn.init.normal_(self.proj_out.weight, std=0.02, generator=g)
@@ -170,16 +197,22 @@ def _module_by_path(root: nn.Module, path: str) -> tuple[nn.Module, str]:
     return parent, parts[-1]
 
 
-def attach_anima_lora(transformer: nn.Module, rank: int, alpha: float) -> list[LoRALinear]:
-    """Wrap only ``to_q`` / ``to_k`` / ``to_v`` / ``to_out.0``."""
+def attach_anima_lora(
+    root: nn.Module,
+    rank: int,
+    alpha: float,
+    targets: tuple[str, ...] | list[str] | None = None,
+) -> list[LoRALinear]:
+    """Wrap named Linears. Default DiT ``to_q`` / ``to_k`` / ``to_v`` / ``to_out.0``."""
+    target_names = tuple(targets) if targets is not None else tuple(DIT_LORA_TARGETS)
     wrapped: list[LoRALinear] = []
-    named = dict(transformer.named_modules())
-    for target in LORA_TARGETS:
+    named = dict(root.named_modules())
+    for target in target_names:
         matches = [name for name in named if name == target or name.endswith("." + target)]
         if not matches:
-            raise RuntimeError(f"Anima LoRA target {target!r} not found on dummy DiT")
+            raise RuntimeError(f"Anima LoRA target {target!r} not found on {type(root).__name__}")
         for name in matches:
-            parent, attr = _module_by_path(transformer, name)
+            parent, attr = _module_by_path(root, name)
             base = getattr(parent, attr) if not attr.isdigit() else parent[int(attr)]
             if not isinstance(base, nn.Linear):
                 raise RuntimeError(f"{name} is {type(base)}, expected Linear")
@@ -201,22 +234,42 @@ class FakeAnimaBackend:
         rank: int = DEFAULT_RANK,
         seed: int = 0,
         resolution: int = 64,
+        lora_targets: str = "dit",
     ):
         del resolution
         self.device = torch.device(device)
         if self.device.type == "cuda" and not torch.cuda.is_available():
             self.device = torch.device("cpu")
         self.rank = rank
+        self.lora_spec = resolve_anima_lora_targets(lora_targets)
         self.latent_shape = (LATENT_CHANNELS, LATENT_HW, LATENT_HW)
         self.num_train_timesteps = 1000
         torch.manual_seed(seed)
         self.transformer = AnimaFakeDiT(seed=seed).to(self.device)
-        self.loras = attach_anima_lora(self.transformer, rank=rank, alpha=float(rank))
+        self.loras: list[LoRALinear] = []
+        if self.lora_spec.train_dit:
+            self.loras.extend(
+                attach_anima_lora(
+                    self.transformer, rank=rank, alpha=float(rank), targets=DIT_LORA_TARGETS
+                )
+            )
+        if self.lora_spec.train_conditioner:
+            self.loras.extend(
+                attach_anima_lora(
+                    self.transformer.text_conditioner,
+                    rank=rank,
+                    alpha=float(rank),
+                    targets=CONDITIONER_LORA_TARGETS,
+                )
+            )
+        else:
+            for param in self.transformer.text_conditioner.parameters():
+                param.requires_grad_(False)
         self.transformer.to(self.device)
         self._text_cache: dict[str, tuple[torch.Tensor, list[str]]] = {}
         self.set_lora_scale(1.0)
         # Same call path as live infer: pipe(prompt=...) with LoRA still
-        # attached to pipe.transformer (not a one-off velocity dump).
+        # attached. Conditioner is the same object as transformer.text_conditioner.
         self.pipe = FakeAnimaModularPipe(self)
 
     def set_lora_scale(self, scale: float) -> None:
@@ -238,6 +291,11 @@ class FakeAnimaBackend:
                 lora.multiplier = value
 
     def encode_text(self, prompt: str) -> tuple[torch.Tensor, list[str]]:
+        # Conditioner LoRA changes embeds; a cached tensor cannot be reused
+        # across steps (stale graph) or adapter scales.
+        if self.lora_spec.train_conditioner:
+            embeds, tokens = self.transformer.encode_tokens(prompt)
+            return embeds.to(self.device), tokens
         key = prompt
         if key not in self._text_cache:
             embeds, tokens = self.transformer.encode_tokens(prompt)
@@ -261,41 +319,47 @@ class FakeAnimaBackend:
         frozen: bool = False,
         scale: float | None = None,
     ) -> torch.Tensor:
-        embeds, _tokens = self.encode_text(prompt)
-        if frozen:
+        # Encode under the same adapter scale so conditioner LoRA (when
+        # attached) is disabled for frozen / scale-0 teachers.
+        if frozen or scale == 0.0:
             with torch.no_grad(), self.disable_adapter():
+                embeds, _tokens = self.encode_text(prompt)
                 return self._forward(z, timestep, embeds)
         if scale is not None:
             prev = [lora.multiplier for lora in self.loras]
             self.set_lora_scale(scale)
             try:
+                embeds, _tokens = self.encode_text(prompt)
                 return self._forward(z, timestep, embeds)
             finally:
                 for lora, value in zip(self.loras, prev):
                     lora.multiplier = value
+        embeds, _tokens = self.encode_text(prompt)
         return self._forward(z, timestep, embeds)
 
     def text_features(
         self, prompt: str, frozen: bool = False, scale: float | None = None
     ) -> tuple[torch.Tensor, list[str]]:
-        embeds, tokens = self.encode_text(prompt)
         attn = self.transformer.attn
 
-        def _run():
+        def _run(embeds):
             return attn.project_text(embeds.to(self.device))
 
-        if frozen:
+        if frozen or scale == 0.0:
             with torch.no_grad(), self.disable_adapter():
-                return _run(), tokens
+                embeds, tokens = self.encode_text(prompt)
+                return _run(embeds), tokens
         if scale is not None:
             prev = [lora.multiplier for lora in self.loras]
             self.set_lora_scale(scale)
             try:
-                return _run(), tokens
+                embeds, tokens = self.encode_text(prompt)
+                return _run(embeds), tokens
             finally:
                 for lora, value in zip(self.loras, prev):
                     lora.multiplier = value
-        return _run(), tokens
+        embeds, tokens = self.encode_text(prompt)
+        return _run(embeds), tokens
 
     def trainable_parameters(self) -> list[nn.Parameter]:
         params = []
@@ -327,6 +391,7 @@ class FakeAnimaModularPipe:
     def __init__(self, backend: FakeAnimaBackend):
         self.backend = backend
         self.transformer = backend.transformer
+        self.text_conditioner = backend.transformer.text_conditioner
         # Same shape as live ClassifierFreeGuidance: config.guidance_scale
         # is the real field. A top-level pipe(guidance_scale=) is ignored.
         self.guider = SimpleNamespace(

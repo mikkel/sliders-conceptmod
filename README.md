@@ -119,14 +119,14 @@ python trainscripts/imagesliders/train_lora-scale-xl.py --name 'eyesliderXL' --r
 
 ### Anima (opt-in yaml slider)
 
-Flow-matching 2B DiT (`circlestone-labs/Anima-Base-v1.0-Diffusers`). Default `--lm_target trajectory`: K-step FlowMatch Euler so neu+LoRA matches the frozen plus *trajectory* (1-step `direct` / `cfg_delta` cannot carry smile — v-space pos/neu gap is ~1e-4). Train and sample share bare infer/neu captions (attributes are unused-token pins, not prefixes). Cycles woman + man. LoRA rank 16 on `to_q/to_k/to_v/to_out.0`. Does not train `text_conditioner`. Default `--lr 1e-4`, `--traj_steps 4`, `--sample_every 100`. In-process PEFT scale grid through `pipe(prompt=...)`. Does not change Music 3 defaults (`--lm_target v9`). **Anima-Turbo v1.1 is preview-only** (CFG 1, 8–12 steps; convert helper `scripts/convert_anima_turbo_diffusers.py`); do not train on Turbo. Train card: `docs/anima-slider.md`. Dummy smoke: `scripts/smoke_anima_slider.py`.
+Flow-matching 2B DiT (`circlestone-labs/Anima-Base-v1.0-Diffusers`). Default `--lm_target trajectory`: K-step FlowMatch Euler so neu+LoRA matches the frozen plus *trajectory* (1-step `direct` / `cfg_delta` cannot carry smile — v-space pos/neu gap is ~1e-4). Train and sample share bare infer/neu captions (attributes are unused-token pins, not prefixes). Cycles woman + man. Default `--lora_targets conditioner` (AnimaTextConditioner `q_proj/k_proj/v_proj/o_proj`; Qwen3 `text_encoder` stays frozen). `--lora_targets dit` is the old transformer-only recipe. Rank 16, `--lr 1e-4`, `--traj_steps 4`, `--sample_every 100`. 4090 smile retrain: `--resolution 512`. In-process PEFT scale grid through `pipe(prompt=...)`. Does not change Music 3 defaults (`--lm_target v9`). **Anima-Turbo v1.1 is preview-only** (CFG 1, 8–12 steps; convert helper `scripts/convert_anima_turbo_diffusers.py`); do not train on Turbo. Train card: `docs/anima-slider.md`. Dummy smoke: `scripts/smoke_anima_slider.py`.
 
 ```
 HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
   --name smile-anima \
   --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
   --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
-  --rank 16 --resolution 768 --sample_steps 40 --cfg 4 \
+  --lora_targets conditioner --rank 16 --resolution 512 --sample_steps 40 --cfg 4 \
   --lr 1e-4 --lm_target trajectory --traj_steps 4 --sample_every 100 \
   --device cuda:0 --save_dir models/smile-anima
 ```
