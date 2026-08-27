@@ -19,8 +19,10 @@ train:
   lr: 0.0001
   cfg: 4.0
   sample_steps: 40
+  sample_every: 100
   resolution: 768
   hold_weight: 1.0
+  lm_target: direct
 save:
   name: smile-anima
   path: ./models/smile-anima

@@ -8,6 +8,8 @@ Image analog of Music 3 UNI (not lyric-hold — images have no lyrics /
 - no minus teacher unless the yaml still declares one as a canary
 - hold unused prompt tokens / attributes (subject, composition, pins)
   to encode(neu); do **not** hold the concept words
+- attributes are unused pins only — never prefixed onto captions
+  (train infer/neu == sample ``pipe(prompt=...)``)
 
 Velocity-space CFG is conceptmod's ``v(z, t, c) − v(z, t, '')``.
 
@@ -40,6 +42,11 @@ DEFAULT_LR = 1e-4
 DEFAULT_CONTROL_PROMPT = "a bowl of fruit on a table"
 DEFAULT_SAMPLE_SCALES = (0.0, 0.25, 0.5, 1.0)
 DEFAULT_SAMPLE_SEED = 42
+# Live mid-train PEFT grid. End-of-train gate always runs.
+DEFAULT_SAMPLE_EVERY = 100
+# Expression transfer: match plus velocity on neu+LoRA. cfg_delta is UNI.
+ANIMA_LM_TARGETS = ("direct", "cfg_delta")
+DEFAULT_LM_TARGET = "direct"
 LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
 # CircleStone: do not train the LLM adapter.
 FROZEN_MODULES = ("text_conditioner",)
@@ -220,6 +227,39 @@ def anima_uni_loss(
     )
 
 
+def anima_direct_teachers(
+    v_pos: torch.Tensor,
+    v_neu: torch.Tensor,
+) -> dict[str, torch.Tensor | None]:
+    """Raw-velocity teachers. Plus is frozen ``v(pos)``; zero is frozen ``v(neu)``."""
+    return {"plus": v_pos, "zero": v_neu, "minus": None}
+
+
+def anima_direct_loss(
+    student_plus: torch.Tensor,
+    teacher_plus: torch.Tensor,
+    student_zero: torch.Tensor,
+    teacher_zero: torch.Tensor,
+) -> torch.Tensor:
+    """``MSE(v(neu, adapter), v(pos, frozen)) + MSE(v(neu, scale 0), v(neu, frozen))``.
+
+    Scale 0 matches neu. Neu+LoRA matches plus velocity. Clearer for
+    expression transfer than CFG-delta UNI.
+    """
+    return F.mse_loss(student_plus, teacher_plus) + F.mse_loss(
+        student_zero, teacher_zero
+    )
+
+
+def resolve_anima_lm_target(lm_target: str | None = None) -> str:
+    recipe = str(lm_target or DEFAULT_LM_TARGET).strip().lower()
+    if recipe not in ANIMA_LM_TARGETS:
+        raise ValueError(
+            f"anima lm_target must be one of {ANIMA_LM_TARGETS}, got {lm_target!r}"
+        )
+    return recipe
+
+
 def anima_unused_hold_loss(
     pred: torch.Tensor,
     tgt: torch.Tensor,
@@ -259,27 +299,25 @@ def minus_canary_cosine(
 
 
 def expand_attributes_anima(row: dict) -> list[dict]:
-    """Prefix each attribute onto captions and keep it as an unused pin."""
-    attributes = row.get("attributes") or []
-    if not attributes:
-        item = dict(row)
-        item.setdefault("pins", [])
-        return [item]
-    rows = []
-    for attribute in attributes:
-        prefix = str(attribute).strip()
-        item = dict(row)
-        for key in ("target", "positive", "neutral", "negative"):
-            value = row.get(key)
-            if value:
-                item[key] = f"{prefix} {value}"
-        pins = [str(p).strip() for p in (row.get("pins") or []) if str(p).strip()]
-        if prefix and prefix not in pins:
-            pins.append(prefix)
-        item["pins"] = pins
-        item["attributes"] = [prefix]
-        rows.append(item)
-    return rows
+    """Pin attributes for unused-token hold. Do **not** prefix captions.
+
+    Prefixing (``indoor a woman sitting…``) was the v3 train/sample
+    mismatch: live train used the prefixed string, in-process sample
+    stripped it back to the bare infer/neu caption. Train and sample
+    now share the yaml captions as-is. Attributes stay on the row as
+    unused pins only (bookkeeping / hold vocab).
+    """
+    item = dict(row)
+    attributes = [
+        str(a).strip() for a in (row.get("attributes") or []) if str(a).strip()
+    ]
+    pins = [str(p).strip() for p in (row.get("pins") or []) if str(p).strip()]
+    for attr in attributes:
+        if attr not in pins:
+            pins.append(attr)
+    item["pins"] = pins
+    item["attributes"] = attributes
+    return [item]
 
 
 def _as_row(item: dict) -> AnimaSliderRow:
@@ -358,28 +396,21 @@ class AnimaSampleGateError(RuntimeError):
     """In-process PEFT sample failed the RGB-noise gate."""
 
 
-def strip_attribute_prefix(text: str, attributes: Iterable[str] | None = None) -> str:
-    """Drop yaml attribute prefixes so infer/neu samples stay the raw captions."""
-    prompt = str(text or "").strip()
-    for attr in attributes or []:
-        prefix = f"{str(attr).strip()} "
-        if prefix.strip() and prompt.startswith(prefix):
-            prompt = prompt[len(prefix) :]
-    return prompt.strip()
-
-
 def infer_sample_prompts(
     rows: Sequence[AnimaSliderRow],
     control_prompt: str = DEFAULT_CONTROL_PROMPT,
 ) -> list[str]:
-    """Infer/neu captions only, plus the fruit-bowl control. Never the + concept."""
+    """Infer/neu captions only, plus the fruit-bowl control. Never the + concept.
+
+    Returns ``row.infer_prompt`` (equals ``row.neutral`` on the smile
+    card) unchanged. No attribute-prefix strip — train and sample share
+    the same yaml strings.
+    """
     seen: list[str] = []
     for row in rows:
-        attrs = row.attributes
-        for raw in (row.target, row.neutral, row.infer_prompt):
-            prompt = strip_attribute_prefix(raw, attrs)
-            if prompt and prompt not in seen:
-                seen.append(prompt)
+        prompt = (row.infer_prompt or row.neutral or "").strip()
+        if prompt and prompt not in seen:
+            seen.append(prompt)
     control = str(control_prompt or "").strip()
     if control and control not in seen:
         seen.append(control)
@@ -479,8 +510,11 @@ def live_train_card(
     device: str = "cuda:0",
     lr: float = DEFAULT_LR,
     control_prompt: str = DEFAULT_CONTROL_PROMPT,
+    lm_target: str = DEFAULT_LM_TARGET,
+    sample_every: int = DEFAULT_SAMPLE_EVERY,
 ) -> dict[str, Any]:
     """Documented live train card. CI never downloads these weights."""
+    recipe = resolve_anima_lm_target(lm_target)
     return {
         "name": name,
         "model_id": model_id,
@@ -501,13 +535,18 @@ def live_train_card(
         "control_prompt": control_prompt,
         "sample_scales": list(DEFAULT_SAMPLE_SCALES),
         "sample_seed": DEFAULT_SAMPLE_SEED,
+        "sample_every": int(sample_every),
+        "lm_target": recipe,
         "sample_gate": (
             "in-process PEFT disable_adapter / set_adapter_scale on "
             "pipe(prompt=...); fail if scale 0 is RGB noise or if scale "
             "0.25 is noise while 0 is fine"
         ),
         "stock_teacher_smoke": stock_teacher_smoke_captions(),
-        "recipe": "uni_plus_neu + unused_token_hold",
+        "train_sample_prompts": "same bare infer/neu captions; attributes are pins only",
+        "recipe": (
+            "direct velocity UNI (default) or cfg_delta UNI + unused_token_hold"
+        ),
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
     }
 
@@ -524,7 +563,10 @@ def live_train_command(
     device: str = "cuda:0",
     save_dir: str = "models/smile-anima",
     lr: float = DEFAULT_LR,
+    lm_target: str = DEFAULT_LM_TARGET,
+    sample_every: int = DEFAULT_SAMPLE_EVERY,
 ) -> str:
+    recipe = resolve_anima_lm_target(lm_target)
     return (
         "HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \\\n"
         f"  --name {name} \\\n"
@@ -532,5 +574,6 @@ def live_train_command(
         f"  --model_id {model_id} \\\n"
         f"  --rank {rank} --resolution {resolution} "
         f"--sample_steps {sample_steps} --cfg {cfg} \\\n"
-        f"  --lr {lr} --device {device} --save_dir {save_dir}"
+        f"  --lr {lr} --lm_target {recipe} --sample_every {int(sample_every)} \\\n"
+        f"  --device {device} --save_dir {save_dir}"
     )
