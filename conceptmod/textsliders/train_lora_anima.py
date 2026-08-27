@@ -6,9 +6,10 @@ Live card (documented by ``scripts/smoke_anima_slider.py``):
     model  circlestone-labs/Anima-Base-v1.0-Diffusers
     arch   2B Cosmos-Predict2 DiT, Qwen3+T5, Qwen-Image VAE
     lora   rank 16 on attn to_q / to_k / to_v / to_out.0
-    res    768   sample 40 steps   CFG 4
+    res    768   sample 40 steps   CFG 4   lr 1e-4
     frozen base transformer with adapter disabled
     never  train text_conditioner
+    sample in-process PEFT pipe(prompt=...) at 0 / 0.25 / 0.5 / 1.0
 
 Default Music 3 trainer stays ``--lm_target v9`` / ``--pole_mode hidden``.
 This file does not rewrite Music 3 yamls.
@@ -23,11 +24,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
+import numpy as np
 import torch
 from tqdm.auto import tqdm
 
@@ -38,10 +43,14 @@ if str(_REPO_ROOT) not in sys.path:
 from conceptmod.textsliders.anima_fake import FakeAnimaBackend, write_plus_alignment
 from conceptmod.textsliders.anima_slider import (
     DEFAULT_CFG,
+    DEFAULT_CONTROL_PROMPT,
     DEFAULT_HOLD_WEIGHT,
+    DEFAULT_LR,
     DEFAULT_MODEL_ID,
     DEFAULT_RANK,
     DEFAULT_RESOLUTION,
+    DEFAULT_SAMPLE_SCALES,
+    DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
     FROZEN_MODULES,
     LORA_TARGETS,
@@ -49,9 +58,13 @@ from conceptmod.textsliders.anima_slider import (
     anima_uni_loss,
     anima_uni_teachers,
     anima_unused_hold_loss,
+    assert_sample_gate,
+    image_mean_std,
+    infer_sample_prompts,
     live_train_card,
     live_train_command,
     load_anima_prompts,
+    looks_like_rgb_noise,
     minus_canary_cosine,
     row_token_plan,
 )
@@ -72,10 +85,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--cfg", type=float, default=DEFAULT_CFG)
     parser.add_argument("--hold_weight", type=float, default=DEFAULT_HOLD_WEIGHT)
     parser.add_argument("--steps", type=int, default=500)
-    parser.add_argument("--lr", type=float, default=1e-2)
+    parser.add_argument("--lr", type=float, default=DEFAULT_LR)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--save_dir", type=str, default=None)
+    parser.add_argument(
+        "--control_prompt",
+        type=str,
+        default=DEFAULT_CONTROL_PROMPT,
+        help="verify-only fruit-bowl caption; never a teacher",
+    )
+    parser.add_argument(
+        "--sample_every",
+        type=int,
+        default=0,
+        help="in-process PEFT scale grid every N steps (0 = end of train only)",
+    )
+    parser.add_argument(
+        "--sample_first_n",
+        type=int,
+        default=0,
+        help="also emit the PEFT scale grid after each of the first N steps",
+    )
+    parser.add_argument(
+        "--sample_seed",
+        type=int,
+        default=DEFAULT_SAMPLE_SEED,
+        help="seed for in-process pipe(prompt=...) samples (default 42)",
+    )
     parser.add_argument(
         "--dummy",
         action="store_true",
@@ -109,14 +146,49 @@ def _device(arg: str, dummy: bool) -> torch.device:
 
 
 def _sample_zt(backend, seed: int, step: int):
+    """CPU generator + CUDA latent is illegal. Draw on CPU, then ``.to(device)``."""
     g = torch.Generator(device="cpu").manual_seed(int(seed) * 1009 + step)
-    z = torch.randn((1, *backend.latent_shape), generator=g, device=backend.device)
+    z = torch.randn((1, *backend.latent_shape), generator=g, device="cpu")
+    z = z.to(device=backend.device)
     t = torch.tensor([float(100 + (step * 37) % 800)], device=backend.device)
     return z, t
 
 
+def freeze_anima_conditioner(pipe) -> None:
+    """ModularPipeline is not an ``nn.Module``. Freeze via components.
+
+    Do **not** call ``pipe.named_parameters()`` — that AttributeError'd
+    on the live RunPod box. Walk ``pipe.text_conditioner`` and
+    ``pipe.transformer`` instead.
+    """
+    cond = getattr(pipe, "text_conditioner", None)
+    transformer = getattr(pipe, "transformer", None)
+    modules = [cond, transformer]
+    if transformer is not None:
+        modules.append(getattr(transformer, "text_conditioner", None))
+        get_base = getattr(transformer, "get_base_model", None)
+        if callable(get_base):
+            try:
+                modules.append(get_base())
+            except Exception:
+                pass
+    seen: set[int] = set()
+    for module in modules:
+        if module is None or not hasattr(module, "named_parameters"):
+            continue
+        ident = id(module)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        for name, param in module.named_parameters():
+            if module is cond or "text_conditioner" in name:
+                param.requires_grad_(False)
+
+
 def _assert_not_training_conditioner(backend) -> None:
     cond = getattr(getattr(backend, "transformer", None), "text_conditioner", None)
+    if cond is None:
+        cond = getattr(getattr(backend, "pipe", None), "text_conditioner", None)
     if cond is None:
         return
     for name, param in cond.named_parameters():
@@ -125,6 +197,272 @@ def _assert_not_training_conditioner(backend) -> None:
                 f"text_conditioner.{name} is trainable; Anima LoRA is "
                 "transformer-only (CircleStone)"
             )
+
+
+def _peft_module(backend):
+    """PEFT lives on ``pipe.transformer`` live; dummy exposes backend APIs."""
+    if hasattr(backend, "set_lora_scale") or hasattr(backend, "disable_adapter"):
+        return backend
+    pipe = getattr(backend, "pipe", None)
+    if pipe is not None and getattr(pipe, "transformer", None) is not None:
+        return pipe.transformer
+    return getattr(backend, "transformer", backend)
+
+
+def _try_set_adapter_scale(module, scale: float) -> bool:
+    """PEFT ``set_adapter_scale`` / adapter weights — never weight-merge."""
+    if hasattr(module, "set_adapter_scale"):
+        for args in ((scale,), ({"default": float(scale)},), ("default", float(scale))):
+            try:
+                module.set_adapter_scale(*args)
+                return True
+            except TypeError:
+                continue
+            except Exception:
+                continue
+    if hasattr(module, "set_adapters"):
+        for args, kwargs in (
+            (("default",), {"weights": float(scale)}),
+            ((["default"],), {"weights": [float(scale)]}),
+        ):
+            try:
+                module.set_adapters(*args, **kwargs)
+                return True
+            except Exception:
+                continue
+    if hasattr(module, "set_lora_scale"):
+        module.set_lora_scale(float(scale))
+        return True
+    return False
+
+
+def _enable_adapter(module) -> None:
+    for name in ("enable_adapter_layers", "enable_adapters", "enable_adapter"):
+        fn = getattr(module, name, None)
+        if callable(fn):
+            try:
+                fn()
+                return
+            except Exception:
+                continue
+
+
+@contextmanager
+def peft_adapter_scale(backend, scale: float):
+    """In-process PEFT scale. Scale 0 uses ``disable_adapter`` when present."""
+    module = _peft_module(backend)
+    target = float(scale)
+    if abs(target) < 1e-12:
+        disable = getattr(module, "disable_adapter", None)
+        if callable(disable):
+            ctx = disable()
+            if hasattr(ctx, "__enter__"):
+                with ctx:
+                    yield
+                return
+        if _try_set_adapter_scale(module, 0.0):
+            try:
+                yield
+            finally:
+                _try_set_adapter_scale(module, 1.0)
+            return
+        raise RuntimeError("cannot disable PEFT adapter for scale 0.0 sample")
+    _enable_adapter(module)
+    if not _try_set_adapter_scale(module, target):
+        raise RuntimeError(
+            f"cannot set PEFT adapter scale to {target}: need "
+            "disable_adapter / set_adapter_scale / adapter weights "
+            "(not a post-hoc W += scale*(α/r)*(B@A) merge)"
+        )
+    try:
+        yield
+    finally:
+        _try_set_adapter_scale(module, 1.0)
+
+
+def _slug(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
+    return slug[:48] or "prompt"
+
+
+def _as_uint8_hwc(image) -> np.ndarray:
+    if hasattr(image, "convert"):
+        image = image.convert("RGB")
+        return np.asarray(image, dtype=np.uint8)
+    arr = np.asarray(image)
+    if arr.ndim == 4:
+        arr = arr[0]
+    if arr.ndim == 3 and arr.shape[0] in (1, 3) and arr.shape[-1] not in (1, 3):
+        arr = np.transpose(arr, (1, 2, 0))
+    if arr.dtype != np.uint8:
+        max_v = float(arr.max()) if arr.size else 0.0
+        if max_v <= 1.0 + 1e-5:
+            arr = arr * 255.0
+        arr = np.clip(arr, 0, 255).astype(np.uint8)
+    if arr.ndim == 2:
+        arr = np.stack([arr, arr, arr], axis=-1)
+    return arr
+
+
+def _extract_images(result) -> list[np.ndarray]:
+    if result is None:
+        return []
+    images = getattr(result, "images", None)
+    if images is None and isinstance(result, dict):
+        images = result.get("images")
+    if images is None:
+        images = result
+    if isinstance(images, (list, tuple)):
+        return [_as_uint8_hwc(item) for item in images]
+    return [_as_uint8_hwc(images)]
+
+
+def _cpu_noise(shape, seed: int, device) -> torch.Tensor:
+    g = torch.Generator(device="cpu").manual_seed(int(seed))
+    return torch.randn(shape, generator=g, device="cpu").to(device=device)
+
+
+def _call_modular_pipe(
+    pipe,
+    prompt: str,
+    *,
+    steps: int,
+    height: int,
+    width: int,
+    cfg: float,
+    seed: int,
+    device,
+    latent_shape=None,
+):
+    """Same ``pipe(prompt=...)`` path as live infer. PEFT stays on transformer."""
+    dummy_h = int(height)
+    dummy_w = int(width)
+    # Dummy stay cheap; live uses the train resolution.
+    if type(pipe).__name__ == "FakeAnimaModularPipe":
+        dummy_h = min(dummy_h, 64)
+        dummy_w = min(dummy_w, 64)
+    guider = getattr(pipe, "guider", None)
+    prev_cfg = None
+    if guider is not None and hasattr(guider, "guidance_scale"):
+        prev_cfg = guider.guidance_scale
+        guider.guidance_scale = float(cfg)
+    kwargs: dict[str, Any] = {
+        "prompt": prompt,
+        "height": dummy_h,
+        "width": dummy_w,
+        "num_inference_steps": int(steps),
+        "output_type": "np",
+    }
+    if latent_shape is not None:
+        kwargs["latents"] = _cpu_noise((1, *tuple(latent_shape)), seed, device)
+    else:
+        kwargs["generator"] = torch.Generator(device="cpu").manual_seed(int(seed))
+    try:
+        try:
+            result = pipe(guidance_scale=float(cfg), **kwargs)
+        except TypeError:
+            result = pipe(**kwargs)
+    finally:
+        if prev_cfg is not None:
+            guider.guidance_scale = prev_cfg
+    return _extract_images(result)
+
+
+def emit_inprocess_samples(
+    backend,
+    args: argparse.Namespace,
+    save_dir: Path,
+    *,
+    step: int,
+    rows,
+    dummy: bool,
+) -> list[dict[str, Any]]:
+    """PEFT scale grid through ``pipe(prompt=...)``. Not a velocity dump."""
+    pipe = getattr(backend, "pipe", None)
+    if pipe is None or not callable(pipe):
+        raise RuntimeError(
+            "in-process Anima sample needs backend.pipe(prompt=...) "
+            "with PEFT still attached to pipe.transformer"
+        )
+    prompts = infer_sample_prompts(rows, getattr(args, "control_prompt", DEFAULT_CONTROL_PROMPT))
+    scales = list(DEFAULT_SAMPLE_SCALES)
+    height = int(args.resolution)
+    width = int(args.resolution)
+    steps = 2 if dummy else int(args.sample_steps)
+    seed = int(getattr(args, "sample_seed", DEFAULT_SAMPLE_SEED))
+    cfg = float(args.cfg)
+    out_dir = Path(save_dir) / "samples"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    latent_shape = getattr(backend, "latent_shape", None) if not dummy else None
+    records: list[dict[str, Any]] = []
+    for prompt in prompts:
+        for scale in scales:
+            with torch.no_grad(), peft_adapter_scale(backend, scale):
+                images = _call_modular_pipe(
+                    pipe,
+                    prompt,
+                    steps=steps,
+                    height=height,
+                    width=width,
+                    cfg=cfg,
+                    seed=seed,
+                    device=backend.device,
+                    latent_shape=latent_shape,
+                )
+            if not images:
+                raise RuntimeError(f"pipe(prompt={prompt!r}) returned no images")
+            arr = images[0]
+            mean, std = image_mean_std(arr)
+            noisy = looks_like_rgb_noise(arr)
+            slug = _slug(prompt)
+            scale_tag = f"{scale:g}".replace("-", "m")
+            name = f"step{int(step):04d}_{slug}_scale{scale_tag}.png"
+            path = out_dir / name
+            from PIL import Image
+
+            Image.fromarray(arr, mode="RGB").save(path)
+            records.append(
+                {
+                    "step": int(step),
+                    "prompt": prompt,
+                    "scale": float(scale),
+                    "mean": mean,
+                    "std": std,
+                    "looks_like_noise": bool(noisy),
+                    "path": str(path.name),
+                    "seed": seed,
+                    "sample_steps": steps,
+                    "cfg": cfg,
+                    "height": int(arr.shape[0]),
+                    "width": int(arr.shape[1]),
+                    "method": "peft_pipe_prompt",
+                }
+            )
+    meta_path = out_dir / f"step{int(step):04d}_meta.json"
+    payload = {
+        "step": int(step),
+        "dummy": bool(dummy),
+        "seed": seed,
+        "scales": scales,
+        "prompts": prompts,
+        "samples": records,
+    }
+    meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    assert_sample_gate(records)
+    return records
+
+
+def _should_sample(step: int, args: argparse.Namespace, *, last: bool) -> bool:
+    if last:
+        return True
+    every = int(getattr(args, "sample_every", 0) or 0)
+    first_n = int(getattr(args, "sample_first_n", 0) or 0)
+    idx = int(step) + 1
+    if first_n and idx <= first_n:
+        return True
+    if every > 0 and idx % every == 0:
+        return True
+    return False
 
 
 def train_dummy(args: argparse.Namespace) -> dict:
@@ -147,7 +485,11 @@ def train_dummy(args: argparse.Namespace) -> dict:
     infer = row.infer_prompt
     plus_before = write_plus_alignment(backend, infer, row.positive, seed=int(args.seed))
 
-    pbar = tqdm(range(int(args.steps)), disable=int(args.steps) < 3)
+    save_dir = Path(args.save_dir or DEFAULT_SAVE_DIR)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    sample_records: list[dict] = []
+    total = int(args.steps)
+    pbar = tqdm(range(total), disable=total < 3)
     for step in pbar:
         z, t = _sample_zt(backend, int(args.seed), step)
         loss, canary_v = _uni_step(
@@ -160,8 +502,15 @@ def train_dummy(args: argparse.Namespace) -> dict:
         if canary_v is not None:
             canary.append(canary_v)
         pbar.set_postfix(loss=f"{history[-1]:.4f}")
+        if _should_sample(step, args, last=False):
+            sample_records = emit_inprocess_samples(
+                backend, args, save_dir, step=step + 1, rows=rows, dummy=True
+            )
 
     plus_after = write_plus_alignment(backend, infer, row.positive, seed=int(args.seed))
+    sample_records = emit_inprocess_samples(
+        backend, args, save_dir, step=total, rows=rows, dummy=True
+    )
     sidecar = {
         "name": args.name,
         "dummy": True,
@@ -170,6 +519,7 @@ def train_dummy(args: argparse.Namespace) -> dict:
         "resolution": int(args.resolution),
         "sample_steps": int(args.sample_steps),
         "cfg": float(args.cfg),
+        "lr": float(args.lr),
         "device": str(device),
         "lora_targets": list(LORA_TARGETS),
         "frozen_modules": list(FROZEN_MODULES),
@@ -182,10 +532,15 @@ def train_dummy(args: argparse.Namespace) -> dict:
         "loss_last": history[-1] if history else None,
         "steps": int(args.steps),
         "prompts_file": str(args.prompts_file),
+        "control_prompt": str(args.control_prompt),
+        "sample_grid": {
+            "n": len(sample_records),
+            "scales": list(DEFAULT_SAMPLE_SCALES),
+            "seed": int(args.sample_seed),
+            "method": "peft_pipe_prompt",
+        },
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
     }
-    save_dir = Path(args.save_dir or DEFAULT_SAVE_DIR)
-    save_dir.mkdir(parents=True, exist_ok=True)
     side_path = save_dir / f"{args.name}_dummy_last.json"
     side_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
     print(json.dumps(sidecar, indent=2))
@@ -339,9 +694,7 @@ def load_live_backend(args: argparse.Namespace, device: torch.device):
     )
     pipe.transformer = get_peft_model(pipe.transformer, config)
     pipe.transformer.to(device)
-    for name, param in pipe.named_parameters():
-        if "text_conditioner" in name and param.requires_grad:
-            param.requires_grad_(False)
+    freeze_anima_conditioner(pipe)
     return LiveAnimaBackend(pipe, device, resolution=int(args.resolution))
 
 
@@ -396,7 +749,11 @@ def train_live(args: argparse.Namespace) -> dict:
     opt = torch.optim.AdamW(backend.trainable_parameters(), lr=float(args.lr))
     history: list[float] = []
     canary: list[float] = []
-    for step in tqdm(range(int(args.steps))):
+    save_dir = Path(args.save_dir or DEFAULT_SAVE_DIR)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    sample_records: list[dict] = []
+    total = int(args.steps)
+    for step in tqdm(range(total)):
         z, t = _sample_zt(backend, int(args.seed), step)
         loss, canary_v = _uni_step(
             backend, row, plan, z, t, float(args.hold_weight)
@@ -407,9 +764,14 @@ def train_live(args: argparse.Namespace) -> dict:
         history.append(float(loss.detach()))
         if canary_v is not None:
             canary.append(canary_v)
-    save_dir = Path(args.save_dir or DEFAULT_SAVE_DIR)
-    save_dir.mkdir(parents=True, exist_ok=True)
+        if _should_sample(step, args, last=False):
+            sample_records = emit_inprocess_samples(
+                backend, args, save_dir, step=step + 1, rows=rows, dummy=False
+            )
     backend.pipe.transformer.save_pretrained(str(save_dir / f"{args.name}_lora"))
+    sample_records = emit_inprocess_samples(
+        backend, args, save_dir, step=total, rows=rows, dummy=False
+    )
     sidecar = {
         "name": args.name,
         "dummy": False,
@@ -418,6 +780,7 @@ def train_live(args: argparse.Namespace) -> dict:
         "resolution": int(args.resolution),
         "sample_steps": int(args.sample_steps),
         "cfg": float(args.cfg),
+        "lr": float(args.lr),
         "device": str(device),
         "lora_targets": list(LORA_TARGETS),
         "frozen_modules": list(FROZEN_MODULES),
@@ -428,6 +791,13 @@ def train_live(args: argparse.Namespace) -> dict:
         "loss_last": history[-1] if history else None,
         "steps": int(args.steps),
         "prompts_file": str(args.prompts_file),
+        "control_prompt": str(args.control_prompt),
+        "sample_grid": {
+            "n": len(sample_records),
+            "scales": list(DEFAULT_SAMPLE_SCALES),
+            "seed": int(args.sample_seed),
+            "method": "peft_pipe_prompt",
+        },
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
     }
     (save_dir / f"{args.name}_last.json").write_text(
@@ -448,6 +818,8 @@ def train(args: argparse.Namespace) -> dict:
             sample_steps=int(args.sample_steps),
             cfg=float(args.cfg),
             device=str(args.device),
+            lr=float(args.lr),
+            control_prompt=str(args.control_prompt),
         )
         print(json.dumps(card, indent=2))
         print()
@@ -460,6 +832,7 @@ def train(args: argparse.Namespace) -> dict:
             sample_steps=int(args.sample_steps),
             cfg=float(args.cfg),
             device=str(args.device),
+            lr=float(args.lr),
         ))
         return card
     if args.dummy:

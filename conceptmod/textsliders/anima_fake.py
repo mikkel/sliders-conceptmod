@@ -12,12 +12,15 @@ exists and is frozen. Frozen ref = adapter disabled (scale 0).
 from __future__ import annotations
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from conceptmod.textsliders.anima_slider import (
+    DEFAULT_CFG,
     DEFAULT_RANK,
     LORA_TARGETS,
     word_tokens,
@@ -207,10 +210,17 @@ class FakeAnimaBackend:
         self.transformer.to(self.device)
         self._text_cache: dict[str, tuple[torch.Tensor, list[str]]] = {}
         self.set_lora_scale(1.0)
+        # Same call path as live infer: pipe(prompt=...) with LoRA still
+        # attached to pipe.transformer (not a one-off velocity dump).
+        self.pipe = FakeAnimaModularPipe(self)
 
     def set_lora_scale(self, scale: float) -> None:
         for lora in self.loras:
             lora.multiplier = float(scale)
+
+    def set_adapter_scale(self, scale: float) -> None:
+        """PEFT-shaped alias used by the in-process sample grid."""
+        self.set_lora_scale(scale)
 
     @contextmanager
     def disable_adapter(self):
@@ -300,6 +310,71 @@ class FakeAnimaBackend:
             if param.requires_grad and ("down.weight" in name or "up.weight" in name):
                 names.append(name)
         return names
+
+
+class FakeAnimaModularPipe:
+    """Dummy ``ModularPipeline``: ``pipe(prompt=...)`` with PEFT on transformer.
+
+    Images are structured (low-frequency ramps), never RGB TV-static, so
+    ``--dummy`` still passes the in-process sample gate without Hub weights.
+    """
+
+    def __init__(self, backend: FakeAnimaBackend):
+        self.backend = backend
+        self.transformer = backend.transformer
+        self.guider = SimpleNamespace(guidance_scale=DEFAULT_CFG)
+
+    def __call__(
+        self,
+        prompt: str = "",
+        height: int = 64,
+        width: int = 64,
+        num_inference_steps: int = 8,
+        generator=None,
+        output_type: str = "pil",
+        guidance_scale: float | None = None,
+        **_kwargs,
+    ):
+        del num_inference_steps, guidance_scale
+        h = max(8, int(height))
+        w = max(8, int(width))
+        scale = 1.0
+        if self.backend.loras:
+            scale = float(self.backend.loras[0].multiplier)
+        seed = 0
+        if generator is not None and hasattr(generator, "initial_seed"):
+            try:
+                seed = int(generator.initial_seed())
+            except Exception:
+                seed = 0
+        arr = _structured_dummy_image(prompt, scale=scale, height=h, width=w, seed=seed)
+        if output_type == "np":
+            images = [arr.astype(np.float32) / 255.0]
+        elif output_type == "pt":
+            images = [torch.from_numpy(arr).permute(2, 0, 1).float() / 255.0]
+        else:
+            from PIL import Image
+
+            images = [Image.fromarray(arr, mode="RGB")]
+        return SimpleNamespace(images=images)
+
+
+def _structured_dummy_image(
+    prompt: str, *, scale: float, height: int, width: int, seed: int
+) -> np.ndarray:
+    """Low-frequency RGB ramp. Mean/std are image-like, spatially correlated."""
+    rng = np.random.default_rng(abs(int(seed)) % (2**31) + (hash(prompt) % 997))
+    ys = np.linspace(48.0, 176.0, height, dtype=np.float64)
+    xs = np.linspace(36.0, 168.0, width, dtype=np.float64)
+    yy, xx = np.meshgrid(ys, xs, indexing="ij")
+    tint = 12.0 * float(scale)
+    blob = 18.0 * np.sin(yy / 18.0) * np.cos(xx / 22.0)
+    noise = 4.0 * rng.standard_normal((height, width))
+    r = yy + tint + blob
+    g = xx + 0.4 * tint
+    b = 0.45 * yy + 0.45 * xx + 16.0 + 0.6 * tint + noise
+    img = np.stack([r, g, b], axis=-1)
+    return np.clip(img, 0.0, 255.0).astype(np.uint8)
 
 
 def write_plus_alignment(

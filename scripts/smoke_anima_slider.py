@@ -14,6 +14,8 @@ frozen ref      base transformer with adapter disabled
 resolution      768
 sample_steps    40
 cfg             4
+lr              1e-4
+sample          in-process PEFT pipe(prompt=...) at 0 / 0.25 / 0.5 / 1.0
 device          cuda:0
 
 Live command (local weights, HF_HUB_OFFLINE=1):
@@ -23,7 +25,7 @@ HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \\
   --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \\
   --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \\
   --rank 16 --resolution 768 --sample_steps 40 --cfg 4 \\
-  --device cuda:0 --save_dir models/smile-anima
+  --lr 1e-4 --device cuda:0 --save_dir models/smile-anima
 
 Dummy / CI:
 

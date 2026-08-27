@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import yaml
@@ -33,10 +34,23 @@ DEFAULT_RESOLUTION = 768
 DEFAULT_SAMPLE_STEPS = 40
 DEFAULT_CFG = 4.0
 DEFAULT_HOLD_WEIGHT = 1.0
+# DiT LoRA: 1e-2 blew up the prior RunPod adapter (loss looked fine,
+# any nonzero scale collapsed denoise to RGB noise). Overridable.
+DEFAULT_LR = 1e-4
+DEFAULT_CONTROL_PROMPT = "a bowl of fruit on a table"
+DEFAULT_SAMPLE_SCALES = (0.0, 0.25, 0.5, 1.0)
+DEFAULT_SAMPLE_SEED = 42
 LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
 # CircleStone: do not train the LLM adapter.
 FROZEN_MODULES = ("text_conditioner",)
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+# Uniform uint8 RGB static is ~127.5 / 73.9. The dead RunPod LoRA
+# printed ~122 / 75. Structured images are spatially correlated.
+_NOISE_MEAN_LO = 110.0
+_NOISE_MEAN_HI = 145.0
+_NOISE_STD_LO = 68.0
+_NOISE_STD_HI = 82.0
+_NOISE_CORR_MAX = 0.15
 
 
 @dataclass
@@ -299,6 +313,98 @@ def row_token_plan(row: AnimaSliderRow) -> dict[str, Any]:
     }
 
 
+class AnimaSampleGateError(RuntimeError):
+    """In-process PEFT sample failed the RGB-noise gate."""
+
+
+def strip_attribute_prefix(text: str, attributes: Iterable[str] | None = None) -> str:
+    """Drop yaml attribute prefixes so infer/neu samples stay the raw captions."""
+    prompt = str(text or "").strip()
+    for attr in attributes or []:
+        prefix = f"{str(attr).strip()} "
+        if prefix.strip() and prompt.startswith(prefix):
+            prompt = prompt[len(prefix) :]
+    return prompt.strip()
+
+
+def infer_sample_prompts(
+    rows: Sequence[AnimaSliderRow],
+    control_prompt: str = DEFAULT_CONTROL_PROMPT,
+) -> list[str]:
+    """Infer/neu captions only, plus the fruit-bowl control. Never the + concept."""
+    seen: list[str] = []
+    for row in rows:
+        attrs = row.attributes
+        for raw in (row.target, row.neutral, row.infer_prompt):
+            prompt = strip_attribute_prefix(raw, attrs)
+            if prompt and prompt not in seen:
+                seen.append(prompt)
+    control = str(control_prompt or "").strip()
+    if control and control not in seen:
+        seen.append(control)
+    return seen
+
+
+def image_mean_std(arr: np.ndarray) -> tuple[float, float]:
+    """uint8 / float HWC (or CHW) image stats used by the sample gate."""
+    pixels = np.asarray(arr, dtype=np.float64)
+    if pixels.size == 0:
+        raise ValueError("empty image for mean/std")
+    return float(pixels.mean()), float(pixels.std())
+
+
+def looks_like_rgb_noise(arr: np.ndarray) -> bool:
+    """True for TV-static RGB (~122/75): high std, mid mean, no spatial corr."""
+    pixels = np.asarray(arr)
+    if pixels.ndim == 3 and pixels.shape[0] in (1, 3) and pixels.shape[-1] not in (1, 3):
+        pixels = np.transpose(pixels, (1, 2, 0))
+    mean, std = image_mean_std(pixels)
+    if not (_NOISE_MEAN_LO <= mean <= _NOISE_MEAN_HI and _NOISE_STD_LO <= std <= _NOISE_STD_HI):
+        return False
+    gray = pixels.astype(np.float64)
+    if gray.ndim == 3:
+        gray = gray.mean(axis=-1)
+    if gray.shape[1] < 2:
+        return True
+    left = gray[:, :-1].ravel()
+    right = gray[:, 1:].ravel()
+    left = left - left.mean()
+    right = right - right.mean()
+    denom = float(left.std() * right.std())
+    if denom < 1e-6:
+        return True
+    corr = float((left * right).mean() / denom)
+    return abs(corr) < _NOISE_CORR_MAX
+
+
+def assert_sample_gate(records: Sequence[dict[str, Any]]) -> None:
+    """Fail the train job if scale 0 is noise, or 0.25 is noise while 0 is fine."""
+    if not records:
+        raise AnimaSampleGateError("in-process PEFT sample grid is empty")
+
+    def _is_scale(row: dict[str, Any], target: float) -> bool:
+        return abs(float(row.get("scale", 1e9)) - target) < 1e-6
+
+    scale0 = [row for row in records if _is_scale(row, 0.0)]
+    scale025 = [row for row in records if _is_scale(row, 0.25)]
+    if not scale0:
+        raise AnimaSampleGateError("in-process sample grid missing scale 0.0")
+    if any(bool(row.get("looks_like_noise")) for row in scale0):
+        bad = next(row for row in scale0 if row.get("looks_like_noise"))
+        raise AnimaSampleGateError(
+            "scale-0 sample looks like RGB noise "
+            f"(mean={bad.get('mean')}/std={bad.get('std')}, ~122/75); "
+            "base pipeline is broken"
+        )
+    if scale025 and any(bool(row.get("looks_like_noise")) for row in scale025):
+        bad = next(row for row in scale025 if row.get("looks_like_noise"))
+        raise AnimaSampleGateError(
+            "scale 0.25 sample looks like RGB noise while scale 0 is fine "
+            f"(mean={bad.get('mean')}/std={bad.get('std')}); "
+            "adapter is broken — do not ship this LoRA"
+        )
+
+
 def live_train_card(
     *,
     name: str = "smile-anima",
@@ -309,6 +415,8 @@ def live_train_card(
     sample_steps: int = DEFAULT_SAMPLE_STEPS,
     cfg: float = DEFAULT_CFG,
     device: str = "cuda:0",
+    lr: float = DEFAULT_LR,
+    control_prompt: str = DEFAULT_CONTROL_PROMPT,
 ) -> dict[str, Any]:
     """Documented live train card. CI never downloads these weights."""
     return {
@@ -325,8 +433,17 @@ def live_train_card(
         "resolution": resolution,
         "sample_steps": sample_steps,
         "cfg": cfg,
+        "lr": lr,
         "device": device,
         "prompts_file": prompts_file,
+        "control_prompt": control_prompt,
+        "sample_scales": list(DEFAULT_SAMPLE_SCALES),
+        "sample_seed": DEFAULT_SAMPLE_SEED,
+        "sample_gate": (
+            "in-process PEFT disable_adapter / set_adapter_scale on "
+            "pipe(prompt=...); fail if scale 0 is RGB noise or if scale "
+            "0.25 is noise while 0 is fine"
+        ),
         "recipe": "uni_plus_neu + unused_token_hold",
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
     }
@@ -343,6 +460,7 @@ def live_train_command(
     cfg: float = DEFAULT_CFG,
     device: str = "cuda:0",
     save_dir: str = "models/smile-anima",
+    lr: float = DEFAULT_LR,
 ) -> str:
     return (
         "HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \\\n"
@@ -351,5 +469,5 @@ def live_train_command(
         f"  --model_id {model_id} \\\n"
         f"  --rank {rank} --resolution {resolution} "
         f"--sample_steps {sample_steps} --cfg {cfg} \\\n"
-        f"  --device {device} --save_dir {save_dir}"
+        f"  --lr {lr} --device {device} --save_dir {save_dir}"
     )

@@ -15,21 +15,29 @@ from conceptmod.textsliders.anima_fake import (
 )
 from conceptmod.textsliders.anima_slider import (
     DEFAULT_CFG,
+    DEFAULT_CONTROL_PROMPT,
+    DEFAULT_LR,
     DEFAULT_MODEL_ID,
     DEFAULT_RANK,
     DEFAULT_RESOLUTION,
+    DEFAULT_SAMPLE_SCALES,
+    DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
     LORA_TARGETS,
+    AnimaSampleGateError,
     align_unused_positions,
     anima_cfg_delta,
     anima_uni_loss,
     anima_uni_teachers,
     anima_unused_hold_loss,
+    assert_sample_gate,
     concept_tokens,
     expand_attributes_anima,
+    infer_sample_prompts,
     live_train_card,
     live_train_command,
     load_anima_prompts,
+    looks_like_rgb_noise,
     minus_canary_cosine,
     row_token_plan,
     splice_unused_embeds,
@@ -38,8 +46,11 @@ from conceptmod.textsliders.anima_slider import (
     word_tokens,
 )
 from conceptmod.textsliders.train_lora_anima import (
+    _sample_zt,
+    freeze_anima_conditioner,
     load_live_backend,
     parse_args,
+    peft_adapter_scale,
     train_dummy,
 )
 
@@ -64,6 +75,10 @@ def test_anima_cli_defaults_match_live_card():
     assert args.resolution == DEFAULT_RESOLUTION == 768
     assert args.sample_steps == DEFAULT_SAMPLE_STEPS == 40
     assert args.cfg == DEFAULT_CFG == 4.0
+    assert args.lr == DEFAULT_LR == 1e-4
+    assert args.control_prompt == DEFAULT_CONTROL_PROMPT
+    assert args.sample_every == 0
+    assert args.sample_seed == DEFAULT_SAMPLE_SEED == 42
     assert args.dummy is False
     assert args.allow_hub is False
     card = live_train_card()
@@ -74,6 +89,11 @@ def test_anima_cli_defaults_match_live_card():
     assert card["resolution"] == 768
     assert card["sample_steps"] == 40
     assert card["cfg"] == 4.0
+    assert card["lr"] == 1e-4
+    assert card["control_prompt"] == "a bowl of fruit on a table"
+    assert card["sample_scales"] == list(DEFAULT_SAMPLE_SCALES)
+    assert card["sample_seed"] == 42
+    assert "peft" in card["sample_gate"]
     assert card["device"] == "cuda:0"
     assert card["music3_default_untouched"] == {
         "lm_target": "v9",
@@ -85,6 +105,7 @@ def test_anima_cli_defaults_match_live_card():
     assert "--resolution 768" in cmd
     assert "--sample_steps 40" in cmd
     assert "--cfg 4" in cmd
+    assert "--lr 0.0001" in cmd
     assert "HF_HUB_OFFLINE=1" in cmd
 
 
@@ -254,11 +275,23 @@ def test_dummy_train_fits_uni_without_hub(tmp_path):
     assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
     assert sidecar["loss_last"] is not None
     assert sidecar["loss_last"] < 0.05
+    assert sidecar["sample_grid"]["method"] == "peft_pipe_prompt"
+    assert sidecar["sample_grid"]["n"] == 12
     side_file = tmp_path / "anima-unit_dummy_last.json"
     assert side_file.is_file()
     written = json.loads(side_file.read_text())
     assert written["sample_steps"] == 40
     assert written["cfg"] == 4.0
+    samples = tmp_path / "samples"
+    meta = json.loads((samples / "step0040_meta.json").read_text())
+    assert meta["seed"] == 42
+    assert meta["scales"] == [0.0, 0.25, 0.5, 1.0]
+    prompts = {row["prompt"] for row in meta["samples"]}
+    assert "a woman sitting on a chair" in prompts
+    assert "a man reading at a table" in prompts
+    assert "a bowl of fruit on a table" in prompts
+    assert all(not row["looks_like_noise"] for row in meta["samples"])
+    assert len(list(samples.glob("*.png"))) == 12
 
 
 def test_dummy_uni_moves_minimal_pair():
@@ -342,3 +375,78 @@ def test_print_card_does_not_train():
     out = train(parse_args(["--print_card"]))
     assert out["model_id"] == DEFAULT_MODEL_ID
     assert out["lora"]["rank"] == 16
+    assert out["lr"] == 1e-4
+
+
+def test_sample_zt_draws_on_cpu_then_moves():
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0)
+    z, t = _sample_zt(backend, seed=7, step=3)
+    assert z.device == backend.device
+    assert t.device == backend.device
+    assert tuple(z.shape[1:]) == backend.latent_shape
+
+
+def test_freeze_conditioner_does_not_need_pipe_named_parameters():
+    class _NotAModule:
+        def __init__(self):
+            self.text_conditioner = torch.nn.Linear(2, 2)
+            self.transformer = torch.nn.Linear(2, 2)
+            for param in self.text_conditioner.parameters():
+                param.requires_grad_(True)
+
+    pipe = _NotAModule()
+    assert not hasattr(pipe, "named_parameters")
+    freeze_anima_conditioner(pipe)
+    assert all(not param.requires_grad for param in pipe.text_conditioner.parameters())
+    assert all(param.requires_grad for param in pipe.transformer.parameters())
+
+
+def test_infer_sample_prompts_are_neu_plus_fruit_bowl():
+    rows, _meta = load_anima_prompts(PROMPTS)
+    prompts = infer_sample_prompts(rows)
+    assert prompts == [
+        "a woman sitting on a chair",
+        "a man reading at a table",
+        "a bowl of fruit on a table",
+    ]
+    assert all("smiling" not in p for p in prompts)
+
+
+def test_rgb_noise_gate_catches_static_and_passes_ramps():
+    rng = torch.Generator().manual_seed(0)
+    noise = torch.randint(0, 256, (64, 64, 3), generator=rng, dtype=torch.uint8).numpy()
+    assert looks_like_rgb_noise(noise)
+    ys = torch.linspace(40, 180, 64).unsqueeze(1).expand(64, 64)
+    ramp = torch.stack([ys, ys.T, 0.5 * ys + 0.5 * ys.T], dim=-1).numpy()
+    assert not looks_like_rgb_noise(ramp)
+    with pytest.raises(AnimaSampleGateError, match="base pipeline"):
+        assert_sample_gate(
+            [{"scale": 0.0, "mean": 122.0, "std": 75.0, "looks_like_noise": True}]
+        )
+    with pytest.raises(AnimaSampleGateError, match="adapter is broken"):
+        assert_sample_gate(
+            [
+                {"scale": 0.0, "mean": 90.0, "std": 40.0, "looks_like_noise": False},
+                {"scale": 0.25, "mean": 122.0, "std": 75.0, "looks_like_noise": True},
+            ]
+        )
+    assert_sample_gate(
+        [
+            {"scale": 0.0, "mean": 90.0, "std": 40.0, "looks_like_noise": False},
+            {"scale": 0.25, "mean": 95.0, "std": 42.0, "looks_like_noise": False},
+        ]
+    )
+
+
+def test_peft_adapter_scale_uses_disable_not_merge():
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0)
+    backend.set_lora_scale(1.0)
+    with peft_adapter_scale(backend, 0.0):
+        assert all(lora.multiplier == 0.0 for lora in backend.loras)
+    assert all(lora.multiplier == 1.0 for lora in backend.loras)
+    with peft_adapter_scale(backend, 0.25):
+        assert all(abs(lora.multiplier - 0.25) < 1e-8 for lora in backend.loras)
+    assert all(lora.multiplier == 1.0 for lora in backend.loras)
+    out = backend.pipe(prompt="a woman sitting on a chair", height=32, width=32)
+    assert out.images
+    assert not looks_like_rgb_noise(out.images[0])
