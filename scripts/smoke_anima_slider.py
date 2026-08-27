@@ -2,7 +2,8 @@
 """Smoke the Anima image slider on the CPU fake and print the live train card.
 
 Never downloads ``circlestone-labs/Anima-Base-v1.0-Diffusers``. Never trains
-on GPU. Music 3 defaults are untouched.
+on GPU. Music 3 defaults are untouched. Anima-Turbo v1.1 is preview-only
+(``scripts/convert_anima_turbo_diffusers.py``); this smoke stays on Base.
 
 Live train card
 ---------------

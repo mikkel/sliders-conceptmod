@@ -53,6 +53,30 @@ DEFAULT_TRAJ_STEPS = 4
 DEFAULT_TRAJ_IDENTITY_WEIGHT = 0.25
 # Off: values <= 1 leave the 1-step teacher unamplified.
 DEFAULT_TEACHER_GAP_BOOST = 1.0
+# Turbo v1.1 is preview-only. Train stays on Base. Official CircleStone
+# card: CFG 1, 8–12 steps. This repo's sample helper uses 10.
+TURBO_PREVIEW_ONLY = True
+TURBO_COMFY_REPO = "circlestone-labs/Anima"
+TURBO_TRANSFORMER_FILE = "split_files/diffusion_models/anima-turbo-v1.1.safetensors"
+TURBO_TEXT_ENCODER_FILE = "split_files/text_encoders/qwen_3_06b_base.safetensors"
+TURBO_VAE_FILE = "split_files/vae/qwen_image_vae.safetensors"
+TURBO_DIFFUSERS_OUTPUT = "Anima-Turbo-v1.1-Diffusers"
+TURBO_SAMPLE_CFG = 1.0
+TURBO_SAMPLE_STEPS = 10
+TURBO_SAMPLE_STEPS_RANGE = (8, 12)
+TURBO_CONVERT_DTYPE = "bf16"
+TURBO_LICENSE = "CircleStone Labs Non-Commercial (NC)"
+TURBO_CONVERT_SCRIPT = (
+    "https://raw.githubusercontent.com/huggingface/diffusers/main/"
+    "scripts/convert_anima_to_diffusers.py"
+)
+TURBO_CONVERT_COSMOS_SCRIPT = (
+    "https://raw.githubusercontent.com/huggingface/diffusers/main/"
+    "scripts/convert_cosmos_to_diffusers.py"
+)
+# Community Anima-1.0-Turbo-Diffusers is v1.0 only and the wrong VAE
+# class. Do not train or convert from it.
+TURBO_IGNORE_COMMUNITY = "Anima-1.0-Turbo-Diffusers"
 LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
 # CircleStone: do not train the LLM adapter.
 FROZEN_MODULES = ("text_conditioner",)
@@ -692,6 +716,7 @@ def live_train_card(
         "train_sample_prompts": "same bare infer/neu captions; attributes are pins only",
         "recipe": anima_recipe_label(recipe),
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
+        "turbo": "preview_only",
     }
 
 
@@ -724,4 +749,55 @@ def live_train_command(
         f"  --teacher_gap_boost {float(teacher_gap_boost)} "
         f"--sample_every {int(sample_every)} \\\n"
         f"  --device {device} --save_dir {save_dir}"
+    )
+
+
+def turbo_preview_card() -> dict[str, Any]:
+    """Anima-Turbo v1.1 is a convert + stock-smoke path, not a train target."""
+    return {
+        "role": "preview_only",
+        "train_on": DEFAULT_MODEL_ID,
+        "comfy_repo": TURBO_COMFY_REPO,
+        "transformer_file": TURBO_TRANSFORMER_FILE,
+        "text_encoder_file": TURBO_TEXT_ENCODER_FILE,
+        "vae_file": TURBO_VAE_FILE,
+        "vae_class": "AutoencoderKLQwenImage",
+        "convert_script": "huggingface/diffusers scripts/convert_anima_to_diffusers.py",
+        "convert_splits": {
+            "llm_adapter": "AnimaTextConditioner",
+            "rest": "CosmosTransformer3DModel",
+        },
+        "convert_flags": ["--save_pipeline", f"--dtype {TURBO_CONVERT_DTYPE}"],
+        "output": TURBO_DIFFUSERS_OUTPUT,
+        "sample_cfg": TURBO_SAMPLE_CFG,
+        "sample_steps": TURBO_SAMPLE_STEPS,
+        "sample_steps_range": list(TURBO_SAMPLE_STEPS_RANGE),
+        "license": TURBO_LICENSE,
+        "ignore_community": TURBO_IGNORE_COMMUNITY,
+        "why": (
+            "smile-anima-v5 on Base failed (tiny v-space teacher gap). "
+            "Turbo is faster stock/preview smoke, not the next train "
+            "unless smoke shows a larger closed-mouth vs teeth gap."
+        ),
+        "helper": "scripts/convert_anima_turbo_diffusers.py",
+    }
+
+
+def turbo_preview_sample_command(
+    *,
+    model_id: str = TURBO_DIFFUSERS_OUTPUT,
+    sample_steps: int = TURBO_SAMPLE_STEPS,
+    cfg: float = TURBO_SAMPLE_CFG,
+) -> str:
+    """Sample-path only. Does not change the Base train recipe."""
+    return (
+        "HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \\\n"
+        "  --name smile-anima-turbo-preview \\\n"
+        "  --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \\\n"
+        f"  --model_id {model_id} \\\n"
+        f"  --rank 16 --resolution 768 --sample_steps {int(sample_steps)} "
+        f"--cfg {cfg:g} \\\n"
+        "  --lr 1e-4 --lm_target trajectory --traj_steps 4 \\\n"
+        "  --teacher_gap_boost 1 --sample_every 100 \\\n"
+        "  --device cuda:0 --save_dir models/smile-anima-turbo-preview"
     )
