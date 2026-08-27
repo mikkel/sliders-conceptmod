@@ -2434,7 +2434,7 @@ def expand_attributes_sana(row: dict) -> list[dict]:
 def sana_concept_token_ids(concept_words: str | Iterable[str], tokenize_fn) -> set[int]:
     """Bare word ids plus leading-space BPE pieces (Gemma/Sana).
 
-    Standalone ``old`` is not the same id as `` old`` inside ``an old person``.
+    Standalone ``happy`` is not the same id as `` happy`` inside ``a happy person``.
     """
     ids = zimage_concept_token_ids(concept_words, tokenize_fn)
     if isinstance(concept_words, str):
@@ -2494,7 +2494,7 @@ def sana_live_train_card() -> dict[str, object]:
 def sana_live_train_command() -> str:
     return (
         "CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_sana.py \\\n"
-        "  --name age-sana \\\n"
+        "  --name happy-sana \\\n"
         "  --prompts_file conceptmod/textsliders/data/prompts-sana.yaml \\\n"
         f"  --model_id {SANA_MODEL_ID} \\\n"
         "  --train_method xattn \\\n"
