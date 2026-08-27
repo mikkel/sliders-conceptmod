@@ -63,6 +63,12 @@ Formulas are copied from:
   concept prompt, scale 0 → neu, no minus teacher, unused prompt
   tokens held to encode(neu). Velocity-space CFG geometry is
   ``v(z,t,c) − v(z,t,'')``. Opt-in; Music 3 defaults stay put.
+- Krea image UNI (opt-in ``train_lora_krea.py``, not the Music 3
+  default): student +1 fits ``v(z,t,pos)`` (CFG-composed when
+  guidance > 0), student scale 0 fits ``v(z,t,neu)``. Concept
+  direction is conceptmod's ``v(z,t,c) − v(z,t,'')``. Unused
+  prompt tokens hold to encode(neu); concept words are not held.
+  No minus teacher (canary only). Not lyric-hold.
 
 No Hub, no GPU, no model weights.
 """
@@ -1917,6 +1923,7 @@ def expand_attributes_music3(row: dict) -> list[dict]:
     return rows
 
 
+
 # ---------------------------------------------------------------------------
 # Z-Image Turbo (ZiT) image-slider UNI analog
 # ---------------------------------------------------------------------------
@@ -2103,3 +2110,216 @@ def zimage_unused_token_hold(
     if pred_flat.shape[0] == tgt_flat.shape[0]:
         return F.mse_loss(pred_flat, tgt_flat)
     return F.mse_loss(pred_flat.mean(0), tgt_flat.mean(0))
+
+
+# ---------------------------------------------------------------------------
+# Krea image UNI (opt-in). Not Music 3 lyric-hold. No minus teacher.
+# ---------------------------------------------------------------------------
+
+KREA_RAW_MODEL = "krea/Krea-2-Raw"
+KREA_DEFAULT_RANK = 16
+KREA_DEFAULT_RESOLUTION = 512
+KREA_RAW_STEPS = 28
+KREA_RAW_CFG = 4.5
+KREA_TURBO_STEPS = 8
+KREA_TURBO_CFG = 0.0
+KREA_HOLD_WEIGHT = 1.0
+
+
+def krea_looks_turbo(model_id: str) -> bool:
+    """Local ComfyUI Turbo files are named with ``turbo``; hub Raw is not."""
+    return "turbo" in str(model_id).lower()
+
+
+def krea_sample_card(model_id: str) -> dict[str, float | int | str]:
+    """Live sample card. Train LoRAs on Raw; run on Turbo."""
+    if krea_looks_turbo(model_id):
+        return {
+            "variant": "turbo",
+            "sample_steps": KREA_TURBO_STEPS,
+            "sample_guidance": KREA_TURBO_CFG,
+        }
+    return {
+        "variant": "raw",
+        "sample_steps": KREA_RAW_STEPS,
+        "sample_guidance": KREA_RAW_CFG,
+    }
+
+
+def krea_cfg_direction(v_cond: torch.Tensor, v_uncond: torch.Tensor) -> torch.Tensor:
+    """Conceptmod Krea concept direction: ``v(z,t,c) − v(z,t,'')``."""
+    return v_cond - v_uncond
+
+
+def krea_cfg_compose(
+    v_cond: torch.Tensor,
+    v_uncond: torch.Tensor,
+    guidance: float,
+) -> torch.Tensor:
+    """Krea convention: ``cond + g*(cond − uncond)`` when ``g > 0``.
+
+    Turbo trains and samples at ``g = 0`` (CFG off). Raw samples at 4.5.
+    """
+    if guidance and float(guidance) > 0.0:
+        return v_cond + float(guidance) * (v_cond - v_uncond)
+    return v_cond
+
+
+def krea_plus_neu_teachers(
+    v_pos: torch.Tensor,
+    v_neu: torch.Tensor,
+    v_uncond: torch.Tensor | None = None,
+    *,
+    guidance: float = 0.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """UNI teachers: +1 → + concept velocity, scale 0 → ``v(neu)``.
+
+    When ``guidance > 0`` and ``v_uncond`` is given, the + teacher is
+    CFG-composed ``v(pos) + g*(v(pos)−v(''))`` so Raw's 4.5 sample card
+    maps. Scale 0 is the slider off: raw ``v(neu)``, never CFG of neu
+    and never leftover-gated. ``v_neg`` is not a teacher.
+    """
+    if v_uncond is not None and float(guidance) > 0.0:
+        return krea_cfg_compose(v_pos, v_uncond, guidance), v_neu
+    return v_pos, v_neu
+
+
+def krea_plus_neu_loss(
+    pred_plus: torch.Tensor,
+    tgt_plus: torch.Tensor,
+    pred_zero: torch.Tensor,
+    tgt_zero: torch.Tensor,
+) -> torch.Tensor:
+    """UNI velocity MSE: student +1 fits ``v(pos)``, student 0 fits ``v(neu)``.
+
+    No minus MSE, no pair-odd, no ``h0 ± a``. Image analog of
+    ``lm_plus_neu_loss`` — not lyric-hold.
+    """
+    return F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_zero, tgt_zero)
+
+
+def krea_minus_canary(v_neg: torch.Tensor, v_uncond: torch.Tensor) -> torch.Tensor:
+    """Minus CFG direction for logging only. Never a teacher."""
+    return krea_cfg_direction(v_neg, v_uncond)
+
+
+def krea_word_tokens(text: str) -> list[str]:
+    """Whitespace tokens. Image analog of a lyric span — not Music 3 lyrics."""
+    cleaned = str(text).replace(",", " ").replace(".", " ")
+    return [part.lower() for part in cleaned.split() if part.strip()]
+
+
+def krea_concept_words(positive: str, neutral: str) -> set[str]:
+    """Words in the + prompt that are not in neu — do not hold these."""
+    return set(krea_word_tokens(positive)) - set(krea_word_tokens(neutral))
+
+
+def krea_unused_hold_mask(
+    pos_tokens: Sequence[str],
+    neu_tokens: Sequence[str],
+    unused_words: Iterable[str] | None = None,
+) -> list[bool]:
+    """True where a pos token is held to encode(neu).
+
+    Unused = shared skeleton (in neu) or a declared unused attribute.
+    Concept words (in pos, not in neu) are never held, even if someone
+    lists them as an attribute.
+    """
+    concept = set(pos_tokens) - set(neu_tokens)
+    unused = {str(w).lower().strip() for w in (unused_words or ()) if str(w).strip()}
+    neu_set = set(neu_tokens)
+    mask: list[bool] = []
+    for tok in pos_tokens:
+        if tok in concept:
+            mask.append(False)
+        elif tok in unused or tok in neu_set:
+            mask.append(True)
+        else:
+            mask.append(False)
+    return mask
+
+
+def krea_neu_token_lookup(
+    neu_embeds: torch.Tensor,
+    neu_tokens: Sequence[str],
+) -> dict[str, torch.Tensor]:
+    """First encode(neu) vector for each unused / shared token."""
+    if neu_embeds.dim() == 3:
+        neu_embeds = neu_embeds.reshape(-1, neu_embeds.shape[-1])
+    lookup: dict[str, torch.Tensor] = {}
+    for i, tok in enumerate(neu_tokens):
+        if i >= int(neu_embeds.shape[0]):
+            break
+        if tok not in lookup:
+            lookup[tok] = neu_embeds[i]
+    return lookup
+
+
+def krea_hold_unused_embeds(
+    pos_embeds: torch.Tensor,
+    neu_embeds: torch.Tensor,
+    pos_tokens: Sequence[str],
+    neu_tokens: Sequence[str],
+    unused_mask: Sequence[bool] | None = None,
+) -> torch.Tensor:
+    """Copy encode(neu) onto unused pos-token positions. Concept words stay."""
+    mask = unused_mask
+    if mask is None:
+        mask = krea_unused_hold_mask(pos_tokens, neu_tokens)
+    lookup = krea_neu_token_lookup(neu_embeds, neu_tokens)
+    flat = pos_embeds.reshape(-1, pos_embeds.shape[-1]).clone()
+    for i, (tok, hold) in enumerate(zip(pos_tokens, mask)):
+        if i >= int(flat.shape[0]):
+            break
+        if hold and tok in lookup:
+            flat[i] = lookup[tok]
+    return flat.reshape_as(pos_embeds)
+
+
+def krea_unused_hold_loss(
+    pred_embeds: torch.Tensor,
+    neu_embeds: torch.Tensor,
+    pos_tokens: Sequence[str],
+    neu_tokens: Sequence[str],
+    unused_mask: Sequence[bool] | None = None,
+) -> torch.Tensor:
+    """MSE unused student tokens → encode(neu). Concept words excluded.
+
+    Empty unused span is 0 (a prompt with no shared tokens has no hold),
+    not a fail-closed lyric span.
+    """
+    mask = unused_mask
+    if mask is None:
+        mask = krea_unused_hold_mask(pos_tokens, neu_tokens)
+    held = krea_hold_unused_embeds(
+        pred_embeds, neu_embeds, pos_tokens, neu_tokens, mask
+    )
+    pred_flat = pred_embeds.reshape(-1, pred_embeds.shape[-1])
+    held_flat = held.reshape(-1, held.shape[-1])
+    keep = [i for i, flag in enumerate(mask) if flag and i < int(pred_flat.shape[0])]
+    if not keep:
+        return pred_flat.new_zeros(())
+    idx = torch.tensor(keep, device=pred_flat.device)
+    return F.mse_loss(pred_flat.index_select(0, idx), held_flat.index_select(0, idx))
+
+
+def expand_attributes_krea(row: dict) -> list[dict]:
+    """Pin unused attributes onto target / pos / neu (and canary neg).
+
+    Same prefixing as Music 3 so the unused trait is present both ways.
+    The minus caption is still canary-only — expansion does not make it
+    a teacher.
+    """
+    attributes = row.get("attributes")
+    if not attributes:
+        return [dict(row)]
+    rows = []
+    for attribute in attributes:
+        prefix = str(attribute).strip()
+        item = dict(row)
+        for key in ("target", "positive", "negative", "neutral"):
+            value = row.get(key)
+            if value:
+                item[key] = f"{prefix} {value}"
+        rows.append(item)
+    return rows
