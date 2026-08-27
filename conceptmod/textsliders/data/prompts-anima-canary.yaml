@@ -1,0 +1,14 @@
+# Same UNI slider, with a minus pole left in as a canary (not a teacher).
+plus_label: smiling
+minus_label: frowning
+recommended_range: [-2.0, 2.0]
+rows:
+  - target: "a woman sitting on a chair"
+    positive: "a smiling woman sitting on a chair"
+    negative: "a frowning woman sitting on a chair"
+    neutral: "a woman sitting on a chair"
+    attributes:
+      - indoor
+    action: enhance
+    guidance_scale: 4
+    resolution: 768

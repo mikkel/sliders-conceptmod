@@ -1,0 +1,324 @@
+"""CPU fake Anima: tiny flow DiT with the live LoRA contract.
+
+No Hub, no GPU, no 2B weights. Same geometry the live trainer feeds:
+
+    v(z, t, c) − v(z, t, '')
+
+Attention linears are named ``to_q`` / ``to_k`` / ``to_v`` / ``to_out.0``
+so LoRA attaches exactly as CircleStone's Anima card. ``text_conditioner``
+exists and is frozen. Frozen ref = adapter disabled (scale 0).
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from conceptmod.textsliders.anima_slider import (
+    DEFAULT_RANK,
+    LORA_TARGETS,
+    word_tokens,
+)
+
+LATENT_CHANNELS = 4
+LATENT_HW = 8
+TEXT_DIM = 8
+Z_DIM = LATENT_CHANNELS * LATENT_HW * LATENT_HW
+MAX_TOKENS = 24
+
+
+class AnimaFakeAttention(nn.Module):
+    """Minimal attn whose Linear names match the live Anima LoRA targets."""
+
+    def __init__(self, dim: int = TEXT_DIM):
+        super().__init__()
+        self.to_q = nn.Linear(dim, dim, bias=False)
+        self.to_k = nn.Linear(dim, dim, bias=False)
+        self.to_v = nn.Linear(dim, dim, bias=False)
+        self.to_out = nn.ModuleList([nn.Linear(dim, dim, bias=False)])
+        for layer in (self.to_q, self.to_k, self.to_v, self.to_out[0]):
+            nn.init.eye_(layer.weight)
+
+    def project_text(self, embeds: torch.Tensor) -> torch.Tensor:
+        """Per-token text features after ``to_v`` / ``to_out.0`` (hold site)."""
+        return self.to_out[0](self.to_v(embeds))
+
+    def forward(self, hidden: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+        q = self.to_q(hidden)
+        k = self.to_k(context)
+        v = self.to_v(context)
+        scale = hidden.shape[-1] ** -0.5
+        attn = torch.softmax(q @ k.transpose(-1, -2) * scale, dim=-1)
+        return self.to_out[0](attn @ v)
+
+
+class AnimaFakeDiT(nn.Module):
+    """``v = proj_out(attn(proj_in(z, t), text))``.
+
+    Unused words live on axis 0 of the embedding table; concept words on
+    axis 1. CFG geometry is therefore in ``v(c) − v('')``.
+    """
+
+    def __init__(self, seed: int = 0):
+        super().__init__()
+        g = torch.Generator().manual_seed(seed)
+        self.proj_in = nn.Linear(Z_DIM + 1, TEXT_DIM)
+        self.attn = AnimaFakeAttention(TEXT_DIM)
+        self.proj_out = nn.Linear(TEXT_DIM, Z_DIM)
+        # Fixed class path: unused vs concept stay linearly separable so
+        # UNI has a teacher the attn LoRA can actually chase.
+        self.text_out = nn.Linear(TEXT_DIM, Z_DIM, bias=False)
+        # CircleStone forbids training this. Present so tests can assert.
+        self.text_conditioner = nn.Identity()
+        nn.init.normal_(self.proj_in.weight, std=0.02, generator=g)
+        nn.init.zeros_(self.proj_in.bias)
+        nn.init.normal_(self.proj_out.weight, std=0.02, generator=g)
+        nn.init.zeros_(self.proj_out.bias)
+        with torch.no_grad():
+            self.text_out.weight.zero_()
+            self.text_out.weight[0, 0] = 1.0
+            self.text_out.weight[1, 1] = 2.5
+        table = torch.zeros(64, TEXT_DIM)
+        # unused / subject cluster
+        table[1, 0] = 1.0
+        # concept cluster (stronger so pos ⟂ unused is visible)
+        table[2, 1] = 1.0
+        self.register_buffer("class_table", table)
+        self._token_ids: dict[str, int] = {}
+
+    def token_id(self, word: str) -> int:
+        key = word.lower()
+        if key in self._token_ids:
+            return self._token_ids[key]
+        # Concept-ish words sit on class 2; everything else on class 1.
+        conceptish = {
+            "smiling",
+            "smile",
+            "grinning",
+            "old",
+            "young",
+            "red",
+            "blue",
+        }
+        idx = 2 if key in conceptish else 1
+        if key in ("",):
+            idx = 0
+        self._token_ids[key] = idx
+        return idx
+
+    def encode_tokens(self, prompt: str) -> tuple[torch.Tensor, list[str]]:
+        tokens = word_tokens(prompt)
+        if not tokens:
+            tokens = [""]
+        tokens = tokens[:MAX_TOKENS]
+        ids = torch.tensor([self.token_id(tok) for tok in tokens], dtype=torch.long)
+        embeds = self.class_table[ids].unsqueeze(0)
+        embeds = self.text_conditioner(embeds)
+        return embeds, tokens
+
+    def forward(
+        self, z: torch.Tensor, timestep: torch.Tensor, embeds: torch.Tensor
+    ) -> torch.Tensor:
+        b = z.shape[0]
+        z_flat = z.reshape(b, -1)
+        t = timestep.to(dtype=z.dtype, device=z.device).reshape(b, 1) / 1000.0
+        hidden = self.proj_in(torch.cat([z_flat, t], dim=-1)).unsqueeze(1)
+        cond = embeds.to(dtype=z.dtype, device=z.device)
+        if cond.ndim == 2:
+            cond = cond.unsqueeze(1)
+        h = self.attn(hidden, cond).mean(dim=1)
+        v = self.proj_out(h) + self.text_out(cond.mean(dim=1))
+        return v.reshape_as(z)
+
+
+class LoRALinear(nn.Module):
+    """Drop-in LoRA around a Linear. B is zero-init (identity at step 0)."""
+
+    def __init__(self, base: nn.Linear, rank: int, alpha: float):
+        super().__init__()
+        self.base = base
+        self.down = nn.Linear(base.in_features, rank, bias=False)
+        self.up = nn.Linear(rank, base.out_features, bias=False)
+        nn.init.kaiming_uniform_(self.down.weight, a=5**0.5)
+        nn.init.zeros_(self.up.weight)
+        self.scale = float(alpha) / float(rank)
+        self.multiplier = 1.0
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        delta = self.up(self.down(x))
+        return self.base(x) + self.multiplier * self.scale * delta
+
+
+def _module_by_path(root: nn.Module, path: str) -> tuple[nn.Module, str]:
+    parts = path.split(".")
+    parent = root
+    for part in parts[:-1]:
+        if part.isdigit():
+            parent = parent[int(part)]  # type: ignore[index]
+        else:
+            parent = getattr(parent, part)
+    return parent, parts[-1]
+
+
+def attach_anima_lora(transformer: nn.Module, rank: int, alpha: float) -> list[LoRALinear]:
+    """Wrap only ``to_q`` / ``to_k`` / ``to_v`` / ``to_out.0``."""
+    wrapped: list[LoRALinear] = []
+    named = dict(transformer.named_modules())
+    for target in LORA_TARGETS:
+        matches = [name for name in named if name == target or name.endswith("." + target)]
+        if not matches:
+            raise RuntimeError(f"Anima LoRA target {target!r} not found on dummy DiT")
+        for name in matches:
+            parent, attr = _module_by_path(transformer, name)
+            base = getattr(parent, attr) if not attr.isdigit() else parent[int(attr)]
+            if not isinstance(base, nn.Linear):
+                raise RuntimeError(f"{name} is {type(base)}, expected Linear")
+            lora = LoRALinear(base, rank=rank, alpha=alpha)
+            if attr.isdigit():
+                parent[int(attr)] = lora  # type: ignore[index]
+            else:
+                setattr(parent, attr, lora)
+            wrapped.append(lora)
+    return wrapped
+
+
+class FakeAnimaBackend:
+    """In-repo Anima stand-in. ``--dummy`` on the trainer."""
+
+    def __init__(
+        self,
+        device: str = "cpu",
+        rank: int = DEFAULT_RANK,
+        seed: int = 0,
+        resolution: int = 64,
+    ):
+        del resolution
+        self.device = torch.device(device)
+        if self.device.type == "cuda" and not torch.cuda.is_available():
+            self.device = torch.device("cpu")
+        self.rank = rank
+        self.latent_shape = (LATENT_CHANNELS, LATENT_HW, LATENT_HW)
+        torch.manual_seed(seed)
+        self.transformer = AnimaFakeDiT(seed=seed).to(self.device)
+        self.loras = attach_anima_lora(self.transformer, rank=rank, alpha=float(rank))
+        self.transformer.to(self.device)
+        self._text_cache: dict[str, tuple[torch.Tensor, list[str]]] = {}
+        self.set_lora_scale(1.0)
+
+    def set_lora_scale(self, scale: float) -> None:
+        for lora in self.loras:
+            lora.multiplier = float(scale)
+
+    @contextmanager
+    def disable_adapter(self):
+        prev = [lora.multiplier for lora in self.loras]
+        self.set_lora_scale(0.0)
+        try:
+            yield
+        finally:
+            for lora, value in zip(self.loras, prev):
+                lora.multiplier = value
+
+    def encode_text(self, prompt: str) -> tuple[torch.Tensor, list[str]]:
+        key = prompt
+        if key not in self._text_cache:
+            embeds, tokens = self.transformer.encode_tokens(prompt)
+            self._text_cache[key] = (embeds.to(self.device), tokens)
+        embeds, tokens = self._text_cache[key]
+        return embeds.to(self.device), tokens
+
+    def _forward(self, z: torch.Tensor, timestep: torch.Tensor, embeds: torch.Tensor):
+        if not torch.is_tensor(timestep):
+            timestep = torch.tensor(timestep, device=self.device)
+        t = timestep.reshape(-1).to(device=self.device, dtype=torch.float32)
+        if t.numel() == 1:
+            t = t.expand(z.shape[0])
+        return self.transformer(z.to(self.device), t, embeds.to(self.device)).float()
+
+    def predict_v(
+        self,
+        prompt: str,
+        z: torch.Tensor,
+        timestep: torch.Tensor,
+        frozen: bool = False,
+        scale: float | None = None,
+    ) -> torch.Tensor:
+        embeds, _tokens = self.encode_text(prompt)
+        if frozen:
+            with torch.no_grad(), self.disable_adapter():
+                return self._forward(z, timestep, embeds)
+        if scale is not None:
+            prev = [lora.multiplier for lora in self.loras]
+            self.set_lora_scale(scale)
+            try:
+                return self._forward(z, timestep, embeds)
+            finally:
+                for lora, value in zip(self.loras, prev):
+                    lora.multiplier = value
+        return self._forward(z, timestep, embeds)
+
+    def text_features(
+        self, prompt: str, frozen: bool = False, scale: float | None = None
+    ) -> tuple[torch.Tensor, list[str]]:
+        embeds, tokens = self.encode_text(prompt)
+        attn = self.transformer.attn
+
+        def _run():
+            return attn.project_text(embeds.to(self.device))
+
+        if frozen:
+            with torch.no_grad(), self.disable_adapter():
+                return _run(), tokens
+        if scale is not None:
+            prev = [lora.multiplier for lora in self.loras]
+            self.set_lora_scale(scale)
+            try:
+                return _run(), tokens
+            finally:
+                for lora, value in zip(self.loras, prev):
+                    lora.multiplier = value
+        return _run(), tokens
+
+    def trainable_parameters(self) -> list[nn.Parameter]:
+        params = []
+        for lora in self.loras:
+            params.extend([lora.down.weight, lora.up.weight])
+        return params
+
+    def lora_B_norm(self) -> float:
+        total = 0.0
+        for lora in self.loras:
+            total += lora.up.weight.detach().float().pow(2).sum().item()
+        return total**0.5
+
+    def named_trainable(self) -> list[str]:
+        names = []
+        for name, param in self.transformer.named_parameters():
+            if param.requires_grad and ("down.weight" in name or "up.weight" in name):
+                names.append(name)
+        return names
+
+
+def write_plus_alignment(
+    backend: FakeAnimaBackend,
+    neu: str,
+    pos: str,
+    seed: int = 0,
+) -> float:
+    """Cosine of student(+1, neu) CFG vs frozen(pos) CFG."""
+    from conceptmod.textsliders.anima_slider import anima_cfg_delta
+
+    g = torch.Generator(device="cpu").manual_seed(seed + 3)
+    z = torch.randn((1, *backend.latent_shape), generator=g, device=backend.device)
+    t = torch.tensor([500.0], device=backend.device)
+    with torch.no_grad():
+        v_pos = backend.predict_v(pos, z, t, frozen=True)
+        v_null = backend.predict_v("", z, t, frozen=True)
+        v_s = backend.predict_v(neu, z, t, frozen=False, scale=1.0)
+        v_s_null = backend.predict_v("", z, t, frozen=False, scale=1.0)
+    d_t = anima_cfg_delta(v_pos, v_null).flatten().unsqueeze(0)
+    d_s = anima_cfg_delta(v_s, v_s_null).flatten().unsqueeze(0)
+    return F.cosine_similarity(d_s, d_t, dim=1, eps=1e-6).item()
