@@ -29,6 +29,7 @@ import json
 import os
 import random
 import sys
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -292,8 +293,15 @@ class _LiveSana:
         if tokenizer is None:
             raise RuntimeError("Sana pipeline has no tokenizer")
         encoded = tokenizer(text, add_special_tokens=False)
-        ids = encoded["input_ids"] if isinstance(encoded, dict) else encoded
-        if ids and isinstance(ids[0], list):
+        ids = getattr(encoded, "input_ids", None)
+        if ids is None:
+            if isinstance(encoded, Mapping):
+                ids = encoded["input_ids"]
+            else:
+                ids = encoded
+        if hasattr(ids, "tolist"):
+            ids = ids.tolist()
+        if ids and isinstance(ids[0], (list, tuple)):
             ids = ids[0]
         return [int(t) for t in ids]
 

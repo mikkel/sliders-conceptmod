@@ -38,6 +38,7 @@ from conceptmod.textsliders.slider_targets import (
 )
 from conceptmod.textsliders.train_lora_music3 import parse_args as parse_music3
 from conceptmod.textsliders.train_lora_sana import (
+    _LiveSana,
     assert_sana_only,
     dummy_tokenize,
     load_prompts,
@@ -223,6 +224,38 @@ def test_refuses_foreign_backends():
     with pytest.raises(ValueError, match="Sana-only"):
         assert_sana_only("circlestone-labs/Anima-Base-v1.0-Diffusers")
     assert_sana_only(SANA_MODEL_ID)
+
+
+def test_live_tokenize_accepts_userdict_batch_encoding():
+    """HF BatchEncoding is a UserDict, not a dict — do not iterate encoding keys."""
+    from collections import UserDict
+    from types import SimpleNamespace
+
+    class FakeBatchEncoding(UserDict):
+        pass
+
+    class AttrEncoding:
+        def __init__(self, ids):
+            self.input_ids = ids
+
+    class FakeTokenizer:
+        def __init__(self, encoded):
+            self.encoded = encoded
+
+        def __call__(self, text, add_special_tokens=False):
+            assert add_special_tokens is False
+            return self.encoded
+
+    def _tokenize_with(encoded):
+        live = _LiveSana.__new__(_LiveSana)
+        live.pipe = SimpleNamespace(tokenizer=FakeTokenizer(encoded))
+        return live.tokenize("a bowl of fruit")
+
+    userdict = FakeBatchEncoding({"input_ids": [7, 8, 9], "attention_mask": [1, 1, 1]})
+    assert isinstance(userdict, dict) is False
+    assert _tokenize_with(userdict) == [7, 8, 9]
+    assert _tokenize_with(AttrEncoding(torch.tensor([[11, 12, 13]]))) == [11, 12, 13]
+    assert _tokenize_with([[21, 22], [99]]) == [21, 22]
 
 
 def test_dummy_train_never_imports_hub(tmp_path, monkeypatch):
