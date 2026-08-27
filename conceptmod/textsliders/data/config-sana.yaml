@@ -1,0 +1,31 @@
+prompts_file: "conceptmod/textsliders/data/prompts-sana.yaml"
+pretrained_model:
+  name_or_path: "Efficient-Large-Model/Sana_600M_512px_diffusers"
+  v2: false
+  v_pred: false
+network:
+  type: "lierla"
+  rank: null
+  alpha: 1.0
+  training_method: "xattn"
+train:
+  precision: "float32"
+  noise_scheduler: "builtin"
+  iterations: 500
+  lr: 0.00002
+  optimizer: "AdamW"
+  lr_scheduler: "constant"
+  resolution: 512
+  sample_steps: 20
+  sample_guidance: 4.5
+save:
+  name: "age-sana"
+  path: "models/sana-slider"
+  per_steps: 100
+  precision: "bfloat16"
+logging:
+  use_wandb: false
+  verbose: false
+other:
+  use_xformers: false
+  control_prompt: "a bowl of fruit on a table"
