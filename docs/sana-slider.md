@@ -28,9 +28,12 @@ whatever leftover) is pinned both ways. Frozen-embed unused-token hold
 is **off** by default — those encoder embeds have no grad into xattn /
 LoRA. Do **not** MSE student(+1, neu) → `v(neu)`: that cancelled the
 infer path (age-sana dud: fruit held, age barely moved). Declared
-`concept_words` (`happy, smiling, joyful`) are the slider. Happy is the
-example concept because age/old-face renders wander into uncanny
-artifacts; the UNI analog is unchanged.
+`concept_words` (`smiling, happy, joyful, smile`) are the slider.
+Stronger smile positives (`a person smiling, happy expression`) because
+stock Sana already smiles on those; weak "a happy person" plus was not
+enough for the slider to move expression. Happy is the example concept
+because age/old-face renders wander into uncanny artifacts; the UNI
+analog is unchanged (#62: train/infer +1 on neu; + is CFG teacher only).
 
 Fail closed if the + prompt does not contain any concept-word tokens
 (teacher construction still reads the + caption).
@@ -99,10 +102,12 @@ python scripts/smoke_sana_slider.py
 
 ## Yaml
 
-`conceptmod/textsliders/data/prompts-sana.yaml`: positive / neutral,
+`conceptmod/textsliders/data/prompts-sana.yaml`: stronger-smile
+positive / neutral (`a person smiling, happy expression` / `a person`),
 unused `attributes` pinned (`male`, `female`). `negative` is stored
 for the canary and is not a teacher. `control_prompt` is the fruit
-bowl — verify only, never a teacher.
+bowl — verify only, never a teacher. Neutral stays `a person` so
+student +1 matches infer (#62).
 
 ## Related
 

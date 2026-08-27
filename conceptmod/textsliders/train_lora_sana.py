@@ -94,6 +94,8 @@ DUMMY_VOCAB = {
     "sad": 17,
     "smiling": 18,
     "joyful": 19,
+    "smile": 20,
+    "expression": 21,
 }
 
 
