@@ -998,7 +998,9 @@ Music 3 backends (`music3`, `music3_lm`) landed in
 
 Krea verification (the Krea map is still derived from conceptmod's loader,
 not a known-good ComfyUI LoRA) and further Qwen / Music 3 CLIP work happen
-on conceptmod. Do not duplicate them here.
+on conceptmod. Do not duplicate the converter here. The opt-in Krea
+**image-slider trainer** is [docs/krea-slider.md](docs/krea-slider.md)
+(`train_lora_krea.py`). It does not change this Music 3 default.
 
 ```bash
 # clone mikkel/conceptmod at main (8f865fe or later)

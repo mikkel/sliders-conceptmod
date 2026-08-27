@@ -1,0 +1,27 @@
+# Krea image UNI slider — plus = old, neu = person.
+#
+# Unused attributes (male / female) are pinned both ways so the age
+# axis cannot eat gender. Minus is a canary only — not a teacher.
+#
+# Train on krea/Krea-2-Raw (rank 16, 512 px, 28 steps, CFG 4.5).
+# Official: train LoRAs on Raw, run on Turbo (8 steps, CFG 0).
+plus_label: Old
+minus_label: Young
+recommended_range: [-2.0, 2.0]
+rows:
+  - target: "a photo of a person"
+    positive: "a photo of an old person"
+    neutral: "a photo of a person"
+    negative: "a photo of a young person"
+    attributes: ["male", "female"]
+    action: enhance
+    guidance_scale: 4.5
+    resolution: 512
+  - target: "a portrait of a person"
+    positive: "a portrait of an old person"
+    neutral: "a portrait of a person"
+    negative: "a portrait of a young person"
+    attributes: ["male", "female"]
+    action: enhance
+    guidance_scale: 4.5
+    resolution: 512

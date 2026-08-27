@@ -5,6 +5,11 @@ shipped sliders, GPU pitfalls) and [slider_pipeline/README.md](slider_pipeline/R
 (paired recipe-comparison runbook). Listen sets live in `eval/listen/`. Use the
 `minimax-music3` conda env and **do not** `pip install -r requirements.txt`.
 
+**Krea image sliders (opt-in):** see [docs/krea-slider.md](docs/krea-slider.md).
+UNI analog on `krea/Krea-2-Raw` (train LoRAs on Raw, run on Turbo). Rank 16,
+512 px, Raw 28 steps CFG 4.5 / Turbo 8 steps CFG 0. Does not change the
+Music 3 default. Anima / ZiT / H3 are not in this trainer.
+
 ###  [Project Website](https://sliders.baulab.info) | [Arxiv Preprint](https://arxiv.org/pdf/2311.12092.pdf) | [Trained Sliders](https://sliders.baulab.info/weights/xl_sliders/) | [Colab Demo](https://colab.research.google.com/github/rohitgandikota/sliders/blob/main/demo_concept_sliders.ipynb) <br>
 Official code implementation of "Concept Sliders: LoRA Adaptors for Precise Control in Diffusion Models"
 
