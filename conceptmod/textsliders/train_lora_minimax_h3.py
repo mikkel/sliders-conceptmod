@@ -4,6 +4,7 @@
 Default Music 3 trainers are unchanged (``--lm_target v9`` / ``--pole_mode hidden``).
 
 Live card: ``MiniMaxAI/MiniMax-H3`` variant FL2VA, workflow t2va.
+LoRA-up defaults to ``N(0, 0.02)`` so UNI is not the zero-adapter identity.
 After train (or ``--steps 0 --load_h3_lora``) writes t2va mp4s under
 ``save_dir/samples/``. ``--dummy`` is the CI / CPU path: no Hub, no GPU,
 no MiniMax-H3 weights.
@@ -24,6 +25,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from conceptmod.textsliders.minimax_h3_backend import (
+    DEFAULT_LORA_UP_INIT_STD,
     DEFAULT_MODEL,
     DEFAULT_SAMPLE_DURATION,
     DEFAULT_TASK_INDEX,
@@ -38,6 +40,7 @@ from conceptmod.textsliders.minimax_h3_backend import (
     MiniMaxH3Backend,
     h3_canvas_hw,
     h3_num_frames,
+    h3_pack_feature_dim,
 )
 from conceptmod.textsliders.minimax_h3_uni import (
     concept_token_ids,
@@ -75,6 +78,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--rank", type=int, default=8)
     p.add_argument("--alpha", type=float, default=8.0)
+    p.add_argument(
+        "--lora_up_init_std",
+        type=float,
+        default=DEFAULT_LORA_UP_INIT_STD,
+        help=(
+            "N(0, std) on LoRA-up (default 0.02). Zero-init is UNI identity: "
+            "scale-1 vs scale-0 gap is 0 and loss stays 0.0000 (live B300 "
+            "rank8 × 800). Pass 0 to restore zeros for ablation."
+        ),
+    )
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--steps", type=int, default=500)
     p.add_argument("--seed", type=int, default=7)
@@ -185,7 +198,12 @@ def parse_sample_scales(text: str) -> list[float]:
 
 
 def sample_prompts_from_rows(rows: list[dict], max_rows: int | None = None) -> list[str]:
-    """Unique yaml ``target`` (subject, no plus lighting) for the scale grid."""
+    """Unique yaml ``target`` (subject, no plus lighting) for the scale grid.
+
+    This is the neu subject, not the plus caption. Plus-oracle clips
+    (plus lighting at scale 0 as a side-by-side reference) are not
+    emitted here.
+    """
     seen: list[str] = []
     for row in rows:
         target = str(row.get("target") or row.get("neutral") or "").strip()
@@ -210,6 +228,7 @@ def build_backend(args: argparse.Namespace) -> MiniMaxH3Backend:
             short_side=min(int(args.short_side), 32),
             lora_rank=args.rank,
             lora_alpha=args.alpha,
+            lora_up_init_std=float(getattr(args, "lora_up_init_std", DEFAULT_LORA_UP_INIT_STD)),
             dummy=True,
         )
     return MiniMaxH3Backend(
@@ -221,6 +240,7 @@ def build_backend(args: argparse.Namespace) -> MiniMaxH3Backend:
         short_side=args.short_side,
         lora_rank=args.rank,
         lora_alpha=args.alpha,
+        lora_up_init_std=float(getattr(args, "lora_up_init_std", DEFAULT_LORA_UP_INIT_STD)),
         dummy=False,
     )
 
@@ -393,8 +413,12 @@ def train(args: argparse.Namespace, backend: MiniMaxH3Backend | None = None) -> 
     dummy_video = dummy_audio = None
     if args.dummy:
         g = torch.Generator().manual_seed(int(args.seed))
-        dummy_video = torch.randn(1, 2, int(backend.transformer.video_dim), generator=g)
-        dummy_audio = torch.randn(1, 2, int(backend.transformer.audio_dim), generator=g)
+        dummy_video = torch.randn(
+            1, 2, h3_pack_feature_dim(backend.transformer, kind="video"), generator=g,
+        )
+        dummy_audio = torch.randn(
+            1, 2, h3_pack_feature_dim(backend.transformer, kind="audio"), generator=g,
+        )
     for step in range(int(args.steps)):
         row = rows[step % len(rows)]
         plus_enc = backend.encode_text(row["positive"], frozen=True)
@@ -486,6 +510,9 @@ def train(args: argparse.Namespace, backend: MiniMaxH3Backend | None = None) -> 
         "ref2va": "later path; default is FL2VA t2va",
         "rank": args.rank,
         "alpha": args.alpha,
+        "lora_up_init_std": float(
+            getattr(args, "lora_up_init_std", backend.lora_up_init_std)
+        ),
         "lr": args.lr,
         "steps": args.steps,
         "seed": args.seed,

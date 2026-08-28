@@ -10,6 +10,7 @@ network:
   type: "lierla"
   rank: 8
   alpha: 8.0
+  lora_up_init_std: 0.02
   training_method: "attn"
   target: "MiniMaxH3Attention"
   linears:

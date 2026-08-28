@@ -83,6 +83,7 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
   --prompts_file conceptmod/textsliders/data/prompts-minimax-h3.yaml \
   --attributes "male, female" \
   --rank 8 --alpha 8 --lr 1e-4 --steps 500 --seed 7 \
+  --lora_up_init_std 0.02 \
   --short_side 768 --guidance 0 --device cuda:0 \
   --save_dir models/age-minimax-h3-uni
 ```
@@ -93,6 +94,8 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 | variant / workflow | FL2VA / t2va |
 | task index | `FL2VA/model_index.json` |
 | rank / alpha | 8 / 8 |
+| LoRA-up init | `N(0, 0.02)` — not zeros (UNI identity) |
+| torch (B300) | **2.13.0+cu130** (`2.6+cu124` has no sm_103; not Music 3) |
 | short side | 768 |
 | CFG | distilled; guidance **0** |
 | device | `cuda:0` (live) |
@@ -103,12 +106,32 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 Live load needs a current `diffusers` with MiniMax-H3 ModularPipeline. Do **not**
 `pip install -r requirements.txt` on the Music 3 env.
 
+**B300 torch:** Blackwell `sm_103` needs **`torch 2.13.0+cu130`** (or newer
+cu130). `2.6+cu124` has no `sm_103` and will not run on B300. Install that
+wheel **only on the H3/B300 box**. Do **not** force it into the Music 3
+(`minimax-music3`) env.
+
+**LoRA-up init:** default is `N(0, 0.02)` (`--lora_up_init_std 0.02`). Classic
+zero-init makes UNI identity (scale-1 == scale-0) so loss stays `0.0000` and
+nothing trains. Pass `--lora_up_init_std 0` only for that ablation.
+
 ## Live train card (chiaroscuro-minimax-h3-uni)
 
-First **live** H3 train+sample. Prefer **1× B200 / B300** (bf16 ModularPipeline
-`pipe.to(cuda:0)` is ~135 GB: transformer 61.7 + Qwen3-VL-32B 62.1 + VAEs).
-Same flags as the age card (rank 8, alpha 8, lr 1e-4, steps 500, short_side
-768, guidance 0, FL2VA / t2va). Prompts are a **chiaroscuro / dramatic
+First **live** H3 train+sample (`slider-h3-chiaro-v1` on **B300**). Prefer
+**1× B200 / B300** (bf16 ModularPipeline `pipe.to(cuda:0)` is ~135 GB:
+transformer 61.7 + Qwen3-VL-32B 62.1 + VAEs).
+
+**First live finding:** rank8 × 800 with classic **zero-init LoRA-up** died —
+first→last loss `0.0000` (UNI identity). After tiny LoRA-up `N(0, 0.02)`,
+**rank16 × 1500** actually trained: loss `0.016→0.130`, peak ~`0.21`. Use
+`--lora_up_init_std 0.02` (the default). Do not start a live run at rank8
+with zeros.
+
+B300 needs **`torch 2.13.0+cu130`** (`2.6+cu124` has no `sm_103`). That
+wheel stays on the H3 box; do **not** install it in Music 3.
+
+Same other flags as the age card (alpha=rank, lr 1e-4, short_side 768,
+guidance 0, FL2VA / t2va). Prompts are a **chiaroscuro / dramatic
 lighting** set: same concrete subject on neu and plus (person / interior
 room with chair+table / still-life vase). Neu is flat even lighting / soft
 fill / low contrast (photographic, not cartoon). Plus is chiaroscuro,
@@ -117,7 +140,9 @@ washed-out flat / featureless lighting canary only.
 
 After train the script writes short t2va mp4s under `save_dir/samples/` at
 LoRA scales **0** and **+1** (add `0.5` with `--sample_scales 0,0.5,1`) for
-each unique yaml target. Guidance stays **0**. Sample-only reload:
+each unique yaml **target** (neu subject, no plus lighting). Plus-oracle
+clips (plus caption at scale 0) are not emitted. Guidance stays **0**.
+Sample-only reload:
 
 `--steps 0 --load_h3_lora <dir>` (custom `lora_h3-…` keys, not PEFT).
 
@@ -133,18 +158,25 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
   --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
   --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
   --attributes "male, female" \
-  --rank 8 --alpha 8 --lr 1e-4 --steps 500 --seed 7 \
+  --rank 16 --alpha 16 --lr 1e-4 --steps 1500 --seed 7 \
+  --lora_up_init_std 0.02 \
   --short_side 768 --guidance 0 --device cuda:0 \
   --sample_scales 0,1 --sample_duration 5 --sample_fps 24 \
   --save_dir models/chiaroscuro-minimax-h3-uni
 ```
+
+A short rank8 / 500 smoke is fine **only** with `--lora_up_init_std 0.02`
+(not zeros). The first live B300 run that worked was **rank16 × 1500**.
 
 | field | value |
 |---|---|
 | hub id | `MiniMaxAI/MiniMax-H3` |
 | variant / workflow | FL2VA / t2va |
 | task index | `FL2VA/model_index.json` |
-| rank / alpha | 8 / 8 |
+| rank / alpha | **16 / 16** (first working live; rank8 zero-init died) |
+| steps | **1500** (first working live) |
+| LoRA-up init | `N(0, 0.02)` — not zeros |
+| torch (B300) | **2.13.0+cu130** (`2.6+cu124` has no sm_103; not Music 3) |
 | short side | 768 (sample canvas 1344×768 16:9) |
 | sample duration / fps | **5 s** / 24 (124 frames after `17n+5` snap; ~5.17 s) |
 | sample scales | 0 and +1 (optional 0.5) |
@@ -173,7 +205,8 @@ CUDA_VISIBLE_DEVICES=0,1 python conceptmod/textsliders/train_lora_minimax_h3.py 
   --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
   --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
   --attributes "male, female" \
-  --rank 8 --alpha 8 --lr 1e-4 --steps 500 --seed 7 \
+  --rank 16 --alpha 16 --lr 1e-4 --steps 1500 --seed 7 \
+  --lora_up_init_std 0.02 \
   --short_side 768 --guidance 0 \
   --device cuda:0 --encoder_device cuda:1 \
   --save_dir models/chiaroscuro-minimax-h3-uni
@@ -193,8 +226,10 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 
 If that short run is weak (contrast barely moves, or the subject drifts),
 escalate. VRAM / iterations are unrestricted until **sampled videos** look
-solid — watch the clips, do not gate on last-50 c+. First bump is rank 16
-/ 800 steps; if still weak take it to 1500. Recommended escalate:
+solid — watch the clips, do not gate on last-50 c+. First live that moved
+loss was already rank16 × 1500 after rank8 zero-init death; if 1500 is
+still weak, keep rank 16 and add steps rather than going back to zeros.
+Recommended escalate:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
@@ -206,6 +241,7 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
   --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
   --attributes "male, female" \
   --rank 16 --alpha 16 --lr 1e-4 --steps 1200 --seed 7 \
+  --lora_up_init_std 0.02 \
   --short_side 768 --guidance 0 --device cuda:0 \
   --sample_scales 0,1 --sample_duration 5 --sample_fps 24 \
   --save_dir models/chiaroscuro-minimax-h3-uni-r16
