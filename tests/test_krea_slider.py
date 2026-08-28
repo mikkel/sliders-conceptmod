@@ -98,6 +98,7 @@ from conceptmod.textsliders.train_lm_slider_music3 import parse_args as parse_lm
 ROOT = Path(__file__).resolve().parents[1]
 KREA_YAML = ROOT / "conceptmod/textsliders/data/prompts-krea.yaml"
 KREA_HAPPY_YAML = ROOT / "conceptmod/textsliders/data/prompts-krea-happy.yaml"
+KREA_DETAILED_YAML = ROOT / "conceptmod/textsliders/data/prompts-krea-detailed.yaml"
 KREA_TRAINER = ROOT / "conceptmod/textsliders/train_lora_krea.py"
 KREA_LIVE = ROOT / "conceptmod/textsliders/krea_live.py"
 
@@ -300,6 +301,44 @@ def test_happy_yaml_is_bare_smile_not_age():
     sample = infer_sample_prompts(prompts, meta.control_prompt)
     assert meta.control_prompt in sample
     assert all("teeth" not in cap for cap in sample if cap != meta.control_prompt)
+
+
+def test_detailed_yaml_is_bare_not_smile():
+    prompts, meta = load_prompts(KREA_DETAILED_YAML)
+    assert meta.plus_label == "Detailed"
+    assert meta.minus_label == "Simple"
+    assert meta.bare_captions is True
+    assert meta.recommended_range == [0.0, 2.0]
+    assert meta.control_prompt == KREA_CONTROL_PROMPT
+    assert "detailed" in meta.concept_words
+    assert "intricate" in meta.concept_words
+    assert "texture" in meta.concept_words
+    assert "smile" not in meta.concept_words
+    assert "teeth" not in meta.concept_words
+    assert len(prompts) == 3  # bare: one copy per scene row
+    for prompt in prompts:
+        assert prompt.positive
+        assert prompt.neutral
+        assert not prompt.positive.startswith("male ")
+        assert not prompt.positive.startswith("female ")
+        assert "detailed" in prompt.positive
+        assert "intricate" in prompt.positive
+        assert "simple" in prompt.neutral
+        assert "flat" in prompt.neutral
+        assert "detailed" not in prompt.neutral
+        assert "intricate" not in prompt.neutral
+        unused = unused_words_for(prompt)
+        assert "male" in unused and "female" in unused
+        concept = krea_concept_words(prompt.positive, prompt.neutral)
+        assert "detailed" in concept or "intricate" in concept
+        assert "smile" not in concept
+        assert prompt.negative  # canary only
+        assert "washed-out" in prompt.negative or "featureless" in prompt.negative
+    sample = infer_sample_prompts(prompts, meta.control_prompt)
+    assert meta.control_prompt in sample
+    assert all(
+        "detailed" not in cap for cap in sample if cap != meta.control_prompt
+    )
 
 
 def test_bare_captions_do_not_prefix_attributes():
@@ -1010,6 +1049,18 @@ def test_velocity_path_still_default_after_embed_flag():
     assert torch.isfinite(loss)
     assert KREA_EMBED_EARLY_LAYERS == 2
     assert KREA_EMBED_LATE_LAYER_START == 6
+
+
+def test_docs_list_detail_krea_v1_card():
+    docs = (ROOT / "docs/krea-slider.md").read_text(encoding="utf-8")
+    assert "--name detail-krea-v1" in docs
+    assert "prompts-krea-detailed.yaml" in docs
+    assert "--lora_targets te --lm_target embed" in docs
+    assert "--embed_cosine_weight 0" in docs
+    assert "--te_dit_mask auto" in docs
+    assert "--steps 800" in docs
+    assert "not embed_cos" in docs or "not `embed_cos`" in docs
+    assert "frozen-plus oracle" in docs or "frozen-plus" in docs
 
 
 def test_docs_list_smile_krea_v4_card():
