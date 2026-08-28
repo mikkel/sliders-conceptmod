@@ -1328,7 +1328,7 @@ def test_embed_struct_moves_embeds_without_chasing_plus_crop():
         with backend.disable_adapter():
             e_n, _ = backend.encode_text(neu)
             e_p, _ = backend.encode_text(pos)
-        return float(anima_embed_delta_cosine(e_s, e_n, e_p))
+        return float(anima_embed_delta_cosine(e_s, e_n, e_p).detach())
 
     before = _cos()
     params = backend.trainable_parameters()

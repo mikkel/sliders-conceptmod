@@ -61,7 +61,7 @@ def dummy_split_report(*, seed: int = 0, traj_steps: int = 4) -> dict:
         with backend.disable_adapter():
             e_n, _ = backend.encode_text(neu)
             e_p, _ = backend.encode_text(pos)
-        return float(anima_embed_delta_cosine(e_s, e_n, e_p))
+        return float(anima_embed_delta_cosine(e_s, e_n, e_p).detach())
 
     before = _cos()
     opt = torch.optim.AdamW(backend.trainable_parameters(), lr=5e-2)
