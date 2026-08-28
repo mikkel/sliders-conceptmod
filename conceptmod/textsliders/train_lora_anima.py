@@ -17,9 +17,11 @@ Live card (documented by ``scripts/smoke_anima_slider.py``):
            (same nn.Module as encode_text). train_faithful encodes via
            backend.encode_text then denoise (loss path).
     lm     --lm_target trajectory (K-step FlowMatch Euler; direct /
-           cfg_delta / same_crop kept). 1-step v-space gap is microscopic
-           on Anima. --teacher same_crop inverts neu and denoises plus
-           from mid-σ so the UNI target does not bundle zoom.
+           cfg_delta / same_crop / embed_struct kept). 1-step v-space
+           gap is microscopic on Anima. --teacher same_crop inverts neu
+           and denoises plus from mid-σ so the UNI target does not
+           bundle zoom. embed_struct splits concept (conditioner
+           embeds → frozen plus) from structure (neu traj lock).
     traj   --traj_steps 4
     every  --sample_every 100 (end-of-train gate always runs)
 
@@ -64,12 +66,16 @@ from conceptmod.textsliders.anima_peft_sync import (
     train_conditioner_module,
 )
 from conceptmod.textsliders.anima_slider import (
-    ANIMA_LM_TARGETS,
+    ANIMA_CONCEPT_TARGETS,
+    ANIMA_LM_TARGET_CHOICES,
     ANIMA_LORA_TARGET_CHOICES,
     ANIMA_TEACHERS,
     CONDITIONER_LORA_TARGETS,
     DEFAULT_CFG,
+    DEFAULT_CONCEPT_TARGET,
     DEFAULT_CONTROL_PROMPT,
+    DEFAULT_EMBED_IDENTITY_WEIGHT,
+    DEFAULT_EMBED_WEIGHT,
     DEFAULT_HOLD_WEIGHT,
     DEFAULT_LM_TARGET,
     DEFAULT_LORA_TARGETS,
@@ -83,6 +89,7 @@ from conceptmod.textsliders.anima_slider import (
     DEFAULT_SAMPLE_SCALES,
     DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
+    DEFAULT_STRUCT_WEIGHT,
     DEFAULT_TEACHER,
     DEFAULT_TEACHER_GAP_BOOST,
     DEFAULT_TEACHER_STRENGTH,
@@ -93,6 +100,8 @@ from conceptmod.textsliders.anima_slider import (
     anima_cfg_delta,
     anima_direct_loss,
     anima_direct_teachers,
+    anima_embed_struct_loss,
+    anima_embed_struct_requires_conditioner,
     anima_recipe_label,
     anima_short_trajectory,
     anima_teacher_pair,
@@ -101,6 +110,7 @@ from conceptmod.textsliders.anima_slider import (
     anima_uni_teachers,
     anima_unused_hold_loss,
     assert_sample_gate,
+    embed_struct_smoke_command,
     image_mean_std,
     infer_sample_prompts,
     live_train_card,
@@ -185,14 +195,56 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--lm_target",
         type=str,
-        choices=ANIMA_LM_TARGETS,
+        choices=ANIMA_LM_TARGET_CHOICES,
         default=DEFAULT_LM_TARGET,
         help=(
             "trajectory (default): K-step FlowMatch Euler "
             "MSE(x_student, x_plus). same_crop is that loss plus an "
-            "invert/img2img plus teacher (crop stays). direct / cfg_delta "
+            "invert/img2img plus teacher (crop stays). embed_struct "
+            "(alias conditioner_embed) splits concept "
+            "MSE(E_θ(neu), sg E_frozen(plus)) from a neu-traj structure "
+            "lock — any yaml, no --teacher_strength. direct / cfg_delta "
             "are 1-step and cannot carry Anima expression "
             "(v-space gap ~1e-4). Music 3 --lm_target v9 is untouched."
+        ),
+    )
+    parser.add_argument(
+        "--concept_target",
+        type=str,
+        choices=ANIMA_CONCEPT_TARGETS,
+        default=None,
+        help=(
+            "embed_struct concept teacher. Default caption = frozen "
+            "encode(plus caption). same_crop is the optional blend "
+            "(still plus embeds; invert σ is not applied to embeds)."
+        ),
+    )
+    parser.add_argument(
+        "--embed_weight",
+        type=float,
+        default=DEFAULT_EMBED_WEIGHT,
+        help=(
+            "weight on MSE(E_θ(neu), sg E_frozen(plus)) for "
+            f"--lm_target embed_struct (default {DEFAULT_EMBED_WEIGHT})"
+        ),
+    )
+    parser.add_argument(
+        "--embed_identity_weight",
+        type=float,
+        default=DEFAULT_EMBED_IDENTITY_WEIGHT,
+        help=(
+            "scale-0 embed identity MSE(E_θ(neu,0), E_frozen(neu)) for "
+            f"embed_struct (default {DEFAULT_EMBED_IDENTITY_WEIGHT}; 0 = off)"
+        ),
+    )
+    parser.add_argument(
+        "--struct_weight",
+        type=float,
+        default=DEFAULT_STRUCT_WEIGHT,
+        help=(
+            "structure lock MSE(x_neu+adapter, x_frozen_neu) for "
+            f"embed_struct (default {DEFAULT_STRUCT_WEIGHT}; stronger "
+            "than --traj_identity_weight so layout cannot follow plus zoom)"
         ),
     )
     parser.add_argument(
@@ -1065,7 +1117,10 @@ def train_dummy(args: argparse.Namespace) -> dict:
         lm_target,
         getattr(args, "teacher", DEFAULT_TEACHER),
         getattr(args, "teacher_strength", DEFAULT_TEACHER_STRENGTH),
+        concept_target=getattr(args, "concept_target", None),
     )
+    if resolved.loss_kind == "embed_struct":
+        anima_embed_struct_requires_conditioner(spec)
     plans = [row_token_plan(row) for row in rows]
     align_row = rows[0]
     infer = align_row.infer_prompt
@@ -1097,6 +1152,12 @@ def train_dummy(args: argparse.Namespace) -> dict:
             teacher_gap_boost=float(args.teacher_gap_boost),
             teacher=resolved.teacher,
             teacher_strength=float(resolved.teacher_strength),
+            concept_target=resolved.concept_target,
+            embed_weight=float(getattr(args, "embed_weight", DEFAULT_EMBED_WEIGHT)),
+            embed_identity_weight=float(
+                getattr(args, "embed_identity_weight", DEFAULT_EMBED_IDENTITY_WEIGHT)
+            ),
+            struct_weight=float(getattr(args, "struct_weight", DEFAULT_STRUCT_WEIGHT)),
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -1129,20 +1190,31 @@ def train_dummy(args: argparse.Namespace) -> dict:
         "sample_every": int(args.sample_every),
         "device": str(device),
         **_sidecar_lora_fields(spec),
-        "recipe": anima_recipe_label(lm_target, resolved.teacher),
+        "recipe": anima_recipe_label(
+            lm_target, resolved.teacher, concept_target=resolved.concept_target
+        ),
         "traj_steps": int(args.traj_steps),
         "traj_identity_weight": float(args.traj_identity_weight),
         "teacher_gap_boost": float(args.teacher_gap_boost),
         "teacher": resolved.teacher,
         "teacher_strength": float(resolved.teacher_strength),
+        **(
+            _embed_struct_sidecar(resolved, args)
+            if resolved.loss_kind == "embed_struct"
+            else {}
+        ),
         "traj_loop": (
             "thin FlowMatch Euler over predict_v "
             "(σ=linspace(1,1/K,K)+0, x←x+(σ_next−σ)*v)"
         ),
         "traj_loss": (
-            "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu)"
-            if resolved.teacher == "caption"
-            else "MSE(x_student, invert_plus) + λ_id*MSE(x_zero, x_neu)"
+            "MSE(E_θ(neu), sg E_frozen(plus)) + λ_struct*MSE(x_student, x_neu)"
+            if resolved.loss_kind == "embed_struct"
+            else (
+                "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu)"
+                if resolved.teacher == "caption"
+                else "MSE(x_student, invert_plus) + λ_id*MSE(x_zero, x_neu)"
+            )
         ),
         "plus_label": meta.plus_label,
         "minus_canary": any(r.has_minus_canary for r in rows),
@@ -1477,6 +1549,38 @@ def _cycle_row(rows, plans, step: int):
     return rows[idx], plans[idx]
 
 
+def _encode_scaled(backend, prompt: str, *, frozen: bool = False, scale: float | None = None):
+    """Conditioner embeds at an adapter scale. Student path keeps grad."""
+    if frozen or scale == 0.0:
+        with torch.no_grad(), peft_adapter_scale(backend, 0.0):
+            return backend.encode_text(prompt)
+    if scale is not None and abs(float(scale) - 1.0) > 1e-8:
+        with peft_adapter_scale(backend, float(scale)):
+            return backend.encode_text(prompt)
+    return backend.encode_text(prompt)
+
+
+def _embed_struct_sidecar(resolved, args) -> dict[str, Any]:
+    return {
+        "concept_target": resolved.concept_target,
+        "embed_weight": float(getattr(args, "embed_weight", DEFAULT_EMBED_WEIGHT)),
+        "embed_identity_weight": float(
+            getattr(args, "embed_identity_weight", DEFAULT_EMBED_IDENTITY_WEIGHT)
+        ),
+        "struct_weight": float(getattr(args, "struct_weight", DEFAULT_STRUCT_WEIGHT)),
+        "embed_struct_loss": (
+            "MSE(E_θ(neu), sg E_frozen(plus)) + "
+            "λ_e0 MSE(E_θ(neu,0), E_frozen(neu)) + "
+            "λ_struct MSE(x_student, x_neu) + λ_id MSE(x_zero, x_neu)"
+        ),
+        "why_general": (
+            "concept lives in conditioner embeds (any yaml plus caption); "
+            "structure lock is the frozen-neu short traj so layout cannot "
+            "follow plus zoom. No per-concept --teacher_strength."
+        ),
+    }
+
+
 def _hold_and_canary(backend, row, plan, hold_weight: float, canary_student, v_neg, v_null):
     feat_s, tokens_s = backend.text_features(row.positive, frozen=False, scale=1.0)
     feat_n, tokens_n = backend.text_features(row.neutral, frozen=True)
@@ -1554,6 +1658,82 @@ def _trajectory_step(
     return loss, canary
 
 
+def _embed_struct_step(
+    backend,
+    row,
+    plan,
+    z,
+    hold_weight: float,
+    traj_steps: int,
+    identity_weight: float,
+    struct_weight: float,
+    embed_weight: float,
+    embed_identity_weight: float,
+    concept_target: str = DEFAULT_CONCEPT_TARGET,
+):
+    """Concept in conditioner embeds; structure lock on frozen neu traj.
+
+    Default concept target is ``stopgrad(E_frozen(plus caption))``.
+    ``concept_target=same_crop`` is the optional blend and still uses
+    plus embeds (invert σ is a pixel teacher, not an embed knob).
+    """
+    del concept_target  # plus embeds either way; documented optional blend
+    infer = row.infer_prompt
+    e_student, _ = _encode_scaled(backend, infer, scale=1.0)
+    with torch.no_grad():
+        e_plus, _ = _encode_scaled(backend, row.positive, frozen=True)
+        e_plus = e_plus.detach()
+        e_neu, _ = _encode_scaled(backend, row.neutral, frozen=True)
+        e_neu = e_neu.detach()
+        x_neu = anima_short_trajectory(
+            backend, row.neutral, z, num_steps=traj_steps, frozen=True
+        )
+        v_null = backend.predict_v(
+            "", z, torch.tensor([1000.0], device=z.device), frozen=True
+        )
+        v_neg = (
+            backend.predict_v(
+                row.negative,
+                z,
+                torch.tensor([1000.0], device=z.device),
+                frozen=True,
+            )
+            if row.has_minus_canary
+            else None
+        )
+    x_student = anima_short_trajectory(
+        backend, infer, z, num_steps=traj_steps, frozen=False, scale=1.0
+    )
+    e_zero = None
+    if float(embed_identity_weight) > 0.0:
+        e_zero, _ = _encode_scaled(backend, infer, scale=0.0)
+    x_zero = None
+    if float(identity_weight) > 0.0:
+        with torch.no_grad():
+            x_zero = anima_short_trajectory(
+                backend, infer, z, num_steps=traj_steps, frozen=False, scale=0.0
+            )
+    loss = anima_embed_struct_loss(
+        e_student,
+        e_plus,
+        e_zero,
+        e_neu,
+        x_student,
+        x_neu,
+        x_zero,
+        embed_weight=embed_weight,
+        embed_identity_weight=embed_identity_weight,
+        struct_weight=struct_weight,
+        identity_weight=identity_weight,
+    )
+    extra, canary = _hold_and_canary(
+        backend, row, plan, hold_weight, x_student.detach(), v_neg, v_null
+    )
+    if extra is not None:
+        loss = loss + extra
+    return loss, canary
+
+
 def _train_step(
     backend,
     row,
@@ -1568,11 +1748,31 @@ def _train_step(
     teacher_gap_boost: float = DEFAULT_TEACHER_GAP_BOOST,
     teacher: str = DEFAULT_TEACHER,
     teacher_strength: float = DEFAULT_TEACHER_STRENGTH,
+    concept_target: str | None = None,
+    embed_weight: float = DEFAULT_EMBED_WEIGHT,
+    embed_identity_weight: float = DEFAULT_EMBED_IDENTITY_WEIGHT,
+    struct_weight: float = DEFAULT_STRUCT_WEIGHT,
 ):
     """Student +1 stays on infer/neu. + caption is teacher only (#62 analog)."""
     infer = row.infer_prompt
-    resolved = resolve_anima_train_recipe(lm_target, teacher, teacher_strength)
+    resolved = resolve_anima_train_recipe(
+        lm_target, teacher, teacher_strength, concept_target=concept_target
+    )
     recipe = resolved.loss_kind
+    if recipe == "embed_struct":
+        return _embed_struct_step(
+            backend,
+            row,
+            plan,
+            z,
+            hold_weight,
+            traj_steps=int(traj_steps),
+            identity_weight=float(traj_identity_weight),
+            struct_weight=float(struct_weight),
+            embed_weight=float(embed_weight),
+            embed_identity_weight=float(embed_identity_weight),
+            concept_target=resolved.concept_target,
+        )
     if recipe == "trajectory":
         return _trajectory_step(
             backend,
@@ -1639,7 +1839,10 @@ def train_live(args: argparse.Namespace) -> dict:
         lm_target,
         getattr(args, "teacher", DEFAULT_TEACHER),
         getattr(args, "teacher_strength", DEFAULT_TEACHER_STRENGTH),
+        concept_target=getattr(args, "concept_target", None),
     )
+    if resolved.loss_kind == "embed_struct":
+        anima_embed_struct_requires_conditioner(spec)
     plans = [row_token_plan(row) for row in rows]
     opt = torch.optim.AdamW(backend.trainable_parameters(), lr=float(args.lr))
     history: list[float] = []
@@ -1667,6 +1870,12 @@ def train_live(args: argparse.Namespace) -> dict:
             teacher_gap_boost=float(args.teacher_gap_boost),
             teacher=resolved.teacher,
             teacher_strength=float(resolved.teacher_strength),
+            concept_target=resolved.concept_target,
+            embed_weight=float(getattr(args, "embed_weight", DEFAULT_EMBED_WEIGHT)),
+            embed_identity_weight=float(
+                getattr(args, "embed_identity_weight", DEFAULT_EMBED_IDENTITY_WEIGHT)
+            ),
+            struct_weight=float(getattr(args, "struct_weight", DEFAULT_STRUCT_WEIGHT)),
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -1700,20 +1909,31 @@ def train_live(args: argparse.Namespace) -> dict:
         "sample_every": int(args.sample_every),
         "device": str(device),
         **_sidecar_lora_fields(spec),
-        "recipe": anima_recipe_label(lm_target, resolved.teacher),
+        "recipe": anima_recipe_label(
+            lm_target, resolved.teacher, concept_target=resolved.concept_target
+        ),
         "traj_steps": int(args.traj_steps),
         "traj_identity_weight": float(args.traj_identity_weight),
         "teacher_gap_boost": float(args.teacher_gap_boost),
         "teacher": resolved.teacher,
         "teacher_strength": float(resolved.teacher_strength),
+        **(
+            _embed_struct_sidecar(resolved, args)
+            if resolved.loss_kind == "embed_struct"
+            else {}
+        ),
         "traj_loop": (
             "thin FlowMatch Euler over predict_v "
             "(σ=linspace(1,1/K,K)+0, x←x+(σ_next−σ)*v)"
         ),
         "traj_loss": (
-            "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu)"
-            if resolved.teacher == "caption"
-            else "MSE(x_student, invert_plus) + λ_id*MSE(x_zero, x_neu)"
+            "MSE(E_θ(neu), sg E_frozen(plus)) + λ_struct*MSE(x_student, x_neu)"
+            if resolved.loss_kind == "embed_struct"
+            else (
+                "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu)"
+                if resolved.teacher == "caption"
+                else "MSE(x_student, invert_plus) + λ_id*MSE(x_zero, x_neu)"
+            )
         ),
         "plus_label": meta.plus_label,
         "minus_canary": any(r.has_minus_canary for r in rows),
@@ -1774,6 +1994,10 @@ def train(args: argparse.Namespace) -> dict:
             teacher=args.teacher,
             teacher_strength=float(args.teacher_strength),
             lora_targets=str(args.lora_targets),
+            concept_target=getattr(args, "concept_target", None) or DEFAULT_CONCEPT_TARGET,
+            embed_weight=float(args.embed_weight),
+            embed_identity_weight=float(args.embed_identity_weight),
+            struct_weight=float(args.struct_weight),
         )
         print(json.dumps(card, indent=2))
         print()
@@ -1799,6 +2023,9 @@ def train(args: argparse.Namespace) -> dict:
                 traj_steps=int(args.traj_steps),
                 teacher_strength=float(args.teacher_strength),
             ))
+        if resolve_anima_lm_target(str(args.lm_target)) == "embed_struct":
+            print()
+            print(embed_struct_smoke_command(traj_steps=int(args.traj_steps)))
         return card
     if args.dummy:
         return train_dummy(args)

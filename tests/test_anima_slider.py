@@ -29,6 +29,10 @@ from conceptmod.textsliders.anima_slider import (
     DEFAULT_SAMPLE_SCALES,
     DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
+    DEFAULT_CONCEPT_TARGET,
+    DEFAULT_EMBED_IDENTITY_WEIGHT,
+    DEFAULT_EMBED_WEIGHT,
+    DEFAULT_STRUCT_WEIGHT,
     DEFAULT_TEACHER,
     DEFAULT_TEACHER_GAP_BOOST,
     DEFAULT_TEACHER_STRENGTH,
@@ -45,6 +49,10 @@ from conceptmod.textsliders.anima_slider import (
     anima_cfg_delta,
     anima_direct_loss,
     anima_direct_teachers,
+    anima_embed_delta_cosine,
+    anima_embed_mse,
+    anima_embed_struct_loss,
+    anima_embed_struct_requires_conditioner,
     anima_fake_crop_code,
     anima_flow_euler_step,
     anima_flow_invert,
@@ -67,7 +75,9 @@ from conceptmod.textsliders.anima_slider import (
     load_anima_prompts,
     looks_like_rgb_noise,
     minus_canary_cosine,
+    embed_struct_smoke_command,
     parse_concept_words,
+    resolve_anima_concept_target,
     resolve_anima_lm_target,
     resolve_anima_lora_targets,
     resolve_anima_teacher,
@@ -131,6 +141,10 @@ def test_anima_cli_defaults_match_live_card():
     assert args.traj_identity_weight == DEFAULT_TRAJ_IDENTITY_WEIGHT == 0.25
     assert args.teacher_gap_boost == DEFAULT_TEACHER_GAP_BOOST == 1.0
     assert args.teacher_strength == DEFAULT_TEACHER_STRENGTH == 0.5
+    assert args.concept_target is None
+    assert args.embed_weight == DEFAULT_EMBED_WEIGHT == 1.0
+    assert args.embed_identity_weight == DEFAULT_EMBED_IDENTITY_WEIGHT == 1.0
+    assert args.struct_weight == DEFAULT_STRUCT_WEIGHT == 1.0
     assert args.control_prompt == DEFAULT_CONTROL_PROMPT
     assert args.sample_every == DEFAULT_SAMPLE_EVERY == 100
     assert args.sample_seed == DEFAULT_SAMPLE_SEED == 42
@@ -163,6 +177,15 @@ def test_anima_cli_defaults_match_live_card():
     assert "invert" in card["same_crop_teacher"]
     assert "--teacher same_crop" in card["same_crop_smoke_4090"]
     assert "--steps 8" in card["same_crop_smoke_4090"]
+    assert "embed_struct" in card["lm_targets"]
+    assert card["concept_target"] == DEFAULT_CONCEPT_TARGET == "caption"
+    assert card["concept_targets"] == ["caption", "same_crop"]
+    assert "E_θ(neu)" in card["embed_struct_split"]
+    assert "teacher_strength" in card["embed_struct_split"]
+    assert "--lm_target embed_struct" in card["embed_struct_smoke_4090"]
+    assert "--teacher_strength" not in card["embed_struct_smoke_4090"]
+    assert card["embed_struct_vs"]["same_crop"]
+    assert "any yaml" in card["embed_struct_vs"]["embed_struct"]
     assert card["traj_steps"] == 4
     assert card["teacher_gap_boost"] == 1.0
     assert "predict_v" in card["traj_loop"]
@@ -639,6 +662,11 @@ def test_print_card_does_not_train():
     assert dit["lora"]["train_text_conditioner"] is False
     assert dit["lora"]["train_dit"] is True
     assert "text_conditioner" in dit["lora"]["frozen_modules"]
+    split = train(parse_args(["--print_card", "--lm_target", "embed_struct"]))
+    assert split["lm_target"] == "embed_struct"
+    assert split["concept_target"] == "caption"
+    assert "E_θ(neu)" in split["embed_struct_loss"]
+    assert "--lm_target embed_struct" in split["embed_struct_smoke_4090"]
 
 
 def test_sample_zt_draws_on_cpu_then_moves():
@@ -881,6 +909,9 @@ def test_anima_lm_target_default_trajectory_rejects_unknown():
     assert resolve_anima_lm_target("cfg_delta") == "cfg_delta"
     assert resolve_anima_lm_target("trajectory") == "trajectory"
     assert resolve_anima_lm_target("same_crop") == "same_crop"
+    assert resolve_anima_lm_target("embed_struct") == "embed_struct"
+    assert resolve_anima_lm_target("conditioner_embed") == "embed_struct"
+    assert resolve_anima_lm_target("embed_structure") == "embed_struct"
     with pytest.raises(ValueError, match="lm_target"):
         resolve_anima_lm_target("v9")
     args = parse_args(["--lm_target", "cfg_delta"])
@@ -891,6 +922,9 @@ def test_anima_lm_target_default_trajectory_rejects_unknown():
     locked = parse_args(["--lm_target", "same_crop", "--teacher", "same_crop"])
     assert locked.lm_target == "same_crop"
     assert locked.teacher == "same_crop"
+    embed = parse_args(["--lm_target", "conditioner_embed"])
+    assert embed.lm_target == "conditioner_embed"
+    assert resolve_anima_lm_target(embed.lm_target) == "embed_struct"
 
 
 def test_direct_loss_is_raw_velocity_mse():
@@ -1213,6 +1247,193 @@ def test_dummy_train_same_crop_runs(tmp_path):
     assert sidecar["loss_last"] is not None
     assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
     assert sidecar["sample_grid"]["n"] == 12
+
+
+def test_embed_struct_resolver_and_cli():
+    assert resolve_anima_concept_target() == "caption"
+    assert resolve_anima_concept_target("plus") == "caption"
+    assert resolve_anima_concept_target("same_crop") == "same_crop"
+    assert resolve_anima_concept_target("invert") == "same_crop"
+    with pytest.raises(ValueError, match="concept_target"):
+        resolve_anima_concept_target("v9")
+    implied = resolve_anima_train_recipe("embed_struct")
+    assert implied.loss_kind == "embed_struct"
+    assert implied.concept_target == "caption"
+    assert implied.teacher == "caption"
+    blend = resolve_anima_train_recipe("embed_struct", "same_crop")
+    assert blend.loss_kind == "embed_struct"
+    assert blend.concept_target == "same_crop"
+    explicit = resolve_anima_train_recipe(
+        "embed_struct", "same_crop", concept_target="caption"
+    )
+    assert explicit.concept_target == "caption"
+    alias = resolve_anima_train_recipe("conditioner_embed")
+    assert alias.lm_target == "embed_struct"
+    args = parse_args(["--lm_target", "embed_struct", "--concept_target", "caption"])
+    assert resolve_anima_lm_target(args.lm_target) == "embed_struct"
+    assert args.concept_target == "caption"
+    smoke = embed_struct_smoke_command()
+    assert "--lm_target embed_struct" in smoke
+    assert "--lora_targets conditioner" in smoke
+    assert "--teacher_strength" not in smoke
+    assert "--steps 8" in smoke
+    with pytest.raises(ValueError, match="conditioner"):
+        anima_embed_struct_requires_conditioner(resolve_anima_lora_targets("dit"))
+    anima_embed_struct_requires_conditioner(resolve_anima_lora_targets("conditioner"))
+
+
+def test_embed_struct_loss_is_concept_plus_structure():
+    plus = torch.tensor([[[2.0, 0.0], [0.0, 1.0]]])
+    student = plus.clone()
+    neu = torch.zeros_like(plus)
+    zero = neu.clone()
+    x_plus = torch.tensor([4.0, 0.0])
+    x_neu = torch.tensor([0.0, 1.0])
+    x_student = x_neu.clone()
+    x_zero = x_neu.clone()
+    base = anima_embed_struct_loss(
+        student, plus, zero, neu, x_student, x_neu, x_zero
+    )
+    assert float(base) == pytest.approx(0.0, abs=1e-8)
+    moved_e = anima_embed_struct_loss(
+        student + 1, plus, zero, neu, x_student, x_neu, x_zero
+    )
+    assert float(moved_e) > float(base)
+    moved_x = anima_embed_struct_loss(
+        student, plus, zero, neu, x_student + 1, x_neu, x_zero
+    )
+    assert float(moved_x) > float(base)
+    # Different caption lengths pool instead of crashing.
+    short = torch.ones(1, 2, 3)
+    long = torch.ones(1, 5, 3)
+    assert float(anima_embed_mse(short, long)) == pytest.approx(0.0, abs=1e-8)
+    # Teacher embeds must be stopgrad.
+    e_s = torch.zeros(1, 2, 2, requires_grad=True)
+    e_p = torch.ones(1, 2, 2, requires_grad=True)
+    loss = anima_embed_struct_loss(e_s, e_p.detach())
+    loss.backward()
+    assert e_s.grad is not None
+    assert e_p.grad is None
+
+
+def test_embed_struct_moves_embeds_without_chasing_plus_crop():
+    """Neu+adapter embeds chase plus; student traj crop stays near neu."""
+    backend = FakeAnimaBackend(device="cpu", rank=8, seed=0, lora_targets="conditioner")
+    neu, pos = "a woman", "a smiling woman"
+    g = torch.Generator().manual_seed(0)
+    z = torch.randn((1, *backend.latent_shape), generator=g)
+
+    def _cos():
+        e_s, _ = backend.encode_text(neu)
+        with backend.disable_adapter():
+            e_n, _ = backend.encode_text(neu)
+            e_p, _ = backend.encode_text(pos)
+        return float(anima_embed_delta_cosine(e_s, e_n, e_p))
+
+    before = _cos()
+    params = backend.trainable_parameters()
+    opt = torch.optim.AdamW(params, lr=5e-2)
+    for _ in range(40):
+        e_student, _ = backend.encode_text(neu)
+        with torch.no_grad(), backend.disable_adapter():
+            e_plus, _ = backend.encode_text(pos)
+            e_neu, _ = backend.encode_text(neu)
+            x_neu = anima_short_trajectory(
+                backend, neu, z, num_steps=4, frozen=True
+            )
+        x_student = anima_short_trajectory(
+            backend, neu, z, num_steps=4, frozen=False, scale=1.0
+        )
+        loss = anima_embed_struct_loss(
+            e_student,
+            e_plus.detach(),
+            None,
+            e_neu.detach(),
+            x_student,
+            x_neu,
+            embed_identity_weight=0.0,
+            identity_weight=0.0,
+        )
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+    after = _cos()
+    assert backend.lora_B_norm() > 0.0
+    assert after > before
+    with torch.no_grad():
+        x_s = anima_short_trajectory(
+            backend, neu, z, num_steps=4, frozen=False, scale=1.0
+        )
+        x_n = anima_short_trajectory(backend, neu, z, num_steps=4, frozen=True)
+        x_p = anima_short_trajectory(backend, pos, z, num_steps=4, frozen=True)
+    crop_student = anima_teacher_crop_gap(x_n, x_s)
+    crop_plus = anima_teacher_crop_gap(x_n, x_p)
+    assert crop_plus > 1e-4
+    assert crop_student < crop_plus
+
+
+def test_dummy_train_embed_struct_runs(tmp_path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--steps",
+            "6",
+            "--device",
+            "cpu",
+            "--name",
+            "anima-embed-struct",
+            "--prompts_file",
+            str(PROMPTS),
+            "--save_dir",
+            str(tmp_path),
+            "--rank",
+            "4",
+            "--lm_target",
+            "embed_struct",
+            "--lora_targets",
+            "conditioner",
+            "--traj_steps",
+            "4",
+        ]
+    )
+    sidecar = train_dummy(args)
+    assert sidecar["lm_target"] == "embed_struct"
+    assert sidecar["concept_target"] == "caption"
+    assert sidecar["teacher"] == "caption"
+    assert sidecar["embed_weight"] == 1.0
+    assert sidecar["struct_weight"] == 1.0
+    assert "E_θ(neu)" in sidecar["embed_struct_loss"]
+    assert "teacher_strength" in sidecar["why_general"]
+    assert sidecar["loss_last"] is not None
+    assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
+    assert sidecar["sample_grid"]["n"] == 12
+    assert sidecar["train_text_conditioner"] is True
+
+
+def test_dummy_train_embed_struct_rejects_dit_only(tmp_path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--steps",
+            "2",
+            "--device",
+            "cpu",
+            "--name",
+            "anima-embed-dit",
+            "--prompts_file",
+            str(PROMPTS),
+            "--save_dir",
+            str(tmp_path),
+            "--rank",
+            "4",
+            "--lm_target",
+            "embed_struct",
+            "--lora_targets",
+            "dit",
+        ]
+    )
+    with pytest.raises(ValueError, match="conditioner"):
+        train_dummy(args)
 
 
 def test_turbo_is_preview_only_train_stays_base():

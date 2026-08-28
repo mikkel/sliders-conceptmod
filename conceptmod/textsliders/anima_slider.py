@@ -9,6 +9,10 @@ Image analog of Music 3 UNI (not lyric-hold — images have no lyrics /
 - caption-only plus teacher jumps crop (full-body→close-up). Opt-in
   ``--teacher same_crop`` / ``--lm_target same_crop`` inverts the frozen
   neu traj and denoises plus from mid-σ so expression moves without zoom
+- ``--lm_target embed_struct`` (alias ``conditioner_embed``) splits by
+  space: concept is ``MSE(E_θ(neu), sg E_frozen(plus))`` on the
+  conditioner; structure is a neu-traj lock so layout cannot follow
+  the plus caption's zoom. No per-concept ``--teacher_strength``.
 - no minus teacher unless the yaml still declares one as a canary
 - hold unused prompt tokens / attributes (subject, composition, pins)
   to encode(neu); do **not** hold the concept words
@@ -55,8 +59,26 @@ DEFAULT_SAMPLE_MODE = "peft_pipe"
 # v4 1-step direct / cfg_delta cannot carry Anima expression (v-space
 # pos/neu gap is microscopic). Live default is short-trajectory MSE.
 # same_crop is trajectory loss + invert/img2img plus teacher (crop lock).
-ANIMA_LM_TARGETS = ("direct", "cfg_delta", "trajectory", "same_crop")
+# embed_struct splits concept (conditioner embeds) from structure (neu traj).
+ANIMA_LM_TARGET_ALIASES = {
+    "conditioner_embed": "embed_struct",
+    "embed_structure": "embed_struct",
+}
+ANIMA_LM_TARGETS = (
+    "direct",
+    "cfg_delta",
+    "trajectory",
+    "same_crop",
+    "embed_struct",
+)
+ANIMA_LM_TARGET_CHOICES = ANIMA_LM_TARGETS + tuple(ANIMA_LM_TARGET_ALIASES)
 DEFAULT_LM_TARGET = "trajectory"
+# Concept-agnostic embed/structure split. Not smile-tuned σ.
+DEFAULT_EMBED_WEIGHT = 1.0
+DEFAULT_EMBED_IDENTITY_WEIGHT = 1.0
+DEFAULT_STRUCT_WEIGHT = 1.0
+ANIMA_CONCEPT_TARGETS = ("caption", "same_crop")
+DEFAULT_CONCEPT_TARGET = "caption"
 DEFAULT_TRAJ_STEPS = 4
 DEFAULT_TRAJ_IDENTITY_WEIGHT = 0.25
 # Off: values <= 1 leave the 1-step teacher unamplified.
@@ -605,13 +627,121 @@ def anima_trajectory_loss(
     return loss
 
 
+def anima_embed_mse(pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+    """Token-wise MSE when shapes match; pooled MSE when captions differ.
+
+    Plus / neu yaml rows are rarely the same length. Pooling the token
+    axis is concept-agnostic (any attribute yaml) and does not invent
+    a token alignment.
+    """
+    if tuple(pred.shape) == tuple(tgt.shape):
+        return F.mse_loss(pred, tgt)
+    return F.mse_loss(pred.mean(dim=-2), tgt.mean(dim=-2))
+
+
+def anima_embed_delta_cosine(
+    e_student: torch.Tensor,
+    e_neu: torch.Tensor,
+    e_plus: torch.Tensor,
+) -> torch.Tensor:
+    """``cos(E(neu,s)−E(neu,0), E(plus,0)−E(neu,0))`` — #70 embed diag."""
+    student = e_student.mean(dim=-2).flatten() if e_student.ndim >= 2 else e_student.flatten()
+    neu = e_neu.mean(dim=-2).flatten() if e_neu.ndim >= 2 else e_neu.flatten()
+    plus = e_plus.mean(dim=-2).flatten() if e_plus.ndim >= 2 else e_plus.flatten()
+    d_s = student - neu
+    d_t = plus - neu
+    return F.cosine_similarity(d_s.unsqueeze(0), d_t.unsqueeze(0), dim=1, eps=1e-6).mean()
+
+
+def anima_embed_struct_loss(
+    e_student: torch.Tensor,
+    e_plus: torch.Tensor,
+    e_zero: torch.Tensor | None = None,
+    e_neu: torch.Tensor | None = None,
+    x_student: torch.Tensor | None = None,
+    x_neu: torch.Tensor | None = None,
+    x_zero: torch.Tensor | None = None,
+    *,
+    embed_weight: float = DEFAULT_EMBED_WEIGHT,
+    embed_identity_weight: float = DEFAULT_EMBED_IDENTITY_WEIGHT,
+    struct_weight: float = DEFAULT_STRUCT_WEIGHT,
+    identity_weight: float = DEFAULT_TRAJ_IDENTITY_WEIGHT,
+) -> torch.Tensor:
+    """Split objectives by space (concept-agnostic; no per-concept σ).
+
+    Concept (conditioner embeds)::
+
+        MSE(E_θ(neu), stopgrad(E_frozen(plus)))
+        + λ_e0 * MSE(E_θ(neu, 0), stopgrad(E_frozen(neu)))
+
+    Structure (pixels / latents)::
+
+        λ_struct * MSE(x_student(neu+adapter), x_frozen(neu))
+        + λ_id * MSE(x_zero, x_frozen(neu))
+
+    Caption attributes move in the text path (v6 oversmile proved the
+    signal is real). The neu short traj lock stops layout/identity from
+    following the plus caption's zoom. ``e_plus`` / ``e_neu`` must be
+    stopgrad (caller ``detach()``).
+    """
+    loss = float(embed_weight) * anima_embed_mse(e_student, e_plus)
+    e0_w = float(embed_identity_weight)
+    if e0_w > 0.0 and e_zero is not None and e_neu is not None:
+        loss = loss + e0_w * anima_embed_mse(e_zero, e_neu)
+    struct_w = float(struct_weight)
+    if struct_w > 0.0 and x_student is not None and x_neu is not None:
+        loss = loss + struct_w * F.mse_loss(x_student, x_neu)
+    id_w = float(identity_weight)
+    if id_w > 0.0 and x_zero is not None and x_neu is not None:
+        loss = loss + id_w * F.mse_loss(x_zero, x_neu)
+    return loss
+
+
+def anima_embed_struct_requires_conditioner(lora_spec) -> None:
+    """Fail closed: embed_struct has no concept signal without conditioner LoRA."""
+    if not getattr(lora_spec, "train_conditioner", False):
+        raise ValueError(
+            "--lm_target embed_struct trains the conditioner embed path; "
+            "pass --lora_targets conditioner (default) or dit+conditioner. "
+            "dit-only has no E_θ to move. Not a per-concept σ knob."
+        )
+
+
 def resolve_anima_lm_target(lm_target: str | None = None) -> str:
     recipe = str(lm_target or DEFAULT_LM_TARGET).strip().lower()
+    recipe = ANIMA_LM_TARGET_ALIASES.get(recipe, recipe)
     if recipe not in ANIMA_LM_TARGETS:
         raise ValueError(
-            f"anima lm_target must be one of {ANIMA_LM_TARGETS}, got {lm_target!r}"
+            f"anima lm_target must be one of {ANIMA_LM_TARGET_CHOICES}, got {lm_target!r}"
         )
     return recipe
+
+
+def resolve_anima_concept_target(concept_target: str | None = None) -> str:
+    """Where the embed-space concept teacher comes from.
+
+    ``caption`` (default): ``stopgrad(E_frozen(plus caption))`` — any
+    attribute yaml, no σ. ``same_crop`` is the optional blend: still
+    frozen plus embeds (invert is a *pixel* teacher from #71; blending
+    σ into embed space would reintroduce per-concept strength).
+    """
+    raw = str(
+        concept_target if concept_target is not None else DEFAULT_CONCEPT_TARGET
+    ).strip().lower()
+    aliases = {
+        "plus": "caption",
+        "caption_plus": "caption",
+        "encode_plus": "caption",
+        "img2img": "same_crop",
+        "invert": "same_crop",
+    }
+    raw = aliases.get(raw, raw)
+    if raw not in ANIMA_CONCEPT_TARGETS:
+        raise ValueError(
+            f"anima concept_target must be one of {ANIMA_CONCEPT_TARGETS}, "
+            f"got {concept_target!r}"
+        )
+    return raw
 
 
 def resolve_anima_teacher(teacher: str | None = None) -> str:
@@ -637,21 +767,48 @@ class AnimaTrainRecipe:
     loss_kind: str
     teacher: str
     teacher_strength: float
+    concept_target: str = DEFAULT_CONCEPT_TARGET
 
 
 def resolve_anima_train_recipe(
     lm_target: str | None = None,
     teacher: str | None = None,
     teacher_strength: float | None = None,
+    concept_target: str | None = None,
 ) -> AnimaTrainRecipe:
     """``--lm_target same_crop`` aliases trajectory + invert teacher.
 
     ``--teacher same_crop`` on ``trajectory`` is the same path.
     ``direct`` / ``cfg_delta`` cannot take a same-crop teacher.
+    ``embed_struct`` is the space split (embed concept + neu-traj lock).
+    ``--teacher same_crop`` / ``--concept_target same_crop`` there is
+    an optional blend that still uses frozen plus *embeds* (no σ).
     """
     lm = resolve_anima_lm_target(lm_target)
     explicit = teacher is not None and str(teacher).strip() != ""
     teach = resolve_anima_teacher(teacher if explicit else None)
+    explicit_concept = (
+        concept_target is not None and str(concept_target).strip() != ""
+    )
+    if lm == "embed_struct":
+        if explicit_concept:
+            concept = resolve_anima_concept_target(concept_target)
+        elif explicit and teach == "same_crop":
+            concept = "same_crop"
+        else:
+            concept = DEFAULT_CONCEPT_TARGET
+        if not explicit:
+            teach = "same_crop" if concept == "same_crop" else DEFAULT_TEACHER
+        strength = float(
+            DEFAULT_TEACHER_STRENGTH if teacher_strength is None else teacher_strength
+        )
+        return AnimaTrainRecipe(
+            lm_target=lm,
+            loss_kind="embed_struct",
+            teacher=teach,
+            teacher_strength=strength,
+            concept_target=concept,
+        )
     if lm == "same_crop":
         if explicit and teach != "same_crop":
             raise ValueError(
@@ -674,11 +831,17 @@ def resolve_anima_train_recipe(
         raise ValueError(
             f"teacher_strength must be in (0, 1], got {teacher_strength!r}"
         )
+    concept = (
+        resolve_anima_concept_target(concept_target)
+        if explicit_concept
+        else DEFAULT_CONCEPT_TARGET
+    )
     return AnimaTrainRecipe(
         lm_target=lm,
         loss_kind=loss,
         teacher=teach,
         teacher_strength=strength,
+        concept_target=concept,
     )
 
 
@@ -998,8 +1161,15 @@ def stock_teacher_smoke_captions() -> dict[str, Any]:
 def anima_recipe_label(
     lm_target: str | None = None,
     teacher: str | None = None,
+    concept_target: str | None = None,
 ) -> str:
-    resolved = resolve_anima_train_recipe(lm_target, teacher)
+    resolved = resolve_anima_train_recipe(lm_target, teacher, concept_target=concept_target)
+    if resolved.loss_kind == "embed_struct":
+        return (
+            "embed_struct: MSE(E_θ(neu), sg E_frozen(plus)) + "
+            "λ_struct MSE(x_neu+adapter, x_frozen_neu) "
+            f"(concept_target={resolved.concept_target}; no teacher_strength)"
+        )
     if resolved.teacher == "same_crop":
         return (
             "same_crop invert teacher + trajectory MSE + unused_token_hold "
@@ -1010,6 +1180,30 @@ def anima_recipe_label(
     if resolved.loss_kind == "direct":
         return "direct velocity UNI + unused_token_hold"
     return "cfg_delta UNI + unused_token_hold"
+
+
+def embed_struct_smoke_command(
+    *,
+    name: str = "smile-anima-embed-struct-smoke",
+    resolution: int = 512,
+    steps: int = 8,
+    sample_steps: int = 8,
+    traj_steps: int = DEFAULT_TRAJ_STEPS,
+    save_dir: str = "models/smile-anima-embed-struct-smoke",
+) -> str:
+    """Short 4090/L40S smoke — not a 500-step train. No teacher_strength."""
+    return (
+        "HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \\\n"
+        f"  --name {name} \\\n"
+        "  --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \\\n"
+        "  --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \\\n"
+        f"  --lora_targets conditioner --rank 16 --resolution {int(resolution)} "
+        f"--sample_steps {int(sample_steps)} --cfg 4 \\\n"
+        f"  --lr 1e-4 --lm_target embed_struct --concept_target caption \\\n"
+        f"  --traj_steps {int(traj_steps)} --steps {int(steps)} "
+        "--sample_every 0 \\\n"
+        f"  --device cuda:0 --save_dir {save_dir}"
+    )
 
 
 def same_crop_smoke_command(
@@ -1058,9 +1252,15 @@ def live_train_card(
     teacher: str = DEFAULT_TEACHER,
     teacher_strength: float = DEFAULT_TEACHER_STRENGTH,
     lora_targets: str = DEFAULT_LORA_TARGETS,
+    concept_target: str = DEFAULT_CONCEPT_TARGET,
+    embed_weight: float = DEFAULT_EMBED_WEIGHT,
+    embed_identity_weight: float = DEFAULT_EMBED_IDENTITY_WEIGHT,
+    struct_weight: float = DEFAULT_STRUCT_WEIGHT,
 ) -> dict[str, Any]:
     """Documented live train card. CI never downloads these weights."""
-    resolved = resolve_anima_train_recipe(lm_target, teacher, teacher_strength)
+    resolved = resolve_anima_train_recipe(
+        lm_target, teacher, teacher_strength, concept_target=concept_target
+    )
     recipe = resolved.lm_target
     spec = resolve_anima_lora_targets(lora_targets)
     return {
@@ -1112,6 +1312,12 @@ def live_train_card(
         "teacher": resolved.teacher,
         "teachers": list(ANIMA_TEACHERS),
         "teacher_strength": float(resolved.teacher_strength),
+        "lm_targets": list(ANIMA_LM_TARGETS),
+        "concept_target": resolved.concept_target,
+        "concept_targets": list(ANIMA_CONCEPT_TARGETS),
+        "embed_weight": float(embed_weight),
+        "embed_identity_weight": float(embed_identity_weight),
+        "struct_weight": float(struct_weight),
         "caption_teacher_failure": (
             "caption-only plus from the same z_T still jumps crop: stock "
             "Anima goes full-body → close-up portrait when the caption "
@@ -1128,6 +1334,34 @@ def live_train_card(
         "same_crop_smoke_4090": same_crop_smoke_command(
             traj_steps=traj_steps,
             teacher_strength=resolved.teacher_strength,
+        ),
+        "embed_struct_split": (
+            "concept = MSE(E_θ(neu), stopgrad(E_frozen(plus caption))); "
+            "structure = MSE(x_neu+adapter, x_frozen_neu) (+ scale-0 "
+            "embed identity). Caption attributes move in the conditioner "
+            "(v6 oversmile). Layout cannot follow the plus caption zoom. "
+            "Any attribute yaml; no smile-tuned --teacher_strength."
+        ),
+        "embed_struct_vs": {
+            "trajectory": (
+                "pixel UNI: student traj chases frozen plus from z_T. "
+                "On Anima the plus caption bundles crop/identity."
+            ),
+            "same_crop": (
+                "same pixel loss, invert plus from mid-σ so crop stays. "
+                "Smile can be too weak; σ is a per-concept knob."
+            ),
+            "embed_struct": (
+                "split by space: concept in conditioner embeds "
+                "(frozen encode(plus)), structure lock on frozen neu "
+                "traj. General — works for any yaml without σ tuning."
+            ),
+        },
+        "embed_struct_smoke_4090": embed_struct_smoke_command(traj_steps=traj_steps),
+        "embed_struct_loss": (
+            "MSE(E_θ(neu), sg E_frozen(plus)) + "
+            "λ_e0 MSE(E_θ(neu,0), E_frozen(neu)) + "
+            "λ_struct MSE(x_student, x_neu) + λ_id MSE(x_zero, x_neu)"
         ),
         "traj_loop": (
             "thin FlowMatch Euler over predict_v: σ=linspace(1,1/K,K)+0, "
@@ -1162,7 +1396,9 @@ def live_train_card(
         ),
         "stock_teacher_smoke": stock_teacher_smoke_captions(),
         "train_sample_prompts": "same bare infer/neu captions; attributes are pins only",
-        "recipe": anima_recipe_label(recipe, resolved.teacher),
+        "recipe": anima_recipe_label(
+            recipe, resolved.teacher, concept_target=resolved.concept_target
+        ),
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
         "turbo": "preview_only",
         "smile_retrain_4090": live_train_command(
