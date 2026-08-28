@@ -26,9 +26,9 @@ Unused prompt tokens (pinned yaml `attributes`, plus the shared
 skeleton that also appears in neu) hold to encode(neu). Concept words
 — tokens in pos that are not in neu — are **not** held.
 
-Happy / smile yaml uses **bare captions**: attributes pin unused
-gender for bookkeeping only and are **not** prefixed onto
-target / positive / neutral (Anima smile lesson).
+Happy / smile and detailed yaml use **bare captions**: attributes
+pin unused gender for bookkeeping only and are **not** prefixed
+onto target / positive / neutral (Anima smile lesson).
 
 ## Velocity-space CFG
 
@@ -186,6 +186,24 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
 `--embed_rel_l2_weight` defaults to 1.0. Logs `embed_max_abs`,
 `embed_late_l2`, and per-layer `embed_l2_l*`, not only
 `embed_cos` / `embed_mse`.
+
+Same flags, non-smile concept (**detail-krea-v1**): **detailed**
+(fine detail / texture / intricacy) on scene rows so stock Krea
+is not already detailed (simple / flat / plain neu). Gate:
+student neu@1 looks more detailed than neu@0 and approaches
+frozen-plus oracle (not `embed_cos` alone).
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
+  --name detail-krea-v1 \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-detailed.yaml \
+  --model_id krea/Krea-2-Raw --allow_hub \
+  --lora_targets te --lm_target embed \
+  --embed_cosine_weight 0 --hold_weight 0.1 --sample_guidance 0 \
+  --te_dit_mask auto --rank 16 --steps 800 --lr 1e-4 \
+  --resolution 512 --sample_steps 28 --seed 7 --device 0 \
+  --save_dir models/detail-krea-v1
+```
 
 Resmoke the existing **smile-krea-v3** TE adapter with the v5
 ones-mask (apply A/B only; v3 cosine match is not a teeth gate).
@@ -355,6 +373,12 @@ joyful expression`) on a closed-mouth neu. `attributes` pin unused
 gender (`male` / `female`) without prefixing. `negative` is the
 canary. `control_prompt` is `a bowl of fruit on a table` — verify
 only, never a teacher.
+
+`conceptmod/textsliders/data/prompts-krea-detailed.yaml`: UNI
+**detailed** (not smile). Scene rows (landscape / interior /
+still-life) with simple/flat/plain neu vs highly detailed plus.
+Same bare-caption / unused-gender / fruit-bowl / canary-minus
+shape as happy. Generalizes smile-krea-v4 TE-only embed UNI.
 
 `conceptmod/textsliders/data/prompts-krea.yaml`: stock age slider
 (old / young) with prefixed unused gender. Still valid.
