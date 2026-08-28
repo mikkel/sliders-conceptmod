@@ -75,6 +75,7 @@ No Hub, no GPU, no model weights.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Iterable, Sequence
 
 import torch
@@ -2128,9 +2129,140 @@ KREA_RAW_CFG = 4.5
 KREA_TURBO_STEPS = 8
 KREA_TURBO_CFG = 0.0
 KREA_HOLD_WEIGHT = 1.0
+# Smile / happy yaml: unused-token hold is a near-constant on frozen TE
+# and dominates the logged loss (live smile-krea: hold≈7.31 of ≈7.35).
+# Age yaml still wants the stock 1.0 (prefixed unused gender). Do not
+# change KREA_HOLD_WEIGHT — pass --hold_weight 0.1 on the smile card.
+KREA_SMILE_HOLD_WEIGHT = 0.1
 KREA_CONTROL_PROMPT = "a bowl of fruit on a table"
 KREA_SAMPLE_SCALES = (0.0, 0.25, 0.5, 1.0)
 KREA_LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
+KREA_TE_LORA_TARGETS = ("q_proj", "k_proj", "v_proj", "o_proj")
+KREA_DEFAULT_LORA_TARGETS = "dit"
+KREA_LORA_TARGET_CHOICES = ("dit", "te", "dit+te")
+
+
+@dataclass(frozen=True)
+class KreaLoraSpec:
+    """Which Krea modules receive PEFT LoRA.
+
+    Default is DiT attn (``to_q/k/v/out``). Anima lesson: expression
+    can live in the text path, so ``te`` / ``dit+te`` attach Qwen3-VL
+    attention ``q_proj/k_proj/v_proj/o_proj``. Age yaml stays DiT-only
+    unless the caller passes ``--lora_targets``.
+    """
+
+    label: str
+    train_dit: bool
+    train_te: bool
+
+    @property
+    def encoder_lora(self) -> bool:
+        return self.train_te
+
+    @property
+    def dit_lora_only(self) -> bool:
+        return self.train_dit and not self.train_te
+
+    @property
+    def te_parking(self) -> bool:
+        """Park Qwen3-VL after encode only when TE is frozen (48GB)."""
+        return not self.train_te
+
+    @property
+    def frozen_modules(self) -> tuple[str, ...]:
+        frozen: list[str] = []
+        if not self.train_dit:
+            frozen.append("transformer")
+        if not self.train_te:
+            frozen.append("text_encoder")
+        return tuple(frozen)
+
+    @property
+    def adapted_module_names(self) -> list[str]:
+        names: list[str] = []
+        if self.train_dit:
+            names.append("transformer")
+        if self.train_te:
+            names.append("text_encoder")
+        return names
+
+    @property
+    def dit_lora_targets(self) -> list[str]:
+        return list(KREA_LORA_TARGETS) if self.train_dit else []
+
+    @property
+    def te_lora_targets(self) -> list[str]:
+        return list(KREA_TE_LORA_TARGETS) if self.train_te else []
+
+
+def resolve_krea_lora_targets(lora_targets: str | None = None) -> KreaLoraSpec:
+    """Parse ``dit`` / ``te`` / ``dit+te``. Aliases: ``text_encoder``, ``transformer``."""
+    raw = str(lora_targets if lora_targets is not None else KREA_DEFAULT_LORA_TARGETS)
+    label = raw.strip().lower().replace(" ", "")
+    aliases = {
+        "transformer": "dit",
+        "text_encoder": "te",
+        "encoder": "te",
+        "dit+text_encoder": "dit+te",
+        "transformer+te": "dit+te",
+        "transformer+text_encoder": "dit+te",
+        "dit+encoder": "dit+te",
+        "te+dit": "dit+te",
+        "text_encoder+dit": "dit+te",
+    }
+    label = aliases.get(label, label)
+    if label not in KREA_LORA_TARGET_CHOICES:
+        raise ValueError(
+            f"krea lora_targets must be one of {KREA_LORA_TARGET_CHOICES} "
+            f"(aliases: text_encoder, transformer), got {lora_targets!r}"
+        )
+    parts = set(label.split("+"))
+    return KreaLoraSpec(
+        label=label,
+        train_dit="dit" in parts,
+        train_te="te" in parts,
+    )
+
+
+def _is_lora_delta_layer(module) -> bool:
+    return any(
+        hasattr(module, name)
+        for name in ("lora_A", "lora_B", "lora_embedding_A", "lora_embedding_B")
+    )
+
+
+def apply_continuous_lora_scale(module, scale: float) -> int:
+    """Multiply LoRA delta by ``scale`` (continuous 0..1).
+
+    PEFT ``PeftModel.set_adapter_scale`` often no-ops or only toggles,
+    which made live smile grids at 0.25 / 0.5 / 1.0 byte-identical.
+    This writes the layer ``scaling`` dict (and ``lora_scale`` /
+    ``multiplier`` when present) the same way PEFT
+    ``rescale_adapter_scale`` does: ``scaling[name] = base[name] * scale``.
+    ``base`` is snapshotted on first call (the init ``alpha/r``).
+    Works on ``get_peft_model`` wrappers and on duck-typed mocks.
+    """
+    scale = float(scale)
+    updated = 0
+    for child in module.modules():
+        is_lora = _is_lora_delta_layer(child)
+        scaling = getattr(child, "scaling", None)
+        if is_lora and isinstance(scaling, dict) and scaling:
+            base = getattr(child, "_krea_base_scaling", None)
+            if not isinstance(base, dict) or any(key not in base for key in scaling):
+                child._krea_base_scaling = {k: float(v) for k, v in scaling.items()}
+                base = child._krea_base_scaling
+            for key in scaling:
+                scaling[key] = base[key] * scale
+            updated += 1
+        if is_lora and hasattr(child, "lora_scale") and not callable(child.lora_scale):
+            child.lora_scale = scale
+            updated += 1
+        if is_lora and hasattr(child, "multiplier") and not callable(child.multiplier):
+            child.multiplier = scale
+            updated += 1
+    return updated
 
 
 def krea_looks_turbo(model_id: str) -> bool:
