@@ -1,0 +1,39 @@
+# MiniMax-H3 UNI slider — chiaroscuro / dramatic lighting (FL2VA t2va).
+#
+# Same concrete subject in neu and plus (Krea detail-v3 lesson: lighting
+# delta only, not a style jump). Neu is flat even lighting / soft fill /
+# low contrast and still photographic — not cartoon "simple flat". Plus
+# is that same subject with chiaroscuro, dramatic single-source side
+# light, deep shadows, high contrast. Unused attributes (male / female)
+# are pinned both ways so the lighting axis cannot eat gender. Yaml
+# negative / unconditional is a washed-out flat / featureless lighting
+# canary only — not a teacher.
+#
+# Three short t2va clip rows: person, interior room, still life.
+- target: person sitting in a chair
+  positive: person sitting in a chair, chiaroscuro, dramatic single-source side light, deep shadows, high contrast
+  neutral: person sitting in a chair, flat even lighting, soft fill, low contrast
+  unconditional: person sitting in a chair, washed-out flat featureless lighting
+  negative: person sitting in a chair, washed-out flat featureless lighting
+  attributes:
+    - male
+    - female
+  action: enhance
+- target: interior room with a wooden chair and a table
+  positive: interior room with a wooden chair and a table, chiaroscuro, dramatic single-source side light, deep shadows, high contrast
+  neutral: interior room with a wooden chair and a table, flat even lighting, soft fill, low contrast
+  unconditional: interior room with a wooden chair and a table, washed-out flat featureless lighting
+  negative: interior room with a wooden chair and a table, washed-out flat featureless lighting
+  attributes:
+    - male
+    - female
+  action: enhance
+- target: ceramic vase on a wooden table
+  positive: ceramic vase on a wooden table, chiaroscuro, dramatic single-source side light, deep shadows, high contrast
+  neutral: ceramic vase on a wooden table, flat even lighting, soft fill, low contrast
+  unconditional: ceramic vase on a wooden table, washed-out flat featureless lighting
+  negative: ceramic vase on a wooden table, washed-out flat featureless lighting
+  attributes:
+    - male
+    - female
+  action: enhance

@@ -59,6 +59,8 @@ def test_no_hunyuan_hub_id_in_new_files():
         root / "train_lora_minimax_h3.py",
         root / "data" / "prompts-minimax-h3.yaml",
         root / "data" / "config-minimax-h3.yaml",
+        root / "data" / "prompts-minimax-h3-chiaroscuro.yaml",
+        root / "data" / "config-minimax-h3-chiaroscuro.yaml",
         Path("docs/minimax-h3-slider.md"),
     ):
         text = path.read_text()
@@ -195,6 +197,92 @@ def test_yaml_pins_unused_and_keeps_concept_free():
     for r in rows:
         assert "old" in r["positive"]
         assert "old" not in r["neutral"].split()
+
+
+def _h3_subject_clause(caption: str) -> str:
+    text = caption.strip()
+    for prefix in ("male ", "female "):
+        if text.lower().startswith(prefix):
+            text = text[len(prefix):]
+            break
+    return text.split(",")[0].strip().lower()
+
+
+def test_chiaroscuro_yaml_loads_same_subject_lighting():
+    path = Path("conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml")
+    raw = yaml.safe_load(path.read_text())
+    assert isinstance(raw, list)
+    assert len(raw) == 3
+    required = (
+        "target", "positive", "neutral", "unconditional", "negative",
+        "attributes", "action",
+    )
+    for item in raw:
+        for key in required:
+            assert key in item
+        assert item["action"] == "enhance"
+        assert item["attributes"] == ["male", "female"]
+        subject = _h3_subject_clause(item["target"])
+        assert subject == _h3_subject_clause(item["positive"])
+        assert subject == _h3_subject_clause(item["neutral"])
+        assert subject == _h3_subject_clause(item["unconditional"])
+        assert subject == _h3_subject_clause(item["negative"])
+        assert "chiaroscuro" in item["positive"]
+        assert "dramatic single-source side light" in item["positive"]
+        assert "deep shadows" in item["positive"]
+        assert "high contrast" in item["positive"]
+        assert "flat even lighting" in item["neutral"]
+        assert "soft fill" in item["neutral"]
+        assert "low contrast" in item["neutral"]
+        assert "cartoon" not in item["neutral"]
+        assert "simple flat" not in item["neutral"]
+        assert "chiaroscuro" not in item["neutral"]
+        assert "washed-out" in item["unconditional"]
+        assert "featureless" in item["unconditional"]
+        assert item["unconditional"] == item["negative"]
+    subjects = {_h3_subject_clause(item["target"]) for item in raw}
+    assert subjects == {
+        "person sitting in a chair",
+        "interior room with a wooden chair and a table",
+        "ceramic vase on a wooden table",
+    }
+    rows = load_slider_rows(str(path), "")
+    assert len(rows) == 6
+    assert {r["positive"].split(",")[0] for r in rows} >= {
+        "male person sitting in a chair",
+        "female person sitting in a chair",
+    }
+    for row in rows:
+        assert row["positive"].startswith(("male ", "female "))
+        assert _h3_subject_clause(row["positive"]) == _h3_subject_clause(row["neutral"])
+        assert "chiaroscuro" in row["positive"]
+        assert "chiaroscuro" not in row["neutral"]
+        assert "washed-out" in row["unconditional"]
+
+
+def test_chiaroscuro_config_and_docs_card():
+    cfg = yaml.safe_load(
+        Path("conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml").read_text()
+    )
+    assert cfg["prompts_file"] == "conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml"
+    assert cfg["pretrained_model"]["name_or_path"] == "MiniMaxAI/MiniMax-H3"
+    assert cfg["pretrained_model"]["variant"] == "FL2VA"
+    assert cfg["pretrained_model"]["workflow"] == "t2va"
+    assert cfg["train"]["recipe"] == "minimax_h3_uni_velocity"
+    assert cfg["train"]["guidance"] == 0
+    assert cfg["train"]["short_side"] == 768
+    assert cfg["network"]["target"] == "MiniMaxH3Attention"
+    assert cfg["network"]["train_adaln"] is False
+    assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni"
+    docs = Path("docs/minimax-h3-slider.md").read_text()
+    assert "--name chiaroscuro-minimax-h3-uni" in docs
+    assert "prompts-minimax-h3-chiaroscuro.yaml" in docs
+    assert "--rank 8 --alpha 8 --lr 1e-4 --steps 500" in docs
+    assert "--short_side 768 --guidance 0" in docs
+    assert "FL2VA" in docs and "t2va" in docs
+    assert "MiniMaxAI/MiniMax-H3" in docs
+    assert "sampled frames" in docs or "sampled-frame" in docs
+    assert "last-50" in docs
 
 
 def test_dummy_train_drops_uni_loss_and_writes_sidecar(tmp_path):
