@@ -24,11 +24,11 @@ Train and in-process sample use the **same bare strings**.
 `rows[i].infer_prompt` / `neutral` is exactly the `prompt=` passed to
 `pipe(...)`. No attribute-prefix strip.
 
-| scale | student | teacher (`--lm_target trajectory`, `--teacher caption`) | `same_crop` invert teacher | `direct` / `cfg_delta` |
-|---|---|---|---|---|
-| **+1** | infer / neu caption | short Euler traj of frozen **plus** from `z_T` | invert `x_neu`, Euler plus from mid-σ | 1-step (do not retry for smile) |
-| **0** | infer / neu | light identity vs frozen **neu** traj | same | 1-step |
-| **−1** | unscored canary only | — | — | — |
+| scale | student | teacher (`--lm_target trajectory`, `--teacher caption`) | `same_crop` invert teacher | `embed_struct` (space split) | `direct` / `cfg_delta` |
+|---|---|---|---|---|---|
+| **+1** | infer / neu caption | short Euler traj of frozen **plus** from `z_T` | invert `x_neu`, Euler plus from mid-σ | `MSE(E_θ(neu), sg E_frozen(plus))` + neu-traj lock | 1-step (do not retry for smile) |
+| **0** | infer / neu | light identity vs frozen **neu** traj | same | embed + latent identity vs frozen neu | 1-step |
+| **−1** | unscored canary only | — | — | — | — |
 
 `--lm_target trajectory` (default) + `--teacher caption`: sample
 `z_T ~ N(0,I)` at infer noise, run **K** FlowMatch Euler steps
@@ -75,6 +75,28 @@ It matches Anima's `FlowMatchEulerDiscreteScheduler.step`:
 σ = linspace(1, 1/K, K)  ∪  {0}
 x ← x + (σ_next − σ) * v(x, σ)
 ```
+
+`--lm_target embed_struct` (alias `--lm_target conditioner_embed`)
+is the **concept-agnostic space split**. Caption attributes actually
+move in the conditioner (v6 oversmile at scale 1; #70 embed diag
+PASS, student Δ vs teacher Δ cos~0.51). Pixel UNI then bundles the
+plus caption's crop/identity. same_crop invert (#71) held crop but
+smile was too weak — and `--teacher_strength` is a per-concept σ,
+not a general recipe.
+
+```
+concept:   MSE(E_θ(neu), stopgrad(E_frozen(plus caption)))
+           + λ_e0 * MSE(E_θ(neu, 0), stopgrad(E_frozen(neu)))
+structure: λ_struct * MSE(x_neu+adapter, x_frozen_neu)
+           + λ_id * MSE(x_zero, x_frozen_neu)
+```
+
+Default concept target is **frozen encode(plus caption)** so any
+attribute yaml works without σ tuning. Optional
+`--concept_target same_crop` / `--teacher same_crop` is a blend
+that still uses plus *embeds* (invert σ is a pixel teacher; do not
+scale embeds by `--teacher_strength`). Requires
+`--lora_targets conditioner` (default).
 
 `--lm_target direct` is 1-step
 `MSE(v(neu, adapter), v(pos, frozen)) + MSE(v(neu, scale 0), v(neu, frozen))`.
@@ -129,7 +151,7 @@ doubling the 768 OOM.
 | sample steps | **40** |
 | CFG (guider) | **4** |
 | lr | **`1e-4`** (DiT LoRA; `1e-2` is not sane — prior RunPod run fitted loss ~8e-4 then any nonzero scale collapsed denoise to RGB noise) |
-| `--lm_target` | **`trajectory`** (K-step FlowMatch Euler). `same_crop` = that loss + invert teacher. `direct` / `cfg_delta` kept. Music 3 stays `v9`. |
+| `--lm_target` | **`trajectory`** (K-step FlowMatch Euler). `same_crop` = that loss + invert teacher. `embed_struct` = embed concept + neu-traj structure lock (no σ). `direct` / `cfg_delta` kept. Music 3 stays `v9`. |
 | `--teacher` | **`caption`** (default) or **`same_crop`**. Next smile smoke should use `same_crop`. |
 | `--teacher_strength` | **0.5** (invert start σ; `same_crop` only) |
 | `--traj_steps` | **4** (live option: 8) |
@@ -207,6 +229,53 @@ CPU dummy (CI / no Hub):
 PYTHONPATH=. python scripts/smoke_anima_same_crop_teacher.py
 PYTHONPATH=. python conceptmod/textsliders/train_lora_anima.py \
   --dummy --lm_target same_crop --teacher same_crop --steps 8 --device cpu
+```
+
+## Embed + structure split (`--lm_target embed_struct`)
+
+Use this when you want a **general** slider, not a smile-tuned invert σ.
+
+| recipe | concept teacher | structure | when |
+|---|---|---|---|
+| `trajectory` + `--teacher caption` | frozen plus **traj** from `z_T` | light scale-0 identity | default UNI. On Anima, plus caption bundles crop/identity. |
+| `same_crop` | invert plus from mid-σ (`--teacher_strength`) | same identity | crop stays; smile can be too weak. σ is per-concept. |
+| **`embed_struct`** | `stopgrad(E_frozen(plus caption))` | neu+adapter stays on frozen **neu** traj | concept in text path (any yaml). No `--teacher_strength`. |
+
+Why this generalizes: yaml `positive` vs `neutral` is the concept
+signal in **embed space** (the conditioner already moves smile; #70
+embed diag). The structure term is always "stay on the neu short
+traj" — it does not name teeth, age, or any other attribute. A new
+concept is a new yaml, not a new σ.
+
+Requires `--lora_targets conditioner` (default). dit-only has no
+`E_θ` to fit.
+
+**Do not start a 500-step train in the agent.** Short 4090 / L40S
+smile smoke (8 optimizer steps, 8 sample steps, end-of-train grid):
+
+```bash
+HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
+  --name smile-anima-embed-struct-smoke \
+  --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
+  --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
+  --lora_targets conditioner --rank 16 --resolution 512 \
+  --sample_steps 8 --cfg 4 \
+  --lr 1e-4 --lm_target embed_struct --concept_target caption \
+  --traj_steps 4 --steps 8 --sample_every 0 \
+  --device cuda:0 --save_dir models/smile-anima-embed-struct-smoke
+```
+
+If 0→0.25 moves the concept **without** a crop jump, continue with
+`--steps 500 --sample_steps 40 --sample_every 100`. Do not reach for
+`--teacher_strength`. Optional `--concept_target same_crop` still
+uses plus embeds (invert is pixel-space from #71).
+
+CPU dummy (CI / no Hub):
+
+```bash
+PYTHONPATH=. python scripts/smoke_anima_embed_struct.py
+PYTHONPATH=. python conceptmod/textsliders/train_lora_anima.py \
+  --dummy --lm_target embed_struct --steps 8 --device cpu
 ```
 
 ## Turbo v1.1 is preview only
@@ -493,3 +562,4 @@ bare strings.
 - [docs/lm-plus-neu-exam.md](lm-plus-neu-exam.md) — Music 3 last-token UNI (not this trainer)
 - Music 3 live defaults stay `--lm_target v9 --pole_mode hidden`
 - Turbo v1.1 convert helper: `scripts/convert_anima_turbo_diffusers.py` (preview only; train stays Base)
+- Embed-struct dummy: `scripts/smoke_anima_embed_struct.py` (no GPU; not a 500-step train)
