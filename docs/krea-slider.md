@@ -90,9 +90,28 @@ not teach v-space**. It trains Qwen3-VL LoRA only:
 
 Loss is layer-weighted MSE (+ `1−cos`) on the full stack; mid/late
 layers weigh more. Unused-token / attribute hold stays light
-(`--hold_weight 0.1`). Sample grid still runs the full pipeline
-(TE embeds → frozen base DiT denoise) so smiles are visible. DiT
-weights stay base. Do **not** add Anima `same_crop` / `embed_struct`.
+(`--hold_weight 0.1`) and compares **frozen pos vs frozen neu** —
+do not train hold through the student adapter on the plus caption.
+Sample grid still runs the full pipeline (TE embeds → frozen base
+DiT denoise) so smiles are visible. DiT weights stay base. Do
+**not** add Anima `same_crop` / `embed_struct`.
+
+**Apply (v4):** when `encoder_lora`, CFG encodes the uncond / `""`
+branch with **frozen TE** (`disable_adapter` / scale 0). Cond keeps
+the active adapter scale from `_scale_ctx`. Cond + frozen uncond
+are encoded **once** per generate and reused (conceptmod). v3
+encoded both CFG branches under the same TE scale, so
+`v_cond − v_uncond` cancelled the smile Δ at Raw CFG 4.5
+(embed_cos≈0.988, pixels only soft closed-lip). Embed sample
+guidance defaults to **0**; velocity UNI keeps Raw 4.5.
+
+End-of-train **oracle / apply-audit grid** (`save_dir/samples/oracle/`):
+for each neu prompt, `oracle_plus_frozen` = generate(plus, scale=0),
+`student_neu_scale1` = generate(neu, scale=1), `neu_scale0` =
+generate(neu, scale=0). Meta logs `cos(Eθ(neu)@1, E_frozen(pos))`.
+If oracle has teeth and student does not despite cos>0.95 →
+remaining apply bug. If oracle also lacks teeth → caption teacher
+is weak in pixels.
 
 `--recipe embed_uni` is an alias for `--lm_target embed`. `--lora_targets`
 is forced to `te` on this path (DiT LoRA is not attached).
@@ -109,7 +128,43 @@ is forced to `te` on this path (DiT LoRA is not attached).
 `--allow_hub` is required for the first download; afterwards a warm
 cache can run with `HF_HUB_OFFLINE=1` and no flag.
 
-Retrain card (**smile-krea-v3**, TE-only embed UNI, A100 80GB):
+Retrain card (**smile-krea-v4**, TE-only embed UNI + frozen CFG
+uncond + sample_guidance 0, A100 80GB):
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
+  --name smile-krea-v4 \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
+  --model_id krea/Krea-2-Raw --allow_hub \
+  --lora_targets te --lm_target embed \
+  --rank 16 --hold_weight 0.1 --resolution 512 \
+  --sample_steps 28 --sample_guidance 0 \
+  --steps 500 --lr 1e-4 --seed 7 --device 0 \
+  --save_dir models/smile-krea-v4
+```
+
+Adapter: `{save_dir}/{name}_lora/te_lora`. DiT is not adapted.
+Sample PNGs: `{save_dir}/samples/`. Oracle grid:
+`{save_dir}/samples/oracle/` (`oracle_plus_frozen` /
+`student_neu_scale1` / `neu_scale0` + `oracle_meta.json`).
+`--sample_guidance 0` is the embed default (Raw CFG 4.5 fights
+TE-only). `--recipe embed_uni` is the same flag as `--lm_target embed`.
+
+Resmoke a saved adapter without retraining:
+
+```bash
+python conceptmod/textsliders/train_lora_krea.py \
+  --name smile-krea-v4-resmoke \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
+  --model_id krea/Krea-2-Raw --allow_hub \
+  --lora_targets te --lm_target embed \
+  --load_te_lora models/smile-krea-v4/smile-krea-v4_lora/te_lora \
+  --sample_guidance 0 --save_dir models/smile-krea-v4-resmoke
+```
+
+Previous card (**smile-krea-v3**, same TE embed UNI; sampled at
+CFG 4.5 with both CFG branches under the active TE scale — Δ
+cancelled in pixels):
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
@@ -122,10 +177,6 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
   --steps 500 --lr 1e-4 --seed 7 --device 0 \
   --save_dir models/smile-krea-v3
 ```
-
-Adapter: `{save_dir}/{name}_lora/te_lora`. DiT is not adapted.
-Sample PNGs: `{save_dir}/samples/` (full pipeline, base DiT).
-`--recipe embed_uni` is the same flag as `--lm_target embed`.
 
 Joint DiT+TE velocity UNI (**smile-krea-v2**, A100 80GB preferred;
 A6000 48GB is tight once TE stays resident):
@@ -201,6 +252,11 @@ python conceptmod/textsliders/train_lora_krea.py \
   --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
   --lora_targets te --lm_target embed --hold_weight 0.1 \
   --save_dir /tmp/krea-embed-dummy
+python conceptmod/textsliders/train_lora_krea.py \
+  --dummy --name smile-krea-v4-dummy \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
+  --lora_targets te --lm_target embed --hold_weight 0.1 \
+  --save_dir /tmp/krea-embed-v4-dummy
 PYTHONPATH=. pytest tests/test_krea_slider.py -q
 ```
 

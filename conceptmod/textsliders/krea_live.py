@@ -25,6 +25,13 @@ Patterns follow mikkel/conceptmod ``conceptmod/backends/krea.py``:
   Scale 0 = ``disable_adapter`` / LoRA scale 0; scale +1 = adapter
   on at 1.0 via ``apply_continuous_lora_scale``. Sample grid still
   denoises through the frozen base DiT. No Anima structure lock.
+- CFG uncond / ``""`` uses **frozen TE** when ``encoder_lora``
+  (disable_adapter / scale 0). Cond keeps the active adapter
+  scale. Encoding both branches at the same TE scale cancelled
+  the smile Δ at Raw CFG 4.5 (smile-krea-v3).
+- Encode cond + frozen uncond **once** per generate and reuse
+  hidden states (conceptmod). Continuous LoRA scale stays on
+  ``apply_continuous_lora_scale``.
 
 The public methods match ``DummyKreaBackend`` so ``krea_step_loss`` is
 unchanged: ``encode_text``, ``predict_v``, ``trainable_parameters``,
@@ -54,11 +61,13 @@ from conceptmod.textsliders.slider_targets import (
     KREA_TURBO_CFG,
     KREA_TURBO_STEPS,
     apply_continuous_lora_scale,
+    krea_cfg_uncond_te_frozen,
     krea_hold_unused_embeds,
     krea_looks_turbo,
     krea_unused_hold_mask,
     krea_word_tokens,
     resolve_krea_lora_targets,
+    resolve_krea_sample_guidance,
 )
 
 _TEXT_CACHE_MAX = 16
@@ -585,6 +594,46 @@ class LiveKreaBackend:
         else:
             raise RuntimeError("nothing to save: lora_targets trained neither dit nor te")
 
+    def load_te_adapter(self, path: str | Path) -> None:
+        """Load a saved ``te_lora`` into the attached TE adapter (resmoke)."""
+        root = Path(path)
+        if not root.exists():
+            raise FileNotFoundError(f"te_lora path does not exist: {root}")
+        if root.is_file():
+            root = root.parent
+        if not self.encoder_lora:
+            raise RuntimeError(
+                "load_te_lora needs a TE adapter; pass --lora_targets te"
+            )
+        te = self.pipe.text_encoder
+        loaded = False
+        if hasattr(te, "load_adapter"):
+            try:
+                te.load_adapter(str(root), adapter_name="default")
+                loaded = True
+            except Exception:
+                loaded = False
+        if not loaded:
+            state = None
+            safetensors = root / "adapter_model.safetensors"
+            bin_file = root / "adapter_model.bin"
+            if safetensors.exists():
+                from safetensors.torch import load_file
+
+                state = load_file(str(safetensors))
+            elif bin_file.exists():
+                state = torch.load(bin_file, map_location="cpu")
+            if state is None:
+                raise RuntimeError(f"could not load te_lora from {root}")
+            try:
+                from peft import set_peft_model_state_dict
+
+                set_peft_model_state_dict(te, state)
+            except Exception as exc:
+                raise RuntimeError(f"could not load te_lora from {root}") from exc
+        self._text_cache.clear()
+        print(f"krea loaded te_lora from {root}")
+
     def _fresh_scheduler(self, num_steps: int):
         import numpy as np
 
@@ -606,11 +655,72 @@ class LiveKreaBackend:
             sched.set_begin_index(0)
         return sched
 
-    def _predict_current(self, prompt: str, z: torch.Tensor) -> torch.Tensor:
+    def _snapshot_mask(self) -> torch.Tensor | None:
+        mask = getattr(self, "_last_mask", None)
+        if mask is None:
+            return None
+        return mask.detach().clone()
+
+    def encode_cfg_pair(
+        self, prompt: str, *, scale: float = 1.0
+    ) -> tuple[
+        tuple[torch.Tensor, torch.Tensor | None, list[str]],
+        tuple[torch.Tensor, torch.Tensor | None, list[str]],
+    ]:
+        """Encode cond at ``scale``; empty uncond with frozen TE if encoder_lora.
+
+        Called once per generate. Hidden states are reused across denoise
+        steps (conceptmod). Continuous LoRA scale via
+        ``apply_continuous_lora_scale``.
+        """
+        cond_frozen = abs(float(scale)) < 1e-12
+        with self._scale_ctx(float(scale), frozen=cond_frozen):
+            cond_embeds, cond_tokens = self.encode_text(prompt, frozen=cond_frozen)
+            cond_mask = self._snapshot_mask()
+            cond_embeds = cond_embeds.detach()
+        # CFG uncond: frozen TE when encoder_lora (do not cancel the TE Δ)
+        if krea_cfg_uncond_te_frozen(self.encoder_lora):
+            uncond_embeds, uncond_tokens = self.encode_text("", frozen=True)
+        else:
+            with self._scale_ctx(float(scale), frozen=cond_frozen):
+                uncond_embeds, uncond_tokens = self.encode_text(
+                    "", frozen=cond_frozen
+                )
+        uncond_mask = self._snapshot_mask()
+        uncond_embeds = uncond_embeds.detach()
+        return (
+            (cond_embeds, cond_mask, cond_tokens),
+            (uncond_embeds, uncond_mask, uncond_tokens),
+        )
+
+    def _predict_current(
+        self, prompt: str, z: torch.Tensor, *, frozen_te: bool = False
+    ) -> torch.Tensor:
         """Forward at whatever adapter scale the caller already set."""
-        embeds, _tokens = self.encode_text(prompt)
+        embeds, _tokens = self.encode_text(prompt, frozen=frozen_te)
         mask = getattr(self, "_last_mask", None)
         return self._forward(z, embeds, mask)
+
+    def _cfg_from_embeds(
+        self,
+        z: torch.Tensor,
+        timestep: torch.Tensor,
+        guidance: float,
+        cond_embeds: torch.Tensor,
+        cond_mask: torch.Tensor | None,
+        uncond_embeds: torch.Tensor,
+        uncond_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        prev = self._timestep
+        self._timestep = timestep
+        try:
+            v = self._forward(z, cond_embeds, cond_mask)
+            if guidance and float(guidance) > 0:
+                v_u = self._forward(z, uncond_embeds, uncond_mask)
+                v = v + float(guidance) * (v - v_u)
+            return v
+        finally:
+            self._timestep = prev
 
     def _cfg(self, prompt: str, z: torch.Tensor, timestep: torch.Tensor, guidance: float):
         prev = self._timestep
@@ -618,7 +728,9 @@ class LiveKreaBackend:
         try:
             v = self._predict_current(prompt, z)
             if guidance and float(guidance) > 0 and prompt != "":
-                v_u = self._predict_current("", z)
+                # CFG uncond: frozen TE when encoder_lora (do not cancel the TE Δ)
+                freeze_uncond = krea_cfg_uncond_te_frozen(self.encoder_lora)
+                v_u = self._predict_current("", z, frozen_te=freeze_uncond)
                 v = v + float(guidance) * (v - v_u)
             return v
         finally:
@@ -678,9 +790,21 @@ class LiveKreaBackend:
         for module in self._lora_modules():
             module.eval()
         try:
-            with self._scale_ctx(float(scale), frozen=float(scale) == 0.0):
+            # Encode cond + frozen uncond once; reuse hidden states (conceptmod)
+            (cond_embeds, cond_mask, _), (uncond_embeds, uncond_mask, _) = (
+                self.encode_cfg_pair(prompt, scale=float(scale))
+            )
+            with self._scale_ctx(float(scale), frozen=abs(float(scale)) < 1e-12):
                 for t in sched.timesteps:
-                    v = self._cfg(prompt, z, t, guidance)
+                    v = self._cfg_from_embeds(
+                        z,
+                        t,
+                        guidance,
+                        cond_embeds,
+                        cond_mask,
+                        uncond_embeds,
+                        uncond_mask,
+                    )
                     z = sched.step(v, t, z, return_dict=False)[0]
             img = self.decode(z)
         finally:
@@ -708,13 +832,21 @@ def load_live_krea_backend(args: Any, device: torch.device) -> LiveKreaBackend:
             "live Krea needs diffusers + peft. Use --dummy for CPU tests."
         ) from exc
     try:
+        sample_guidance = getattr(args, "sample_guidance", None)
+        if sample_guidance is None:
+            sample_guidance = resolve_krea_sample_guidance(
+                None,
+                model_id=str(args.model_id),
+                lm_target=getattr(args, "lm_target", None),
+                recipe=getattr(args, "recipe", None),
+            )
         backend = LiveKreaBackend(
             device=device,
             model_id=str(args.model_id),
             resolution=int(args.resolution),
             rank=int(args.rank),
             sample_steps=getattr(args, "sample_steps", None),
-            sample_guidance=getattr(args, "sample_guidance", None),
+            sample_guidance=sample_guidance,
             allow_hub=allow_hub,
             lora_targets=str(getattr(args, "lora_targets", KREA_DEFAULT_LORA_TARGETS)),
         )

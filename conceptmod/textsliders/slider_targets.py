@@ -2173,6 +2173,13 @@ KREA_EMBED_MID_LATE_WEIGHT = 1.0
 KREA_EMBED_COSINE_WEIGHT = 1.0
 KREA_DUMMY_EMBED_LAYERS = 4
 KREA_DUMMY_EMBED_SEQ = 8
+# Raw CFG 4.5 fights TE-only: both CFG branches under the same TE
+# scale cancel the smile Δ (smile-krea-v3: embed_cos≈0.988, pixels
+# only soft closed-lip). Embed sample default is CFG 0. Velocity
+# UNI keeps Raw 4.5 / Turbo 0 from the model card.
+KREA_EMBED_SAMPLE_CFG = 0.0
+KREA_ORACLE_EMBED_COS = 0.95
+KREA_ORACLE_SHOTS = ("oracle_plus_frozen", "student_neu_scale1", "neu_scale0")
 
 
 @dataclass(frozen=True)
@@ -2380,6 +2387,45 @@ def krea_sample_card(model_id: str) -> dict[str, float | int | str]:
         "sample_steps": KREA_RAW_STEPS,
         "sample_guidance": KREA_RAW_CFG,
     }
+
+
+def resolve_krea_sample_guidance(
+    sample_guidance: float | None,
+    *,
+    model_id: str,
+    lm_target: str | None = None,
+    recipe: str | None = None,
+) -> float:
+    """Velocity UNI keeps the Raw/Turbo card. Embed defaults to CFG 0.
+
+    Explicit ``--sample_guidance`` always wins. Raw CFG 4.5 on TE-only
+    can cancel the adapted Δ when uncond was encoded under the same
+    TE scale (smile-krea-v3).
+    """
+    if sample_guidance is not None:
+        return float(sample_guidance)
+    if resolve_krea_lm_target(lm_target, recipe) == "embed":
+        return float(KREA_EMBED_SAMPLE_CFG)
+    return float(krea_sample_card(model_id)["sample_guidance"])
+
+
+def krea_cfg_uncond_te_frozen(encoder_lora: bool) -> bool:
+    """Empty-prompt CFG branch uses frozen TE when a TE adapter is on.
+
+    smile-krea-v3 encoded both CFG branches under the same TE scale,
+    so ``v_cond − v_uncond`` cancelled the smile Δ at Raw CFG 4.5.
+    """
+    return bool(encoder_lora)
+
+
+def krea_oracle_readout() -> str:
+    """How to read the apply-audit grid (pixels vs embed_cos)."""
+    return (
+        "If oracle_plus_frozen has teeth and student_neu_scale1 does not "
+        f"despite embed_cos>{KREA_ORACLE_EMBED_COS:g} → remaining apply bug. "
+        "If oracle also lacks teeth → caption teacher is weak in pixels "
+        "(need harder plus / different path)."
+    )
 
 
 def krea_cfg_direction(v_cond: torch.Tensor, v_uncond: torch.Tensor) -> torch.Tensor:
