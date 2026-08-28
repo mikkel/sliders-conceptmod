@@ -323,8 +323,12 @@ def test_detailed_yaml_is_bare_not_smile():
         assert not prompt.positive.startswith("female ")
         assert "detailed" in prompt.positive
         assert "intricate" in prompt.positive
-        assert "simple" in prompt.neutral
-        assert "flat" in prompt.neutral
+        assert "ordinary" in prompt.neutral
+        assert "plain" in prompt.neutral
+        assert "smooth" in prompt.neutral
+        assert "untextured" in prompt.neutral
+        assert "flat" not in prompt.neutral
+        assert "simple flat" not in prompt.neutral
         assert "detailed" not in prompt.neutral
         assert "intricate" not in prompt.neutral
         unused = unused_words_for(prompt)
@@ -339,6 +343,36 @@ def test_detailed_yaml_is_bare_not_smile():
     assert all(
         "detailed" not in cap for cap in sample if cap != meta.control_prompt
     )
+
+
+def _subject_clause(caption: str) -> str:
+    return caption.split(",")[0].strip().lower()
+
+
+def test_detailed_yaml_same_subject_detail_delta():
+    """neu→plus is a detail-only delta on the same concrete subject."""
+    prompts, meta = load_prompts(KREA_DETAILED_YAML)
+    assert meta.bare_captions is True
+    assert meta.control_prompt == KREA_CONTROL_PROMPT
+    subjects = {_subject_clause(p.neutral) for p in prompts}
+    assert subjects == {
+        "an oak tree on a grassy hill",
+        "a wooden chair in an empty room",
+        "a ceramic vase on a wood table",
+    }
+    for prompt in prompts:
+        subject = _subject_clause(prompt.neutral)
+        assert subject == _subject_clause(prompt.positive)
+        assert subject == _subject_clause(prompt.target)
+        assert subject in prompt.negative
+        for token in krea_word_tokens(subject):
+            assert token not in krea_concept_words(prompt.positive, prompt.neutral)
+        assert "highly detailed" in prompt.positive
+        assert "intricate surface textures" in prompt.positive
+        assert "fine geometric detail" in prompt.positive
+        assert "crisp materials" in prompt.positive
+        assert "cartoon" not in prompt.neutral
+        assert "flat" not in prompt.neutral
 
 
 def test_bare_captions_do_not_prefix_attributes():
@@ -1158,6 +1192,23 @@ def test_docs_list_detail_krea_v2_card():
     assert "--embed_late_weight" in trainer
     assert "--embed_late_layer_start" in trainer
     assert "KREA_EMBED_LATE_WEIGHT" in trainer
+
+
+def test_docs_list_detail_krea_v3_card():
+    docs = (ROOT / "docs/krea-slider.md").read_text(encoding="utf-8")
+    assert "--name detail-krea-v3" in docs
+    assert "prompts-krea-detailed.yaml" in docs
+    assert "--embed_late_weight 4.0" in docs
+    assert "--embed_rel_l2_weight 2.0" in docs
+    assert "--rank 32" in docs
+    assert "--steps 1600" in docs
+    assert "same concrete subject" in docs or "same-subject" in docs
+    assert "oak tree" in docs
+    assert "wooden chair" in docs
+    assert "ceramic vase" in docs
+    assert "style gap" in docs
+    assert "detail-only" in docs
+    assert "not embed_cos" in docs or "not `embed_cos`" in docs
 
 
 def test_docs_list_smile_krea_v4_card():

@@ -190,9 +190,10 @@ per-layer `embed_l2_l*`, not only `embed_cos` / `embed_mse`.
 
 Same flags, non-smile concept (**detail-krea-v1**): **detailed**
 (fine detail / texture / intricacy) on scene rows so stock Krea
-is not already detailed (simple / flat / plain neu). Gate:
-student neu@1 looks more detailed than neu@0 and approaches
-frozen-plus oracle (not `embed_cos` alone).
+is not already detailed. Early captions used a cartoon-adjacent
+`simple flat, plain` neu vs an ornate-photo plus — a style jump,
+not a detail delta. Gate: student neu@1 looks more detailed than
+neu@0 and approaches frozen-plus oracle (not `embed_cos` alone).
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
@@ -215,7 +216,11 @@ heavier late-layer match and a stronger rel-L2 term
 
 Retrain card (**detail-krea-v2**). Gate: student neu@1 approaches
 frozen-plus oracle detail on landscape / room / object
-(not `embed_cos`).
+(not `embed_cos`). **detail-krea-v1** and **v2** also failed
+partly from that teacher **style gap**: oracle frozen-plus was
+richly detailed, but student@1 washed out (landscape) or changed
+subject (object → soft fabric). Smile worked because closed-mouth
+vs teeth kept the same person.
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
@@ -228,6 +233,29 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
   --rank 32 --steps 1600 --lr 1e-4 --resolution 512 --sample_steps 28 \
   --seed 7 --device 0 \
   --save_dir models/detail-krea-v2
+```
+
+**detail-krea-v3** keeps the v2 train flags and revises captions
+to a **detail-only** delta on the **same concrete subject**
+(oak tree on a grassy hill / wooden chair in an empty room /
+ceramic vase on a wood table). Neu is ordinary / plain / smooth /
+untextured and still photographic. Plus adds highly detailed /
+intricate surface textures / fine geometric detail / crisp
+materials. Recommended card once those captions land. Gate:
+student neu@1 keeps the same subject and approaches frozen-plus
+oracle detail (not `embed_cos`).
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
+  --name detail-krea-v3 \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-detailed.yaml \
+  --model_id krea/Krea-2-Raw --allow_hub \
+  --lora_targets te --lm_target embed \
+  --embed_cosine_weight 0 --embed_rel_l2_weight 2.0 --embed_late_weight 4.0 \
+  --hold_weight 0.1 --sample_guidance 0 --te_dit_mask auto \
+  --rank 32 --steps 1600 --lr 1e-4 --resolution 512 --sample_steps 28 \
+  --seed 7 --device 0 \
+  --save_dir models/detail-krea-v3
 ```
 
 Resmoke the existing **smile-krea-v3** TE adapter with the v5
@@ -394,6 +422,13 @@ python conceptmod/textsliders/train_lora_krea.py \
   --embed_cosine_weight 0 --embed_rel_l2_weight 2.0 --embed_late_weight 4.0 \
   --hold_weight 0.1 --te_dit_mask auto \
   --save_dir /tmp/krea-detail-v2-dummy
+python conceptmod/textsliders/train_lora_krea.py \
+  --dummy --name detail-krea-v3-dummy \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-detailed.yaml \
+  --lora_targets te --lm_target embed \
+  --embed_cosine_weight 0 --embed_rel_l2_weight 2.0 --embed_late_weight 4.0 \
+  --hold_weight 0.1 --te_dit_mask auto \
+  --save_dir /tmp/krea-detail-v3-dummy
 PYTHONPATH=. pytest tests/test_krea_slider.py -q
 ```
 
@@ -407,10 +442,14 @@ canary. `control_prompt` is `a bowl of fruit on a table` — verify
 only, never a teacher.
 
 `conceptmod/textsliders/data/prompts-krea-detailed.yaml`: UNI
-**detailed** (not smile). Scene rows (landscape / interior /
-still-life) with simple/flat/plain neu vs highly detailed plus.
-Same bare-caption / unused-gender / fruit-bowl / canary-minus
-shape as happy. Generalizes smile-krea-v4 TE-only embed UNI.
+**detailed** (not smile). Three same-subject rows (landscape-ish
+oak tree / interior wooden chair / object ceramic vase). Neu is
+ordinary / plain / smooth / untextured (photographic, not cartoon
+flat). Plus is that same subject with intricate surface textures
+and crisp materials. Same bare-caption / unused-gender /
+fruit-bowl / canary-minus shape as happy. v1/v2 teachers invited
+a style jump; v3 is a detail-only delta. Generalizes
+smile-krea-v4 TE-only embed UNI.
 
 `conceptmod/textsliders/data/prompts-krea.yaml`: stock age slider
 (old / young) with prefixed unused gender. Still valid.
