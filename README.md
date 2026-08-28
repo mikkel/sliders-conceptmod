@@ -7,10 +7,12 @@ shipped sliders, GPU pitfalls) and [slider_pipeline/README.md](slider_pipeline/R
 
 **Krea image sliders (opt-in):** see [docs/krea-slider.md](docs/krea-slider.md).
 UNI analog on `krea/Krea-2-Raw` (train LoRAs on Raw, run on Turbo). Smile
-v2: `prompts-krea-happy.yaml`, `--lora_targets dit+te --rank 16
---hold_weight 0.1`, 512 px, Raw 28 steps CFG 4.5 (A100; A6000 is tight
-with TE resident). `--allow_hub` to download; `--dummy` for CI. Does
-not change the Music 3 default. Anima / ZiT / H3 are not in this trainer.
+v3 (TE-only embed UNI): `prompts-krea-happy.yaml`, `--lora_targets te
+--lm_target embed --hold_weight 0.1` — live DiT v-gap is cos≈0.9999;
+stacked TE embeds `[1,512,12,2560]` neu/plus cos≈0.67. v2 velocity
+card is `--lora_targets dit+te`. 512 px, Raw 28 steps CFG 4.5 (A100).
+`--allow_hub` to download; `--dummy` for CI. Does not change the
+Music 3 default. Anima / ZiT / H3 are not in this trainer.
 
 **Sana 0.6B image sliders (opt-in cheap test backend):** see
 [docs/sana-slider.md](docs/sana-slider.md). UNI analog on

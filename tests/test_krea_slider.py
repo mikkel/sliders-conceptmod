@@ -18,12 +18,18 @@ from conceptmod.textsliders.slider_targets import (
     KREA_DEFAULT_LORA_TARGETS,
     KREA_DEFAULT_RANK,
     KREA_DEFAULT_RESOLUTION,
+    KREA_DUMMY_EMBED_LAYERS,
+    KREA_DUMMY_EMBED_SEQ,
+    KREA_EMBED_COSINE_WEIGHT,
+    KREA_EMBED_EARLY_LAYERS,
     KREA_HOLD_WEIGHT,
+    KREA_LM_TARGET_DEFAULT,
     KREA_LORA_TARGETS,
     KREA_LORA_TARGET_CHOICES,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
     KREA_RAW_STEPS,
+    KREA_RECIPE_DEFAULT,
     KREA_SAMPLE_SCALES,
     KREA_SMILE_HOLD_WEIGHT,
     KREA_TURBO_CFG,
@@ -31,9 +37,16 @@ from conceptmod.textsliders.slider_targets import (
     KREA_TE_LORA_TARGETS,
     apply_continuous_lora_scale,
     expand_attributes_krea,
+    force_krea_embed_lora_targets,
     krea_cfg_compose,
     krea_cfg_direction,
     krea_concept_words,
+    krea_embed_as_stacked,
+    krea_embed_cosine,
+    krea_embed_layer_weights,
+    krea_embed_mse,
+    krea_embed_requires_te,
+    krea_embed_uni_loss,
     krea_hold_unused_embeds,
     krea_looks_turbo,
     krea_minus_canary,
@@ -44,6 +57,7 @@ from conceptmod.textsliders.slider_targets import (
     krea_unused_hold_loss,
     krea_unused_hold_mask,
     krea_word_tokens,
+    resolve_krea_lm_target,
     resolve_krea_lora_targets,
 )
 from conceptmod.textsliders.train_lora_krea import (
@@ -51,6 +65,7 @@ from conceptmod.textsliders.train_lora_krea import (
     DummyKreaTE,
     assert_krea_only,
     infer_sample_prompts,
+    krea_embed_step_loss,
     krea_step_loss,
     load_prompts,
     parse_args,
@@ -662,3 +677,228 @@ def test_docs_list_smile_krea_v2_card():
     trainer = KREA_TRAINER.read_text(encoding="utf-8")
     assert "--lora_targets" in trainer
     assert "smile-krea-v2" in trainer or "hold_weight 0.1" in trainer
+
+
+def test_docs_list_smile_krea_v3_embed_card():
+    docs = (ROOT / "docs/krea-slider.md").read_text(encoding="utf-8")
+    assert "--name smile-krea-v3" in docs
+    assert "--lora_targets te --lm_target embed" in docs
+    assert "cos≈0.9999" in docs
+    assert "cos≈0.67" in docs
+    assert "[1, 512, 12, 2560]" in docs or "[1,512,12,2560]" in docs
+    assert "--recipe embed_uni" in docs
+    assert "same_crop" in docs and "embed_struct" in docs
+    trainer = KREA_TRAINER.read_text(encoding="utf-8")
+    assert "--lm_target" in trainer
+    assert "embed" in trainer
+    live = KREA_LIVE.read_text(encoding="utf-8")
+    assert "lm_target embed" in live
+    assert "structure lock" in live
+
+
+def test_lm_target_resolver_and_cli():
+    assert resolve_krea_lm_target() == KREA_LM_TARGET_DEFAULT == "v"
+    assert resolve_krea_lm_target("velocity") == "v"
+    assert resolve_krea_lm_target("embed") == "embed"
+    assert resolve_krea_lm_target("embed_uni") == "embed"
+    assert resolve_krea_lm_target(recipe="embed_uni") == "embed"
+    assert resolve_krea_lm_target("embed", recipe="uni") == "embed"
+    # argparse default ``v`` + explicit ``--recipe embed_uni`` → embed
+    assert resolve_krea_lm_target("v", recipe="embed_uni") == "embed"
+    with pytest.raises(ValueError, match="lm_target"):
+        resolve_krea_lm_target("v9")
+    bare = parse_args([])
+    assert bare.lm_target == "v"
+    assert bare.recipe == KREA_RECIPE_DEFAULT == "uni"
+    embed = parse_args(["--lm_target", "embed", "--lora_targets", "te"])
+    assert embed.lm_target == "embed"
+    alias = parse_args(["--recipe", "embed_uni"])
+    assert resolve_krea_lm_target(alias.lm_target, alias.recipe) == "embed"
+    forced = force_krea_embed_lora_targets("dit+te", lm_target="embed")
+    assert forced.label == "te"
+    assert forced.train_dit is False
+    assert forced.train_te is True
+    krea_embed_requires_te(forced)
+    with pytest.raises(ValueError, match="TE-only"):
+        krea_embed_requires_te(resolve_krea_lora_targets("dit"))
+    with pytest.raises(ValueError, match="TE-only"):
+        krea_embed_requires_te(resolve_krea_lora_targets("dit+te"))
+
+
+def test_embed_uni_loss_mse_and_cosine():
+    pred = torch.zeros(1, 4, 4, 8)
+    tgt = torch.zeros(1, 4, 4, 8)
+    pred[..., 2:, :] = 1.0
+    tgt[..., 2:, :] = 1.0
+    assert float(krea_embed_mse(pred, tgt)) == pytest.approx(0.0, abs=1e-8)
+    assert float(krea_embed_uni_loss(pred, tgt, cosine_weight=0.0)) == pytest.approx(
+        0.0, abs=1e-8
+    )
+    miss = pred.clone()
+    miss[..., 2:, :] = 0.0
+    early_miss = pred.clone()
+    early_miss[..., :2, :] = 1.0
+    late_loss = float(krea_embed_mse(miss, tgt))
+    early_loss = float(krea_embed_mse(early_miss, tgt))
+    assert late_loss > early_loss
+    weights = krea_embed_layer_weights(4)
+    assert float(weights[0]) < float(weights[2])
+    assert int(weights.numel()) == 4
+    stacked = krea_embed_as_stacked(torch.ones(5, 8))
+    assert tuple(stacked.shape) == (1, 5, 1, 8)
+    combo = krea_embed_uni_loss(miss, tgt, cosine_weight=1.0)
+    mse_only = krea_embed_uni_loss(miss, tgt, cosine_weight=0.0)
+    assert float(combo) > float(mse_only)
+    ones = torch.ones(1, 4, 4, 8)
+    assert float(krea_embed_cosine(ones, ones)) == pytest.approx(1.0, abs=1e-5)
+
+
+def test_dummy_te_emits_stacked_embeds():
+    backend = DummyKreaBackend(dim=8, rank=2, seed=0, lora_targets="te")
+    assert backend.te.n_layers == KREA_DUMMY_EMBED_LAYERS
+    backend.set_adapter_scale(1.0)
+    neu, tokens = backend.encode_text("a person")
+    assert neu.dim() == 4
+    assert tuple(neu.shape) == (1, KREA_DUMMY_EMBED_SEQ, KREA_DUMMY_EMBED_LAYERS, 8)
+    assert tokens
+    frozen, _ = backend.encode_text("a person", frozen=True)
+    assert frozen.shape == neu.shape
+    assert not frozen.requires_grad
+    with torch.no_grad():
+        backend.te.lora_up.weight.fill_(0.35)
+    backend.set_adapter_scale(0.0)
+    e0, _ = backend.encode_text("a person")
+    backend.set_adapter_scale(1.0)
+    e1, _ = backend.encode_text("a person")
+    assert not torch.allclose(e0, e1, atol=1e-6)
+    mid = e0 + 0.5 * (e1 - e0)
+    backend.set_adapter_scale(0.5)
+    e50, _ = backend.encode_text("a person")
+    assert torch.allclose(e50, mid, atol=1e-5)
+
+
+def test_dummy_embed_step_has_te_grad_no_dit_and_no_velocity():
+    backend = DummyKreaBackend(dim=8, rank=2, seed=3, lora_targets="te")
+    with torch.no_grad():
+        backend.te.lora_up.weight.fill_(0.25)
+    from conceptmod.textsliders.train_lora_krea import KreaSliderPrompt
+
+    prompt = KreaSliderPrompt(
+        target="a person, closed mouth",
+        positive="a person, big smile showing teeth",
+        neutral="a person, closed mouth",
+        negative="a sad person",
+        attributes=["male", "female"],
+    )
+    z = torch.zeros(1, 8)
+    loss, stats = krea_step_loss(
+        backend, prompt, z, guidance=4.5, hold_weight=0.1, lm_target="embed"
+    )
+    assert stats["lm_target"] == "embed"
+    assert stats["minus_teacher"] == 0.0
+    assert "embed_mse" in stats
+    assert "embed_cos" in stats
+    assert "cfg_dir_norm" not in stats
+    assert torch.isfinite(loss)
+    loss.backward()
+    te_grads = [p.grad for p in backend.te.lora_down.parameters() if p.grad is not None]
+    assert te_grads
+    dit_grads = [p.grad for p in backend.dit.lora_down.parameters() if p.grad is not None]
+    assert not dit_grads
+    direct, direct_stats = krea_embed_step_loss(backend, prompt, hold_weight=0.1)
+    assert direct_stats["lm_target"] == "embed"
+    assert torch.isfinite(direct)
+
+
+def test_dummy_smile_v3_embed_train(tmp_path: Path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--name",
+            "smile-krea-v3-dummy",
+            "--prompts_file",
+            str(KREA_HAPPY_YAML),
+            "--save_dir",
+            str(tmp_path),
+            "--lora_targets",
+            "te",
+            "--lm_target",
+            "embed",
+            "--hold_weight",
+            "0.1",
+            "--steps",
+            "8",
+            "--seed",
+            "7",
+        ]
+    )
+    sidecar = train(args)
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert payload["recipe"] == "embed_uni"
+    assert payload["lm_target"] == "embed"
+    assert payload["dit_velocity_supervised"] is False
+    assert payload["lora_targets"] == "te"
+    assert payload["dit_lora"] is False
+    assert payload["te_lora"] is True
+    assert payload["encoder_lora"] is True
+    assert payload["te_parking"] is False
+    assert payload["hold_weight"] == pytest.approx(KREA_SMILE_HOLD_WEIGHT)
+    assert payload["embed_cosine_weight"] == pytest.approx(KREA_EMBED_COSINE_WEIGHT)
+    assert payload["te_lora_path"] == "smile-krea-v3-dummy_lora/te_lora"
+    assert payload["dit_lora_path"] is None
+    assert payload["plus_label"] == "Happy"
+    assert payload["sample_grid"]["gate"] == "smile-first"
+    assert payload["sample_grid"]["crop_purity"] is False
+    log = tmp_path / "smile-krea-v3-dummy_train.jsonl"
+    lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 2
+    assert lines[0]["lm_target"] == "embed"
+    assert "embed_mse" in lines[0]
+    assert "cfg_dir_norm" not in lines[0]
+    pngs = list((tmp_path / "samples").glob("*.png"))
+    assert len(pngs) == 12
+
+
+def test_dummy_embed_uni_recipe_alias(tmp_path: Path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--name",
+            "smile-embed-alias",
+            "--prompts_file",
+            str(KREA_HAPPY_YAML),
+            "--save_dir",
+            str(tmp_path),
+            "--recipe",
+            "embed_uni",
+            "--hold_weight",
+            "0.1",
+        ]
+    )
+    sidecar = train(args)
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert payload["lm_target"] == "embed"
+    assert payload["lora_targets"] == "te"
+    assert payload["dit_lora"] is False
+
+
+def test_velocity_path_still_default_after_embed_flag():
+    bare = parse_args([])
+    assert bare.lm_target == "v"
+    assert bare.recipe == "uni"
+    backend = DummyKreaBackend(dim=8, rank=2, seed=0)
+    from conceptmod.textsliders.train_lora_krea import KreaSliderPrompt
+
+    prompt = KreaSliderPrompt(
+        target="a person",
+        positive="an old person",
+        neutral="a person",
+        negative="a young person",
+        attributes=["male"],
+    )
+    z = torch.zeros(1, 8)
+    loss, stats = krea_step_loss(backend, prompt, z, guidance=4.5)
+    assert "cfg_dir_norm" in stats
+    assert stats.get("lm_target") != "embed"
+    assert torch.isfinite(loss)
+    assert KREA_EMBED_EARLY_LAYERS == 2

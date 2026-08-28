@@ -72,8 +72,30 @@ from `_load_live_backend`):
 
 `--hold_weight` defaults to **1.0** (age yaml unused-gender hold).
 Live smile-krea logs were hold-dominated (`hold≈7.31` of `loss≈7.35`)
-because frozen-TE hold is a near-constant. **Smile card uses 0.1.**
+because frozen-TE hold is a near-constant. **Smile cards use 0.1.**
 Do not silently lower the age-yaml default.
+
+## TE-only embed UNI (`--lm_target embed`)
+
+Live gap diag on Raw (after #74): DiT velocity neu/plus
+**cos≈0.9999** — v-space has nothing to teach. Stacked TE embeds
+`[1, 512, 12, 2560]` neu/plus **cos≈0.67**, with early layers
+~0.91 and mid/late (2–11) ~0.57–0.73. Smile v3 therefore **does
+not teach v-space**. It trains Qwen3-VL LoRA only:
+
+| scale | student | teacher |
+|---|---|---|
+| **+1** | adapted TE `E_θ(neu)` | stopgrad frozen TE `E_frozen(pos)` |
+| **0** | adapter off (`disable_adapter` / scale 0) | — |
+
+Loss is layer-weighted MSE (+ `1−cos`) on the full stack; mid/late
+layers weigh more. Unused-token / attribute hold stays light
+(`--hold_weight 0.1`). Sample grid still runs the full pipeline
+(TE embeds → frozen base DiT denoise) so smiles are visible. DiT
+weights stay base. Do **not** add Anima `same_crop` / `embed_struct`.
+
+`--recipe embed_uni` is an alias for `--lm_target embed`. `--lora_targets`
+is forced to `te` on this path (DiT LoRA is not attached).
 
 | | Raw (train here) | Turbo (run) |
 |---|---|---|
@@ -87,8 +109,26 @@ Do not silently lower the age-yaml default.
 `--allow_hub` is required for the first download; afterwards a warm
 cache can run with `HF_HUB_OFFLINE=1` and no flag.
 
-Retrain card (**smile-krea-v2**, A100 80GB preferred; A6000 48GB is
-tight once TE stays resident):
+Retrain card (**smile-krea-v3**, TE-only embed UNI, A100 80GB):
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
+  --name smile-krea-v3 \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
+  --model_id krea/Krea-2-Raw --allow_hub \
+  --lora_targets te --lm_target embed \
+  --rank 16 --hold_weight 0.1 --resolution 512 \
+  --sample_steps 28 --sample_guidance 4.5 \
+  --steps 500 --lr 1e-4 --seed 7 --device 0 \
+  --save_dir models/smile-krea-v3
+```
+
+Adapter: `{save_dir}/{name}_lora/te_lora`. DiT is not adapted.
+Sample PNGs: `{save_dir}/samples/` (full pipeline, base DiT).
+`--recipe embed_uni` is the same flag as `--lm_target embed`.
+
+Joint DiT+TE velocity UNI (**smile-krea-v2**, A100 80GB preferred;
+A6000 48GB is tight once TE stays resident):
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
@@ -156,6 +196,11 @@ python conceptmod/textsliders/train_lora_krea.py \
   --dummy --name krea-age-dummy \
   --prompts_file conceptmod/textsliders/data/prompts-krea.yaml \
   --save_dir /tmp/krea-dummy
+python conceptmod/textsliders/train_lora_krea.py \
+  --dummy --name smile-krea-v3-dummy \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
+  --lora_targets te --lm_target embed --hold_weight 0.1 \
+  --save_dir /tmp/krea-embed-dummy
 PYTHONPATH=. pytest tests/test_krea_slider.py -q
 ```
 
