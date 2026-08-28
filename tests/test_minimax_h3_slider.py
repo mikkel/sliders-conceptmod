@@ -682,7 +682,7 @@ def test_noisy_lora_up_gives_nonzero_uni_gap():
     network = AttnLoRANetwork(
         transformer, rank=4, alpha=4.0, up_init_std=DEFAULT_LORA_UP_INIT_STD,
     )
-    assert any(float(lora.lora_up.weight.abs().max()) > 0 for lora in network.loras)
+    assert any(float(lora.lora_up.weight.detach().abs().max()) > 0 for lora in network.loras)
 
     torch.manual_seed(0)
     backend = MiniMaxH3Backend(
