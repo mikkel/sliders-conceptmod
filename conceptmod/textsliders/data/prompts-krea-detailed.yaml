@@ -5,43 +5,47 @@
 # neutral (Anima v3 train/sample mismatch). attributes pin unused
 # gender for hold bookkeeping only.
 #
-# Scenes show detail better than faces. Neu is simple / flat / plain
-# so stock Krea is not already detailed (smile analog: closed-mouth).
-# Plus is highly detailed, intricate textures, fine detail everywhere.
-# Minus is a canary only — not a teacher.
+# Same concrete subject in neu and plus (smile analog: same person,
+# closed-mouth vs teeth). Neu is the ordinary / plain / smooth /
+# untextured photographic version of THAT subject — not cartoon
+# "simple flat, plain" (v1/v2 style gap: student washed out or
+# changed subject). Plus is the same subject with highly detailed /
+# intricate surface textures / fine geometric detail / crisp
+# materials. Minus is a canary only — not a teacher.
 #
-# Train on krea/Krea-2-Raw (rank 16, 512 px, 28 steps).
+# Train on krea/Krea-2-Raw. Recommended card: detail-krea-v3
+# (rank 32, 512 px, 1600 steps, late_weight 4, rel_l2 2).
 # Official: train LoRAs on Raw, run on Turbo (8 steps, CFG 0).
 # Accept entanglement; no same_crop / embed_struct.
 plus_label: Detailed
 minus_label: Simple
 recommended_range: [0.0, 2.0]
-concept_words: "detailed, intricate, textures, texture, fine, detail"
+concept_words: "detailed, intricate, textures, texture, fine, detail, geometric, materials, crisp, surface"
 control_prompt: "a bowl of fruit on a table"
 bare_captions: true
 rows:
-  - target: "a landscape, simple flat, plain"
-    positive: "a landscape, highly detailed, intricate textures, fine detail everywhere"
-    neutral: "a landscape, simple flat, plain"
-    negative: "a washed-out blank featureless landscape"
+  - target: "an oak tree on a grassy hill, ordinary, plain, smooth, untextured"
+    positive: "an oak tree on a grassy hill, highly detailed, intricate surface textures, fine geometric detail, crisp materials"
+    neutral: "an oak tree on a grassy hill, ordinary, plain, smooth, untextured"
+    negative: "a washed-out blank featureless oak tree on a grassy hill"
     attributes: ["male", "female"]
     action: enhance
     guidance_scale: 4.5
     resolution: 512
     batch_size: 1
-  - target: "an interior room, simple flat, plain"
-    positive: "an interior room, highly detailed, intricate textures, fine detail everywhere"
-    neutral: "an interior room, simple flat, plain"
-    negative: "a washed-out blank featureless interior room"
+  - target: "a wooden chair in an empty room, ordinary, plain, smooth, untextured"
+    positive: "a wooden chair in an empty room, highly detailed, intricate surface textures, fine geometric detail, crisp materials"
+    neutral: "a wooden chair in an empty room, ordinary, plain, smooth, untextured"
+    negative: "a washed-out blank featureless wooden chair in an empty room"
     attributes: ["male", "female"]
     action: enhance
     guidance_scale: 4.5
     resolution: 512
     batch_size: 1
-  - target: "an object on a table, simple flat, plain"
-    positive: "an object on a table, highly detailed, intricate textures, fine detail everywhere"
-    neutral: "an object on a table, simple flat, plain"
-    negative: "a washed-out blank featureless object on a table"
+  - target: "a ceramic vase on a wood table, ordinary, plain, smooth, untextured"
+    positive: "a ceramic vase on a wood table, highly detailed, intricate surface textures, fine geometric detail, crisp materials"
+    neutral: "a ceramic vase on a wood table, ordinary, plain, smooth, untextured"
+    negative: "a washed-out blank featureless ceramic vase on a wood table"
     attributes: ["male", "female"]
     action: enhance
     guidance_scale: 4.5
