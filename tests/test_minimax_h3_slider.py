@@ -278,10 +278,15 @@ def test_chiaroscuro_config_and_docs_card():
     assert "--name chiaroscuro-minimax-h3-uni" in docs
     assert "prompts-minimax-h3-chiaroscuro.yaml" in docs
     assert "--rank 8 --alpha 8 --lr 1e-4 --steps 500" in docs
+    assert "--name chiaroscuro-minimax-h3-uni-r16" in docs
+    assert "--rank 16 --alpha 16 --lr 1e-4 --steps 1200" in docs
+    assert "800" in docs and "1500" in docs
+    assert "escalate" in docs
     assert "--short_side 768 --guidance 0" in docs
     assert "FL2VA" in docs and "t2va" in docs
     assert "MiniMaxAI/MiniMax-H3" in docs
     assert "sampled frames" in docs or "sampled-frame" in docs
+    assert "sampled videos" in docs
     assert "last-50" in docs
 
 

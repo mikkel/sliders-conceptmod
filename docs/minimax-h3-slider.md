@@ -144,6 +144,34 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 | gate | sampled-frame look (contrast moves, subject holds); not last-50 c+ |
 | not in weights | H3-Context-IR, H3-Regenerate-2K |
 
+If that short run is weak (contrast barely moves, or the subject drifts),
+escalate. VRAM / iterations are unrestricted until **sampled videos** look
+solid — watch the clips, do not gate on last-50 c+. First bump is rank 16
+/ 800 steps; if still weak take it to 1500. Recommended escalate:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
+  --name chiaroscuro-minimax-h3-uni-r16 \
+  --model_id MiniMaxAI/MiniMax-H3 \
+  --variant FL2VA \
+  --workflow t2va \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
+  --attributes "male, female" \
+  --rank 16 --alpha 16 --lr 1e-4 --steps 1200 --seed 7 \
+  --short_side 768 --guidance 0 --device cuda:0 \
+  --save_dir models/chiaroscuro-minimax-h3-uni-r16
+```
+
+| field | value |
+|---|---|
+| name | `chiaroscuro-minimax-h3-uni-r16` |
+| rank / alpha | 16 / 16 |
+| steps | 1200 (800 first bump; 1500 if still weak) |
+| short side | 768 |
+| CFG | distilled; guidance **0** |
+| gate | watch sampled videos (contrast moves, subject holds) |
+
 Do **not** run this in CI. Do **not** download MiniMax-H3 in CI.
 
 ## CPU / CI
