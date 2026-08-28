@@ -105,13 +105,21 @@ Live load needs a current `diffusers` with MiniMax-H3 ModularPipeline. Do **not*
 
 ## Live train card (chiaroscuro-minimax-h3-uni)
 
-First live H3 train. Same flags as the age card (rank 8, alpha 8, lr 1e-4,
-steps 500, short_side 768, guidance 0, FL2VA / t2va). Prompts are a
-**chiaroscuro / dramatic lighting** set: same concrete subject on neu and
-plus (person / interior room with chair+table / still-life vase). Neu is
-flat even lighting / soft fill / low contrast (photographic, not cartoon).
-Plus is chiaroscuro, dramatic single-source side light, deep shadows, high
-contrast. Minus is a washed-out flat / featureless lighting canary only.
+First **live** H3 train+sample. Prefer **1× B200 / B300** (bf16 ModularPipeline
+`pipe.to(cuda:0)` is ~135 GB: transformer 61.7 + Qwen3-VL-32B 62.1 + VAEs).
+Same flags as the age card (rank 8, alpha 8, lr 1e-4, steps 500, short_side
+768, guidance 0, FL2VA / t2va). Prompts are a **chiaroscuro / dramatic
+lighting** set: same concrete subject on neu and plus (person / interior
+room with chair+table / still-life vase). Neu is flat even lighting / soft
+fill / low contrast (photographic, not cartoon). Plus is chiaroscuro,
+dramatic single-source side light, deep shadows, high contrast. Minus is a
+washed-out flat / featureless lighting canary only.
+
+After train the script writes short t2va mp4s under `save_dir/samples/` at
+LoRA scales **0** and **+1** (add `0.5` with `--sample_scales 0,0.5,1`) for
+each unique yaml target. Guidance stays **0**. Sample-only reload:
+
+`--steps 0 --load_h3_lora <dir>` (custom `lora_h3-…` keys, not PEFT).
 
 Gate is **look across sampled frames** (contrast moves, subject holds),
 not last-50 c+.
@@ -127,6 +135,7 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
   --attributes "male, female" \
   --rank 8 --alpha 8 --lr 1e-4 --steps 500 --seed 7 \
   --short_side 768 --guidance 0 --device cuda:0 \
+  --sample_scales 0,1 --sample_duration 5 --sample_fps 24 \
   --save_dir models/chiaroscuro-minimax-h3-uni
 ```
 
@@ -136,13 +145,51 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 | variant / workflow | FL2VA / t2va |
 | task index | `FL2VA/model_index.json` |
 | rank / alpha | 8 / 8 |
-| short side | 768 |
+| short side | 768 (sample canvas 1344×768 16:9) |
+| sample duration / fps | **5 s** / 24 (124 frames after `17n+5` snap; ~5.17 s) |
+| sample scales | 0 and +1 (optional 0.5) |
 | CFG | distilled; guidance **0** |
-| device | `cuda:0` (live) |
+| device | `cuda:0` on **B200 / B300** (single-device default) |
+| 2×H100 | `--device cuda:0 --encoder_device cuda:1` (no blanket `pipe.to`) |
 | LoRA host | `MiniMaxH3Attention` `to_q/to_k/to_v/to_out.0` |
 | freeze | encoder (Qwen3-VL-32B) + visual VAE + audio VAE + processor + tokenizer |
 | gate | sampled-frame look (contrast moves, subject holds); not last-50 c+ |
 | not in weights | H3-Context-IR, H3-Regenerate-2K |
+
+Memory-fit sample defaults: **5 s**, **24 fps**, **768** short side. H3's
+published window is 5–15 s. A 4 s request snaps up to 107 frames (~4.46 s)
+and may be rejected live; 4.5 s snaps to 124 (same as 5 s). Tighter canvas:
+`--sample_short_side 544` → 960×544. Subset: `--sample_max_rows 1`.
+
+2×H100 (80 GB) does **not** hold the full bf16 stack on one card. Put the
+encoder on the second GPU and leave transformer + VAEs on cuda:0:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 python conceptmod/textsliders/train_lora_minimax_h3.py \
+  --name chiaroscuro-minimax-h3-uni \
+  --model_id MiniMaxAI/MiniMax-H3 \
+  --variant FL2VA \
+  --workflow t2va \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
+  --attributes "male, female" \
+  --rank 8 --alpha 8 --lr 1e-4 --steps 500 --seed 7 \
+  --short_side 768 --guidance 0 \
+  --device cuda:0 --encoder_device cuda:1 \
+  --save_dir models/chiaroscuro-minimax-h3-uni
+```
+
+Sample a saved adapter without training:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
+  --name chiaroscuro-minimax-h3-uni \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --steps 0 --load_h3_lora models/chiaroscuro-minimax-h3-uni \
+  --sample_scales 0,1 --sample_duration 5 --sample_fps 24 \
+  --short_side 768 --guidance 0 --device cuda:0 \
+  --save_dir models/chiaroscuro-minimax-h3-uni
+```
 
 If that short run is weak (contrast barely moves, or the subject drifts),
 escalate. VRAM / iterations are unrestricted until **sampled videos** look
@@ -160,6 +207,7 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
   --attributes "male, female" \
   --rank 16 --alpha 16 --lr 1e-4 --steps 1200 --seed 7 \
   --short_side 768 --guidance 0 --device cuda:0 \
+  --sample_scales 0,1 --sample_duration 5 --sample_fps 24 \
   --save_dir models/chiaroscuro-minimax-h3-uni-r16
 ```
 
@@ -169,7 +217,9 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 | rank / alpha | 16 / 16 |
 | steps | 1200 (800 first bump; 1500 if still weak) |
 | short side | 768 |
+| sample duration / fps | 5 s / 24 |
 | CFG | distilled; guidance **0** |
+| device | B200 / B300 `cuda:0`; 2×H100 add `--encoder_device cuda:1` |
 | gate | watch sampled videos (contrast moves, subject holds) |
 
 Do **not** run this in CI. Do **not** download MiniMax-H3 in CI.

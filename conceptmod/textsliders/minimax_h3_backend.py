@@ -20,6 +20,18 @@ DEFAULT_VARIANT = "FL2VA"
 DEFAULT_WORKFLOW = "t2va"
 DEFAULT_TASK_INDEX = "FL2VA/model_index.json"
 REF2VA_TASK_INDEX = "Ref2VA/model_index.json"
+# Live t2va sample defaults that fit one B200/B300 (~135 GB resident).
+# H3 snaps frames to 17*n+5; 5.0s @ 24 fps → 124 frames (~5.17s).
+# Official generate window is 5–15s; 4s is below the floor.
+H3_FPS = 24.0
+H3_MIN_DURATION = 5.0
+H3_MAX_DURATION = 15.0
+H3_FRAME_MOD = 17
+H3_FRAME_BIAS = 5
+H3_CANVAS_MULTIPLE = 32
+DEFAULT_SAMPLE_SCALES = (0.0, 1.0)
+DEFAULT_SAMPLE_DURATION = 5.0
+DEFAULT_SAMPLE_ASPECT = "16:9"
 # Diffusers ModularPipeline attn names on MiniMaxH3Transformer3DModel.
 LORA_ATTN_CLASS = "MiniMaxH3Attention"
 LORA_LINEAR_NAMES = ("to_q", "to_k", "to_v", "to_out.0")
@@ -249,6 +261,23 @@ class AttnLoRANetwork(nn.Module):
             state = {k: v.to(dtype) for k, v in state.items()}
         save_file(state, file)
 
+    def load_weights(self, file: str) -> None:
+        """Load custom ``lora_h3-…`` keys. Not PEFT ``adapter_model``."""
+        from safetensors.torch import load_file
+
+        state = load_file(file)
+        h3_keys = [k for k in state if str(k).startswith("lora_h3-")]
+        if not h3_keys:
+            raise ValueError(
+                f"{file} has no lora_h3-* keys. MiniMax-H3 sliders save a "
+                "custom AttnLoRANetwork, not PEFT adapter_model.safetensors."
+            )
+        missing, unexpected = self.load_state_dict(state, strict=False)
+        missing_lora = [k for k in missing if str(k).startswith("lora_h3-")]
+        if missing_lora:
+            raise ValueError(f"{file} is missing LoRA keys: {missing_lora[:8]}")
+        _ = unexpected
+
 
 class DummyEncoder(nn.Module):
     """Frozen stand-in for H3-Encoder (live: Qwen3-VL-32B layer-50 hidden)."""
@@ -275,6 +304,7 @@ class MiniMaxH3Backend:
         self,
         *,
         device: str = "cpu",
+        encoder_device: str | None = None,
         model_id: str = DEFAULT_MODEL,
         variant: str = DEFAULT_VARIANT,
         workflow: str = DEFAULT_WORKFLOW,
@@ -284,6 +314,14 @@ class MiniMaxH3Backend:
         dummy: bool = False,
     ) -> None:
         self.device = torch.device(device if not dummy else "cpu")
+        # Dual-GPU escape hatch: encoder (Qwen3-VL-32B) on a second card.
+        # Dummy stays CPU. When unset, encoder shares ``device`` (B200/B300).
+        if dummy:
+            self.encoder_device = torch.device("cpu")
+        elif encoder_device:
+            self.encoder_device = torch.device(encoder_device)
+        else:
+            self.encoder_device = self.device
         self.model_id = model_id
         self.variant = variant
         self.workflow = workflow
@@ -326,7 +364,10 @@ class MiniMaxH3Backend:
 
     def _init_live(self) -> None:
         self.pipe = _load_minimax_h3_modular(
-            self.model_id, workflow=self.workflow, device=str(self.device),
+            self.model_id,
+            workflow=self.workflow,
+            device=str(self.device),
+            encoder_device=str(self.encoder_device),
         )
         self.tokenizer = self.pipe.tokenizer
         self.encoder = self.pipe.text_encoder
@@ -390,21 +431,25 @@ class MiniMaxH3Backend:
         else:
             raw_ids = list(ids)
         encoder = self.encoder
+        enc_dev = self.encoder_device
         with torch.no_grad():
             if hasattr(encoder, "model"):
                 out = encoder.model(
-                    input_ids=ids.to(self.device),
+                    input_ids=ids.to(enc_dev),
                     output_hidden_states=True,
                     return_dict=True,
                 )
                 hidden = out.hidden_states[50]
             else:
                 out = encoder(
-                    input_ids=ids.to(self.device),
+                    input_ids=ids.to(enc_dev),
                     output_hidden_states=True,
                     return_dict=True,
                 )
                 hidden = out.hidden_states[50]
+        # Hidden states are small; park them on the transformer/VAE device.
+        if hidden.device != self.device:
+            hidden = hidden.to(self.device)
         return EncodedText(embeds=hidden, token_ids=[int(x) for x in raw_ids])
 
     def pack_t2va(
@@ -450,17 +495,20 @@ class MiniMaxH3Backend:
             pos[int(audio_indices[i])] = torch.tensor([float(i), 0.0, 0.0])
         timestep = torch.tensor([0.5], dtype=torch.float32)
         timestep_indices = torch.zeros(seq, dtype=torch.long)
-        return PackedLayout(
-            hidden_states=video_latents,
-            audio_hidden_states=audio_latents,
-            encoder_hidden_states=enc,
-            timestep=timestep,
-            timestep_indices=timestep_indices,
-            token_tags=token_tags,
-            position_ids=pos,
-            video_indices=video_indices,
-            audio_indices=audio_indices,
-            text_indices=text_indices,
+        return _layout_to_device(
+            PackedLayout(
+                hidden_states=video_latents,
+                audio_hidden_states=audio_latents,
+                encoder_hidden_states=enc,
+                timestep=timestep,
+                timestep_indices=timestep_indices,
+                token_tags=token_tags,
+                position_ids=pos,
+                video_indices=video_indices,
+                audio_indices=audio_indices,
+                text_indices=text_indices,
+            ),
+            self.device,
         )
 
     def forward_velocity(self, packed: PackedLayout, *, scale: float) -> DummyVelocity:
@@ -502,6 +550,121 @@ class MiniMaxH3Backend:
             return
         self.network.save_weights(path + ".safetensors", dtype=torch.float32)
 
+    def load_trained(self, path: str) -> str:
+        """Load a directory or ``.safetensors`` written by ``save_trained``."""
+        if self.network is None:
+            raise RuntimeError("LoRA was not attached")
+        resolved = resolve_h3_lora_path(path)
+        self.network.load_weights(str(resolved))
+        self.network.to(self.device)
+        return str(resolved)
+
+    def generate_t2va(
+        self,
+        prompt: str,
+        *,
+        scale: float = 1.0,
+        num_frames: int | None = None,
+        height: int | None = None,
+        width: int | None = None,
+        duration: float = DEFAULT_SAMPLE_DURATION,
+        fps: float = H3_FPS,
+        short_side: int | None = None,
+        seed: int = 7,
+    ) -> dict[str, Any]:
+        """Short t2va clip at LoRA ``scale``. Guidance stays 0 (CFG-distilled).
+
+        Dummy writes tiny synthetic frames (no Hub, no codec). Live calls
+        ModularPipeline ``pipe(prompt=..., num_frames=...)`` and does **not**
+        pass ``guidance_scale``.
+        """
+        if self.network is None:
+            raise RuntimeError("LoRA was not attached")
+        side = int(short_side or self.short_side)
+        h, w = h3_canvas_hw(side)
+        if height is not None:
+            h = int(height)
+        if width is not None:
+            w = int(width)
+        frames = int(num_frames or h3_num_frames(duration, fps))
+        self.network.set_lora_slider(float(scale))
+        with self.network:
+            if self.dummy:
+                out = self._dummy_generate_t2va(prompt, scale=scale, seed=seed)
+            else:
+                out = self._live_generate_t2va(
+                    prompt, num_frames=frames, height=h, width=w, seed=seed,
+                )
+        out.setdefault("prompt", prompt)
+        out.setdefault("scale", float(scale))
+        out.setdefault("num_frames", frames)
+        out.setdefault("height", h)
+        out.setdefault("width", w)
+        out.setdefault("duration", float(duration))
+        out.setdefault("fps", float(fps))
+        out.setdefault("guidance", 0.0)
+        out.setdefault("seed", int(seed))
+        return out
+
+    def _dummy_generate_t2va(self, prompt: str, *, scale: float, seed: int) -> dict[str, Any]:
+        """CPU stand-in: 2×8×8 RGB ramps that vary with prompt + scale."""
+        g = torch.Generator().manual_seed(int(seed) + int(round(float(scale) * 100)))
+        frames = torch.zeros(2, 8, 8, 3)
+        tint = (sum(ord(c) for c in prompt) % 180) / 255.0
+        frames[..., 0] = min(1.0, tint + 0.15 * float(scale))
+        frames[..., 1] = 0.25 + 0.2 * float(scale)
+        frames[..., 2] = 0.4
+        frames = frames + 0.02 * torch.rand(frames.shape, generator=g)
+        frames = (frames.clamp(0, 1) * 255).to(torch.uint8)
+        audio = torch.zeros(2, 32)
+        return {
+            "videos": [frames],
+            "audio": [audio],
+            "sampling_rate": 32000,
+            "dummy": True,
+            "num_frames": 2,
+            "height": 8,
+            "width": 8,
+        }
+
+    def _live_generate_t2va(
+        self,
+        prompt: str,
+        *,
+        num_frames: int,
+        height: int,
+        width: int,
+        seed: int,
+    ) -> dict[str, Any]:
+        pipe = self.pipe
+        if pipe is None or not callable(pipe):
+            raise RuntimeError("live t2va sample needs ModularPipeline.__call__")
+        gen_device = self.device if self.device.type == "cuda" else "cpu"
+        generator = torch.Generator(device=str(gen_device) if gen_device != "cpu" else "cpu")
+        generator.manual_seed(int(seed))
+        kwargs = dict(
+            prompt=prompt,
+            num_frames=int(num_frames),
+            height=int(height),
+            width=int(width),
+            generator=generator,
+            output=["videos", "audio", "sampling_rate"],
+        )
+        # CFG-distilled: never pass guidance_scale / negative_prompt.
+        results = pipe(**kwargs)
+        if not isinstance(results, dict):
+            results = {
+                "videos": getattr(results, "videos", None),
+                "audio": getattr(results, "audio", None),
+                "sampling_rate": getattr(results, "sampling_rate", 32000),
+            }
+        return {
+            "videos": results.get("videos"),
+            "audio": results.get("audio"),
+            "sampling_rate": results.get("sampling_rate", 32000),
+            "dummy": False,
+        }
+
 
 class _FrozenStub(nn.Module):
     def __init__(self, name: str) -> None:
@@ -517,21 +680,121 @@ class _DummyPipe:
         for key, value in mods.items():
             setattr(self, key, value)
 
+    def __call__(self, *args, **kwargs):
+        raise RuntimeError("dummy pipe is not a live ModularPipeline; use generate_t2va")
+
+
+def same_device(a, b) -> bool:
+    da, db = torch.device(a), torch.device(b)
+    if da.type != db.type:
+        return False
+    if da.type == "cuda":
+        ia = 0 if da.index is None else da.index
+        ib = 0 if db.index is None else db.index
+        return ia == ib
+    return True
+
+
+def h3_num_frames(duration: float, fps: float = H3_FPS) -> int:
+    """Snap ``duration * fps`` up to the next ``17*n + 5`` H3 can decode."""
+    raw = max(1, int(round(float(duration) * float(fps))))
+    n = 0
+    frames = H3_FRAME_BIAS
+    while frames < raw:
+        n += 1
+        frames = H3_FRAME_MOD * n + H3_FRAME_BIAS
+    return int(frames)
+
+
+def h3_canvas_hw(short_side: int, aspect: str = DEFAULT_SAMPLE_ASPECT) -> tuple[int, int]:
+    """Landscape canvas: short side is height. Both axes snap to 32."""
+    try:
+        w_r, h_r = (int(x) for x in str(aspect).split(":"))
+    except ValueError:
+        w_r, h_r = 16, 9
+    height = int(short_side)
+    width = int(round(float(short_side) * float(w_r) / float(h_r)))
+    height = max(H3_CANVAS_MULTIPLE, (height // H3_CANVAS_MULTIPLE) * H3_CANVAS_MULTIPLE)
+    width = max(H3_CANVAS_MULTIPLE, (width // H3_CANVAS_MULTIPLE) * H3_CANVAS_MULTIPLE)
+    return height, width
+
+
+def resolve_h3_lora_path(path: str):
+    """Accept a dir, a ``.safetensors`` file, or the stem ``save_trained`` writes."""
+    from pathlib import Path
+
+    p = Path(path)
+    candidates = []
+    if p.is_file():
+        return p
+    if p.suffix == ".safetensors":
+        candidates.append(p)
+    candidates.append(Path(str(p) + ".safetensors"))
+    if p.is_dir():
+        candidates.extend(sorted(p.glob("*_lora.safetensors")))
+        candidates.extend(sorted(p.glob("*.safetensors")))
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    raise FileNotFoundError(
+        f"no MiniMax-H3 LoRA safetensors under {path} "
+        "(expected {name}_lora.safetensors from save_trained)"
+    )
+
+
+def _layout_to_device(packed: PackedLayout, device) -> PackedLayout:
+    fields = {}
+    for name in PackedLayout.__dataclass_fields__:
+        value = getattr(packed, name)
+        fields[name] = value.to(device) if isinstance(value, torch.Tensor) else value
+    return PackedLayout(**fields)
+
+
+def place_minimax_h3_pipeline(
+    pipe: Any,
+    *,
+    device: str,
+    encoder_device: str | None = None,
+) -> Any:
+    """Place a live ModularPipeline.
+
+    Default (``encoder_device`` unset or the same as ``device``): blanket
+    ``pipe.to(device)`` — one B200/B300 holds transformer + Qwen3-VL + VAEs
+    (~135 GB bf16).
+
+    Dual-GPU (``encoder_device`` differs): transformer + visual/audio VAEs
+    stay on ``device``; the encoder goes to ``encoder_device``. Does **not**
+    call blanket ``pipe.to``.
+    """
+    enc = encoder_device or device
+    if same_device(enc, device):
+        if hasattr(pipe, "to"):
+            try:
+                pipe.to(device)
+            except Exception:
+                pass
+        return pipe
+    for name in ("transformer", "vae", "visual_vae", "audio_vae"):
+        mod = getattr(pipe, name, None)
+        if mod is not None and hasattr(mod, "to"):
+            mod.to(device)
+    text_encoder = getattr(pipe, "text_encoder", None)
+    if text_encoder is not None and hasattr(text_encoder, "to"):
+        text_encoder.to(enc)
+    return pipe
+
 
 def _load_minimax_h3_modular(
     model_id: str,
     *,
     workflow: str = DEFAULT_WORKFLOW,
     device: str = "cuda:0",
+    encoder_device: str | None = None,
 ):
     """Live path. Dummy never calls this. Do not download MiniMax-H3 in CI."""
     from diffusers import ModularPipeline
 
     pipe = ModularPipeline.from_pretrained(model_id, workflow=workflow)
     pipe.load_components(workflow=workflow, dtype=torch.bfloat16)
-    if hasattr(pipe, "to"):
-        try:
-            pipe.to(device)
-        except Exception:
-            pass
+    place_minimax_h3_pipeline(pipe, device=device, encoder_device=encoder_device)
     return pipe

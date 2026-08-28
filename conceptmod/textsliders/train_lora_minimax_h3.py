@@ -4,7 +4,9 @@
 Default Music 3 trainers are unchanged (``--lm_target v9`` / ``--pole_mode hidden``).
 
 Live card: ``MiniMaxAI/MiniMax-H3`` variant FL2VA, workflow t2va.
-``--dummy`` is the CI / CPU path: no Hub, no GPU, no MiniMax-H3 weights.
+After train (or ``--steps 0 --load_h3_lora``) writes t2va mp4s under
+``save_dir/samples/``. ``--dummy`` is the CI / CPU path: no Hub, no GPU,
+no MiniMax-H3 weights.
 """
 
 from __future__ import annotations
@@ -23,15 +25,19 @@ if str(_REPO_ROOT) not in sys.path:
 
 from conceptmod.textsliders.minimax_h3_backend import (
     DEFAULT_MODEL,
+    DEFAULT_SAMPLE_DURATION,
     DEFAULT_TASK_INDEX,
     DEFAULT_VARIANT,
     DEFAULT_WORKFLOW,
     FREEZE_LIST,
+    H3_FPS,
     HOSTED_NOT_IN_WEIGHTS,
     LORA_ATTN_CLASS,
     LORA_LINEAR_NAMES,
     REF2VA_TASK_INDEX,
     MiniMaxH3Backend,
+    h3_canvas_hw,
+    h3_num_frames,
 )
 from conceptmod.textsliders.minimax_h3_uni import (
     concept_token_ids,
@@ -73,10 +79,61 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--steps", type=int, default=500)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--device", type=str, default="cuda:0")
+    p.add_argument(
+        "--encoder_device",
+        type=str,
+        default=None,
+        help=(
+            "Optional second GPU for Qwen3-VL-32B. Transformer + VAEs stay on "
+            "--device. Unset = single-device pipe.to (B200/B300)."
+        ),
+    )
     p.add_argument("--short_side", type=int, default=768)
     p.add_argument("--guidance", type=float, default=0.0, help="CFG-distilled: stay 0")
     p.add_argument("--hold_weight", type=float, default=1.0)
     p.add_argument("--save_dir", type=str, default=None)
+    p.add_argument(
+        "--load_h3_lora",
+        type=str,
+        default=None,
+        help="Dir or .safetensors with custom lora_h3-* keys (not PEFT)",
+    )
+    p.add_argument(
+        "--no_sample",
+        action="store_true",
+        help="Skip t2va clips after train / load",
+    )
+    p.add_argument(
+        "--sample_scales",
+        type=str,
+        default="0,1",
+        help="LoRA scales for t2va clips, comma-separated (default 0,1; add 0.5)",
+    )
+    p.add_argument(
+        "--sample_duration",
+        type=float,
+        default=DEFAULT_SAMPLE_DURATION,
+        help="Seconds of t2va (default 5; H3 snaps to 17n+5 frames, min ~5s)",
+    )
+    p.add_argument(
+        "--sample_fps",
+        type=float,
+        default=H3_FPS,
+        help="Output fps (H3 clock is 24)",
+    )
+    p.add_argument(
+        "--sample_short_side",
+        type=int,
+        default=None,
+        help="Sample canvas short side (default: --short_side, 768 → 1344x768)",
+    )
+    p.add_argument(
+        "--sample_max_rows",
+        type=int,
+        default=None,
+        help="Cap unique yaml targets sampled (default: all)",
+    )
+    p.add_argument("--sample_seed", type=int, default=None)
     p.add_argument(
         "--dummy",
         action="store_true",
@@ -120,10 +177,33 @@ def load_slider_rows(prompts_file: str, cli_attributes: str) -> list[dict]:
     return rows
 
 
+def parse_sample_scales(text: str) -> list[float]:
+    scales = [float(x) for x in str(text).split(",") if str(x).strip()]
+    if not scales:
+        raise ValueError(" --sample_scales is empty")
+    return scales
+
+
+def sample_prompts_from_rows(rows: list[dict], max_rows: int | None = None) -> list[str]:
+    """Unique yaml ``target`` (subject, no plus lighting) for the scale grid."""
+    seen: list[str] = []
+    for row in rows:
+        target = str(row.get("target") or row.get("neutral") or "").strip()
+        if target and target not in seen:
+            seen.append(target)
+    if max_rows is not None:
+        seen = seen[: max(0, int(max_rows))]
+    if not seen:
+        raise ValueError("no sample prompts in slider rows")
+    return seen
+
+
 def build_backend(args: argparse.Namespace) -> MiniMaxH3Backend:
+    encoder_device = getattr(args, "encoder_device", None)
     if args.dummy:
         return MiniMaxH3Backend(
             device="cpu",
+            encoder_device=None,
             model_id=args.model_id,
             variant=args.variant,
             workflow=args.workflow,
@@ -134,6 +214,7 @@ def build_backend(args: argparse.Namespace) -> MiniMaxH3Backend:
         )
     return MiniMaxH3Backend(
         device=args.device,
+        encoder_device=encoder_device,
         model_id=args.model_id,
         variant=args.variant,
         workflow=args.workflow,
@@ -154,6 +235,136 @@ def _canary(backend: MiniMaxH3Backend, packed_uncond, packed_neu) -> float:
     ).item())
 
 
+def _slug(text: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() else "-" for ch in str(text).lower())
+    return "-".join(part for part in cleaned.split("-") if part)[:48] or "prompt"
+
+
+def write_h3_sample_mp4(
+    path: Path,
+    frames,
+    *,
+    fps: float,
+    audio=None,
+    sampling_rate=None,
+) -> None:
+    """Write an mp4. Live prefers diffusers encode_video; dummy is a tiny container."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        from diffusers.utils.export_utils import encode_video
+
+        encode_video(
+            frames,
+            fps=float(fps),
+            output_path=str(path),
+            audio=audio,
+            audio_sample_rate=sampling_rate,
+        )
+        if path.is_file() and path.stat().st_size > 0:
+            return
+    except Exception:
+        pass
+    payload = _frames_payload(frames)
+    # ISO-BMFF ftyp so the suffix is honest; dummy CI does not decode.
+    header = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isomiso2"
+    path.write_bytes(header + payload)
+
+
+def _frames_payload(frames) -> bytes:
+    if frames is None:
+        return b"dummy-t2va"
+    video = frames
+    if isinstance(frames, (list, tuple)):
+        video = frames[0] if frames else None
+    if video is None:
+        return b"dummy-t2va"
+    if hasattr(video, "detach"):
+        video = video.detach().cpu().contiguous().numpy()
+    try:
+        return bytes(memoryview(video.reshape(-1)[:4096])) + str(getattr(video, "shape", "")).encode()
+    except Exception:
+        return str(video).encode()[:4096]
+
+
+def emit_h3_samples(
+    backend: MiniMaxH3Backend,
+    args: argparse.Namespace,
+    save_dir: Path,
+    rows: list[dict],
+) -> list[dict]:
+    """After train or ``--steps 0 --load_h3_lora``, write t2va mp4s under samples/."""
+    scales = parse_sample_scales(getattr(args, "sample_scales", "0,1"))
+    prompts = sample_prompts_from_rows(rows, getattr(args, "sample_max_rows", None))
+    duration = float(getattr(args, "sample_duration", DEFAULT_SAMPLE_DURATION))
+    fps = float(getattr(args, "sample_fps", H3_FPS))
+    short_side = int(getattr(args, "sample_short_side", None) or args.short_side)
+    seed = int(getattr(args, "sample_seed", None) or args.seed)
+    height, width = h3_canvas_hw(short_side)
+    live_frames = h3_num_frames(duration, fps)
+    out_dir = Path(save_dir) / "samples"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    records: list[dict] = []
+    for prompt in prompts:
+        for scale in scales:
+            result = backend.generate_t2va(
+                prompt,
+                scale=float(scale),
+                num_frames=None if args.dummy else live_frames,
+                duration=duration,
+                fps=fps,
+                short_side=short_side,
+                seed=seed,
+            )
+            videos = result.get("videos")
+            frames = videos[0] if isinstance(videos, (list, tuple)) and videos else videos
+            scale_tag = f"{scale:g}".replace("-", "m")
+            name = f"final_{_slug(prompt)}_scale{scale_tag}.mp4"
+            path = out_dir / name
+            write_h3_sample_mp4(
+                path,
+                frames,
+                fps=fps,
+                audio=(result.get("audio") or [None])[0]
+                if isinstance(result.get("audio"), (list, tuple))
+                else result.get("audio"),
+                sampling_rate=result.get("sampling_rate"),
+            )
+            records.append({
+                "prompt": prompt,
+                "scale": float(scale),
+                "path": path.name,
+                "seed": seed,
+                "guidance": 0.0,
+                "duration": duration,
+                "fps": fps,
+                "num_frames": int(result.get("num_frames") or live_frames),
+                "height": int(result.get("height") or height),
+                "width": int(result.get("width") or width),
+                "short_side": short_side,
+                "dummy": bool(args.dummy),
+            })
+    payload = {
+        "dummy": bool(args.dummy),
+        "seed": seed,
+        "scales": scales,
+        "prompts": prompts,
+        "guidance": 0.0,
+        "duration": duration,
+        "fps": fps,
+        "num_frames": 2 if args.dummy else live_frames,
+        "short_side": short_side,
+        "height": 8 if args.dummy else height,
+        "width": 8 if args.dummy else width,
+        "samples": records,
+    }
+    (out_dir / "final_meta.json").write_text(json.dumps(payload, indent=2))
+    if not records:
+        raise RuntimeError("MiniMax-H3 sample grid is empty")
+    print(f"wrote {len(records)} t2va clips under {out_dir}")
+    return records
+
+
 def train(args: argparse.Namespace, backend: MiniMaxH3Backend | None = None) -> dict:
     if float(args.guidance) != 0.0:
         print(
@@ -162,13 +373,19 @@ def train(args: argparse.Namespace, backend: MiniMaxH3Backend | None = None) -> 
         )
     rows = load_slider_rows(args.prompts_file, args.attributes)
     backend = backend or build_backend(args)
+    loaded_lora = None
+    if getattr(args, "load_h3_lora", None):
+        loaded_lora = backend.load_trained(args.load_h3_lora)
+        print(f"loaded lora_h3 weights from {loaded_lora}")
     tokenizer = backend.tokenizer
     params = backend.trainable_parameters()
     # Dummy UNI is identity-plus-offset; SGD on that MSE is monotone. Live uses Adam.
-    if args.dummy:
-        opt = torch.optim.SGD(params, lr=float(args.lr))
-    else:
-        opt = torch.optim.Adam(params, lr=float(args.lr))
+    opt = None
+    if int(args.steps) > 0:
+        if args.dummy:
+            opt = torch.optim.SGD(params, lr=float(args.lr))
+        else:
+            opt = torch.optim.Adam(params, lr=float(args.lr))
     torch.manual_seed(int(args.seed))
 
     history = []
@@ -273,6 +490,10 @@ def train(args: argparse.Namespace, backend: MiniMaxH3Backend | None = None) -> 
         "steps": args.steps,
         "seed": args.seed,
         "device": args.device if not args.dummy else "cpu",
+        "encoder_device": (
+            None if args.dummy else getattr(args, "encoder_device", None)
+        ),
+        "load_h3_lora": loaded_lora,
         "dummy": bool(args.dummy),
         "first_loss": history[0]["loss"] if history else None,
         "last_loss": history[-1]["loss"] if history else None,
@@ -281,8 +502,25 @@ def train(args: argparse.Namespace, backend: MiniMaxH3Backend | None = None) -> 
     save_dir = Path(args.save_dir or f"models/{args.name}")
     save_dir.mkdir(parents=True, exist_ok=True)
     sidecar_path = save_dir / f"{args.name}_last.json"
-    sidecar_path.write_text(json.dumps(sidecar, indent=2))
     backend.save_trained(str(save_dir / f"{args.name}_lora"))
+    sample_records = []
+    if not getattr(args, "no_sample", False):
+        sample_records = emit_h3_samples(backend, args, save_dir, rows)
+        scales = parse_sample_scales(getattr(args, "sample_scales", "0,1"))
+        duration = float(getattr(args, "sample_duration", DEFAULT_SAMPLE_DURATION))
+        fps = float(getattr(args, "sample_fps", H3_FPS))
+        short_side = int(getattr(args, "sample_short_side", None) or args.short_side)
+        sidecar["sample_grid"] = {
+            "method": "t2va_lora_h3",
+            "scales": scales,
+            "guidance": 0.0,
+            "duration": duration,
+            "fps": fps,
+            "num_frames": 2 if args.dummy else h3_num_frames(duration, fps),
+            "short_side": short_side,
+            "n": len(sample_records),
+        }
+    sidecar_path.write_text(json.dumps(sidecar, indent=2))
     print(f"wrote {sidecar_path}")
     return sidecar
 

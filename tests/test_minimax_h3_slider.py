@@ -11,16 +11,24 @@ import yaml
 
 from conceptmod.textsliders.minimax_h3_backend import (
     DEFAULT_MODEL,
+    DEFAULT_SAMPLE_DURATION,
+    DEFAULT_SAMPLE_SCALES,
     DEFAULT_TASK_INDEX,
     DEFAULT_VARIANT,
     DEFAULT_WORKFLOW,
     FREEZE_LIST,
+    H3_FPS,
     HOSTED_NOT_IN_WEIGHTS,
     LORA_ATTN_CLASS,
     LORA_LINEAR_NAMES,
     ArchitectureMismatch,
     DummyTokenizer,
     MiniMaxH3Backend,
+    h3_canvas_hw,
+    h3_num_frames,
+    place_minimax_h3_pipeline,
+    resolve_h3_lora_path,
+    same_device,
 )
 from conceptmod.textsliders.minimax_h3_uni import (
     apply_unused_hold,
@@ -34,7 +42,13 @@ from conceptmod.textsliders.minimax_h3_uni import (
     unused_token_ids,
     velocity_pair,
 )
-from conceptmod.textsliders.train_lora_minimax_h3 import load_slider_rows, parse_args, train
+from conceptmod.textsliders.train_lora_minimax_h3 import (
+    load_slider_rows,
+    parse_args,
+    parse_sample_scales,
+    sample_prompts_from_rows,
+    train,
+)
 
 
 def test_resolved_model_id_is_minimax_h3():
@@ -49,6 +63,14 @@ def test_resolved_model_id_is_minimax_h3():
     assert args.short_side == 768
     assert args.guidance == 0.0
     assert args.rank == 8
+    assert args.encoder_device is None
+    assert args.load_h3_lora is None
+    assert args.no_sample is False
+    assert args.sample_scales == "0,1"
+    assert args.sample_duration == DEFAULT_SAMPLE_DURATION == 5.0
+    assert args.sample_fps == H3_FPS == 24.0
+    assert args.sample_short_side is None
+    assert parse_sample_scales(args.sample_scales) == list(DEFAULT_SAMPLE_SCALES)
 
 
 def test_no_hunyuan_hub_id_in_new_files():
@@ -288,6 +310,13 @@ def test_chiaroscuro_config_and_docs_card():
     assert "sampled frames" in docs or "sampled-frame" in docs
     assert "sampled videos" in docs
     assert "last-50" in docs
+    assert "B200" in docs and "B300" in docs
+    assert "--encoder_device cuda:1" in docs
+    assert "--load_h3_lora" in docs
+    assert "--steps 0" in docs
+    assert "--sample_scales 0,1" in docs
+    assert "--sample_duration 5" in docs
+    assert "--sample_fps 24" in docs
 
 
 def test_dummy_train_drops_uni_loss_and_writes_sidecar(tmp_path):
@@ -394,6 +423,210 @@ def test_live_load_is_not_imported_on_dummy():
         backend = MiniMaxH3Backend(device="cpu", dummy=True)
         _ = backend.encode_text("person")
         _ = backend.forward_velocity(backend.pack_t2va(backend.encode_text("person")), scale=1.0)
+        _ = backend.generate_t2va("person sitting in a chair", scale=0.0, seed=0)
     finally:
         h3._load_minimax_h3_modular = orig
     assert called["n"] == 0
+
+
+def test_sample_geometry_defaults():
+    assert h3_num_frames(5.0, 24.0) == 124
+    # 4.5s * 24 = 108, which is above 107, so snap-up is 124.
+    assert h3_num_frames(4.5, 24.0) == 124
+    assert h3_num_frames(107 / 24.0, 24.0) == 107
+    height, width = h3_canvas_hw(768)
+    assert height == 768
+    assert width == 1344
+    tight_h, tight_w = h3_canvas_hw(544)
+    assert tight_h == 544
+    assert tight_w == 960
+
+
+def test_sample_prompts_are_unique_yaml_targets():
+    rows = load_slider_rows(
+        "conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml", ""
+    )
+    prompts = sample_prompts_from_rows(rows)
+    assert prompts == [
+        "person sitting in a chair",
+        "interior room with a wooden chair and a table",
+        "ceramic vase on a wooden table",
+    ]
+    assert sample_prompts_from_rows(rows, max_rows=1) == ["person sitting in a chair"]
+
+
+class _FakeMod:
+    def __init__(self) -> None:
+        self.device = None
+
+    def to(self, device):
+        self.device = str(device)
+        return self
+
+
+class _FakePipe:
+    def __init__(self) -> None:
+        self.transformer = _FakeMod()
+        self.vae = _FakeMod()
+        self.audio_vae = _FakeMod()
+        self.text_encoder = _FakeMod()
+        self.to_calls: list[str] = []
+
+    def to(self, device):
+        self.to_calls.append(str(device))
+        return self
+
+
+def test_place_pipeline_default_blankets_single_device():
+    pipe = _FakePipe()
+    place_minimax_h3_pipeline(pipe, device="cuda:0")
+    assert pipe.to_calls == ["cuda:0"]
+    place_minimax_h3_pipeline(pipe, device="cuda:0", encoder_device="cuda:0")
+    assert pipe.to_calls == ["cuda:0", "cuda:0"]
+    assert same_device("cuda", "cuda:0")
+
+
+def test_place_pipeline_encoder_device_skips_blanket_to():
+    pipe = _FakePipe()
+    place_minimax_h3_pipeline(pipe, device="cuda:0", encoder_device="cuda:1")
+    assert pipe.to_calls == []
+    assert pipe.transformer.device == "cuda:0"
+    assert pipe.vae.device == "cuda:0"
+    assert pipe.audio_vae.device == "cuda:0"
+    assert pipe.text_encoder.device == "cuda:1"
+
+
+def test_dummy_train_writes_t2va_samples(tmp_path):
+    prompts = tmp_path / "one.yaml"
+    prompts.write_text(
+        "- target: person sitting in a chair\n  positive: chiaroscuro person sitting in a chair\n"
+        "  neutral: person sitting in a chair\n  unconditional: ''\n  attributes: []\n"
+    )
+    args = parse_args([
+        "--dummy",
+        "--steps", "2",
+        "--name", "h3-sample",
+        "--save_dir", str(tmp_path),
+        "--prompts_file", str(prompts),
+        "--sample_scales", "0,1",
+        "--sample_duration", "5",
+        "--sample_fps", "24",
+        "--seed", "0",
+    ])
+    sidecar = train(args)
+    assert sidecar["guidance"] == 0.0
+    assert sidecar["sample_grid"]["guidance"] == 0.0
+    assert sidecar["sample_grid"]["scales"] == [0.0, 1.0]
+    assert sidecar["sample_grid"]["duration"] == 5.0
+    assert sidecar["sample_grid"]["fps"] == 24.0
+    samples = tmp_path / "samples"
+    meta = json.loads((samples / "final_meta.json").read_text())
+    assert meta["guidance"] == 0.0
+    assert meta["scales"] == [0.0, 1.0]
+    mp4s = sorted(samples.glob("*.mp4"))
+    assert [p.name for p in mp4s] == [
+        "final_person-sitting-in-a-chair_scale0.mp4",
+        "final_person-sitting-in-a-chair_scale1.mp4",
+    ]
+    for path in mp4s:
+        assert path.stat().st_size > 0
+        assert path.read_bytes()[:8].endswith(b"ftyp") or b"ftyp" in path.read_bytes()[:32]
+
+
+def test_load_h3_lora_roundtrip_and_steps_zero_sample(tmp_path):
+    prompts = tmp_path / "one.yaml"
+    prompts.write_text(
+        "- target: ceramic vase on a wooden table\n  positive: chiaroscuro ceramic vase on a wooden table\n"
+        "  neutral: ceramic vase on a wooden table\n  unconditional: ''\n  attributes: []\n"
+    )
+    train_dir = tmp_path / "trained"
+    args = parse_args([
+        "--dummy",
+        "--steps", "4",
+        "--name", "h3-load",
+        "--save_dir", str(train_dir),
+        "--prompts_file", str(prompts),
+        "--no_sample",
+        "--seed", "1",
+    ])
+    train(args)
+    lora_path = resolve_h3_lora_path(str(train_dir))
+    assert lora_path.name.endswith(".safetensors")
+    src = MiniMaxH3Backend(device="cpu", dummy=True)
+    src.load_trained(str(train_dir))
+    dst = MiniMaxH3Backend(device="cpu", dummy=True)
+    dst.load_trained(str(lora_path))
+    for a, b in zip(src.network.parameters(), dst.network.parameters()):
+        assert torch.allclose(a, b)
+
+    sample_dir = tmp_path / "reload"
+    reload_args = parse_args([
+        "--dummy",
+        "--steps", "0",
+        "--name", "h3-reload",
+        "--save_dir", str(sample_dir),
+        "--prompts_file", str(prompts),
+        "--load_h3_lora", str(train_dir),
+        "--sample_scales", "0,0.5,1",
+        "--encoder_device", "cuda:1",
+        "--device", "cuda:0",
+    ])
+    assert reload_args.steps == 0
+    assert reload_args.load_h3_lora == str(train_dir)
+    assert reload_args.encoder_device == "cuda:1"
+    sidecar = train(reload_args)
+    assert sidecar["steps"] == 0
+    assert sidecar["first_loss"] is None
+    assert sidecar["load_h3_lora"]
+    assert sidecar["encoder_device"] is None  # dummy stays CPU
+    assert sidecar["sample_grid"]["scales"] == [0.0, 0.5, 1.0]
+    mp4s = {p.name for p in (sample_dir / "samples").glob("*.mp4")}
+    assert mp4s == {
+        "final_ceramic-vase-on-a-wooden-table_scale0.mp4",
+        "final_ceramic-vase-on-a-wooden-table_scale0.5.mp4",
+        "final_ceramic-vase-on-a-wooden-table_scale1.mp4",
+    }
+
+
+def test_dummy_encoder_device_does_not_hit_hub():
+    import conceptmod.textsliders.minimax_h3_backend as h3
+
+    called = {"n": 0}
+
+    def boom(*_a, **_k):
+        called["n"] += 1
+        raise AssertionError("live MiniMax-H3 loader must not run in dummy mode")
+
+    orig = h3._load_minimax_h3_modular
+    h3._load_minimax_h3_modular = boom
+    try:
+        args = parse_args([
+            "--dummy",
+            "--encoder_device", "cuda:1",
+            "--device", "cuda:0",
+            "--steps", "0",
+            "--no_sample",
+        ])
+        backend = MiniMaxH3Backend(
+            device=args.device,
+            encoder_device=args.encoder_device,
+            dummy=True,
+        )
+        assert str(backend.device) == "cpu"
+        assert str(backend.encoder_device) == "cpu"
+        out = backend.generate_t2va("person", scale=1.0, seed=0)
+        assert out["guidance"] == 0.0
+        assert out["dummy"] is True
+    finally:
+        h3._load_minimax_h3_modular = orig
+    assert called["n"] == 0
+
+
+def test_load_h3_lora_rejects_non_h3_keys(tmp_path):
+    from safetensors.torch import save_file
+
+    path = tmp_path / "peft.safetensors"
+    save_file({"base_model.model.foo.weight": torch.zeros(2, 2)}, str(path))
+    backend = MiniMaxH3Backend(device="cpu", dummy=True)
+    with pytest.raises(ValueError, match="lora_h3"):
+        backend.load_trained(str(path))
