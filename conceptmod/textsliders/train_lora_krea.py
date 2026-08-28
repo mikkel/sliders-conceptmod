@@ -25,6 +25,8 @@ Smile v2 card: ``--lora_targets dit+te --hold_weight 0.1``.
 Smile v3/v4/v5: ``--lora_targets te --lm_target embed`` (TE-only stacked
 embeds; DiT stays base). Live gap: DiT v neu/plus cos≈0.9999;
 TE ``[1,512,12,2560]`` cos≈0.67. Do not teach v-space on that path.
+v4 retrain: MSE + rel-L2 (``--embed_cosine_weight`` default 0);
+cosine hid a residual magnitude gap (cos≈0.9959, max_abs≈147).
 v4: CFG uncond uses frozen TE; encode once per generate; embed
 sample guidance defaults to 0; oracle apply-audit grid.
 v5: TE scale>0 uses an all-ones DiT attention mask so UNI-matched
@@ -57,6 +59,7 @@ from conceptmod.textsliders.slider_targets import (
     KREA_DUMMY_EMBED_LAYERS,
     KREA_DUMMY_EMBED_SEQ,
     KREA_EMBED_COSINE_WEIGHT,
+    KREA_EMBED_REL_L2_WEIGHT,
     KREA_EMBED_SAMPLE_CFG,
     KREA_HOLD_WEIGHT,
     KREA_LM_TARGET_CHOICES,
@@ -82,6 +85,7 @@ from conceptmod.textsliders.slider_targets import (
     krea_embed_cosine,
     krea_embed_mse,
     krea_embed_requires_te,
+    krea_embed_train_stats,
     krea_embed_uni_loss,
     krea_hold_unused_embeds,
     krea_minus_canary,
@@ -615,14 +619,16 @@ def krea_embed_step_loss(
     *,
     hold_weight: float = KREA_SMILE_HOLD_WEIGHT,
     cosine_weight: float = KREA_EMBED_COSINE_WEIGHT,
+    rel_l2_weight: float = KREA_EMBED_REL_L2_WEIGHT,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """TE-only embed UNI. Does not teach DiT velocity.
 
     Student: adapted TE encodes **neu** (scale +1).
     Teacher: stopgrad frozen TE encodes **pos** (disable_adapter / scale 0).
-    Loss is layer-weighted MSE (+ optional 1−cos) on the stacked
-    ``[B, seq, layers, dim]`` hidden states. Unused-token / attribute
-    hold stays light. No Anima structure lock.
+    Loss is layer-weighted MSE + relative L2 (optional 1−cos) on the
+    stacked ``[B, seq, layers, dim]`` hidden states. Cosine default is
+    0 — live high-cos still had a magnitude gap. Unused-token /
+    attribute hold stays light. No Anima structure lock.
     """
     if not getattr(backend, "encoder_lora", False):
         raise ValueError(
@@ -639,7 +645,12 @@ def krea_embed_step_loss(
     teacher = teacher.detach()
     embed_mse = krea_embed_mse(student, teacher)
     embed_cos = krea_embed_cosine(student, teacher)
-    loss = krea_embed_uni_loss(student, teacher, cosine_weight=float(cosine_weight))
+    loss = krea_embed_uni_loss(
+        student,
+        teacher,
+        cosine_weight=float(cosine_weight),
+        rel_l2_weight=float(rel_l2_weight),
+    )
 
     # Hold unused tokens frozen-pos vs frozen-neu. Do not encode plus
     # with the student adapter — that trains hold through Eθ(pos)
@@ -672,6 +683,7 @@ def krea_embed_step_loss(
             sorted(krea_concept_words(prompt.positive, prompt.neutral))
         ),
     }
+    stats.update(krea_embed_train_stats(student, teacher))
     return loss, stats
 
 
@@ -685,6 +697,7 @@ def krea_step_loss(
     lm_target: str = KREA_LM_TARGET_DEFAULT,
     recipe: str = KREA_RECIPE_DEFAULT,
     embed_cosine_weight: float = KREA_EMBED_COSINE_WEIGHT,
+    embed_rel_l2_weight: float = KREA_EMBED_REL_L2_WEIGHT,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """One UNI step. Embed path never scores DiT velocity."""
     resolved = resolve_krea_lm_target(lm_target, recipe)
@@ -694,6 +707,7 @@ def krea_step_loss(
             prompt,
             hold_weight=hold_weight,
             cosine_weight=float(embed_cosine_weight),
+            rel_l2_weight=float(embed_rel_l2_weight),
         )
     unused = unused_words_for(prompt)
     with torch.no_grad():
@@ -805,7 +819,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=KREA_EMBED_COSINE_WEIGHT,
         help="embed UNI: weight on (1−cos) added to layer-weighted MSE. "
-        "0 = MSE only. Ignored when --lm_target v.",
+        "Default 0 (MSE + rel-L2 only). Cosine hid the live magnitude "
+        "gap (cos≈0.9959, max_abs≈147). Ignored when --lm_target v.",
+    )
+    parser.add_argument(
+        "--embed_rel_l2_weight",
+        type=float,
+        default=KREA_EMBED_REL_L2_WEIGHT,
+        help="embed UNI: weight on mean_L ||s−t||² / (||t||²+eps) so "
+        "layer scale cannot drift. Default 1. 0 disables. Ignored "
+        "when --lm_target v.",
     )
     parser.add_argument(
         "--recipe",
@@ -1224,6 +1247,12 @@ def train(args: argparse.Namespace) -> Path:
         f"lora_targets={lora_spec.label} hold_weight={float(args.hold_weight)} "
         f"minus_teacher=off unused_hold=on control={control_prompt!r}"
     )
+    if lm_target == "embed":
+        print(
+            f"embed UNI cosine_weight={float(getattr(args, 'embed_cosine_weight', KREA_EMBED_COSINE_WEIGHT)):g} "
+            f"rel_l2_weight={float(getattr(args, 'embed_rel_l2_weight', KREA_EMBED_REL_L2_WEIGHT)):g} "
+            "(default MSE + rel-L2; cosine hid live magnitude)"
+        )
     if meta.bare_captions and abs(float(args.hold_weight) - KREA_HOLD_WEIGHT) < 1e-12:
         print(
             f"note: happy/smile yaml with default --hold_weight {KREA_HOLD_WEIGHT:g}; "
@@ -1247,6 +1276,9 @@ def train(args: argparse.Namespace) -> Path:
             recipe=str(getattr(args, "recipe", KREA_RECIPE_DEFAULT)),
             embed_cosine_weight=float(
                 getattr(args, "embed_cosine_weight", KREA_EMBED_COSINE_WEIGHT)
+            ),
+            embed_rel_l2_weight=float(
+                getattr(args, "embed_rel_l2_weight", KREA_EMBED_REL_L2_WEIGHT)
             ),
         )
         opt.zero_grad(set_to_none=True)
@@ -1293,6 +1325,11 @@ def train(args: argparse.Namespace) -> Path:
         "lm_target": lm_target,
         "embed_cosine_weight": float(
             getattr(args, "embed_cosine_weight", KREA_EMBED_COSINE_WEIGHT)
+        )
+        if lm_target == "embed"
+        else None,
+        "embed_rel_l2_weight": float(
+            getattr(args, "embed_rel_l2_weight", KREA_EMBED_REL_L2_WEIGHT)
         )
         if lm_target == "embed"
         else None,

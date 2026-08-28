@@ -36,8 +36,12 @@ Patterns follow mikkel/conceptmod ``conceptmod/backends/krea.py``:
   > 0, DiT ``encoder_attention_mask`` is **ones** over the full
   padded stack (``max_sequence_length`` / embed seq). Embed UNI
   MSE-matches rows past neu's valid tokens; the neu tokenizer
-  mask hid those smile slots (v3/v4 oracle: embeds matched,
-  ``generate(plus, frozen)`` had teeth, student neu@1 did not).
+  mask hid those smile slots (v3/v4 oracle: embeds matched
+  cosine, ``generate(plus, frozen)`` had teeth, student neu@1
+  did not). Ones-mask + high cos was not enough: live
+  transplant showed max_abs≈147; frozen-plus embeds → teeth,
+  student embeds → no teeth, late-layer (L6–11) lerp recovered
+  teeth. Cosine≠magnitude; gate on teeth vs oracle.
   Scale 0 / frozen TE keep the real tokenizer mask. Optional
   ``mask_prompt`` transplants a frozen-plus mask.
 
