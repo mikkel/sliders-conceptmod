@@ -117,7 +117,8 @@ Plus is longer than neu. Embed UNI MSE-matches the full
 `[B,512,12,2560]` stack (including positions past neu's valid
 tokens), but `encoder_attention_mask` from encoding **neu** only
 attends the shorter neu span — DiT never saw the rows where smile
-content was written. Oracle uses plus's mask with plus embeds →
+content was written (mask truncated smile slots). Oracle uses
+plus's mask with plus embeds →
 teeth. Default TE-slider sample now uses an **all-ones** attention
 mask over `max_sequence_length` whenever TE LoRA scale > 0. Scale 0
 / frozen TE keep the real tokenizer mask. Optional `mask_prompt`
