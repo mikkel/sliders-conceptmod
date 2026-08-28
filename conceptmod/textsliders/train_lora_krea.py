@@ -31,6 +31,9 @@ v4: CFG uncond uses frozen TE; encode once per generate; embed
 sample guidance defaults to 0; oracle apply-audit grid.
 v5: TE scale>0 uses an all-ones DiT attention mask so UNI-matched
 rows past neu's token span are actually attended.
+``--embed_late_weight`` (default 2.0) / ``--embed_late_layer_start``
+(default 6) let detail-krea train late layers harder than smile
+without editing constants.
 """
 
 from __future__ import annotations
@@ -59,6 +62,8 @@ from conceptmod.textsliders.slider_targets import (
     KREA_DUMMY_EMBED_LAYERS,
     KREA_DUMMY_EMBED_SEQ,
     KREA_EMBED_COSINE_WEIGHT,
+    KREA_EMBED_LATE_LAYER_START,
+    KREA_EMBED_LATE_WEIGHT,
     KREA_EMBED_REL_L2_WEIGHT,
     KREA_EMBED_SAMPLE_CFG,
     KREA_HOLD_WEIGHT,
@@ -82,7 +87,9 @@ from conceptmod.textsliders.slider_targets import (
     krea_cfg_direction,
     krea_cfg_uncond_te_frozen,
     krea_concept_words,
+    krea_embed_as_stacked,
     krea_embed_cosine,
+    krea_embed_layer_weights,
     krea_embed_mse,
     krea_embed_requires_te,
     krea_embed_train_stats,
@@ -620,6 +627,8 @@ def krea_embed_step_loss(
     hold_weight: float = KREA_SMILE_HOLD_WEIGHT,
     cosine_weight: float = KREA_EMBED_COSINE_WEIGHT,
     rel_l2_weight: float = KREA_EMBED_REL_L2_WEIGHT,
+    late_weight: float = KREA_EMBED_LATE_WEIGHT,
+    late_layer_start: int = KREA_EMBED_LATE_LAYER_START,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """TE-only embed UNI. Does not teach DiT velocity.
 
@@ -629,6 +638,8 @@ def krea_embed_step_loss(
     stacked ``[B, seq, layers, dim]`` hidden states. Cosine default is
     0 — live high-cos still had a magnitude gap. Unused-token /
     attribute hold stays light. No Anima structure lock.
+    ``late_weight`` / ``late_layer_start`` feed ``krea_embed_layer_weights``
+    (defaults match smile-krea-v4: late 6–11 at 2.0).
     """
     if not getattr(backend, "encoder_lora", False):
         raise ValueError(
@@ -643,11 +654,20 @@ def krea_embed_step_loss(
     except TypeError:
         teacher, _pos_tokens = backend.encode_text(prompt.positive)
     teacher = teacher.detach()
-    embed_mse = krea_embed_mse(student, teacher)
-    embed_cos = krea_embed_cosine(student, teacher)
+    n_layers = int(krea_embed_as_stacked(student).shape[2])
+    layer_weights = krea_embed_layer_weights(
+        n_layers,
+        late_layer_start=int(late_layer_start),
+        late_weight=float(late_weight),
+        device=student.device,
+        dtype=student.dtype,
+    )
+    embed_mse = krea_embed_mse(student, teacher, layer_weights=layer_weights)
+    embed_cos = krea_embed_cosine(student, teacher, layer_weights=layer_weights)
     loss = krea_embed_uni_loss(
         student,
         teacher,
+        layer_weights=layer_weights,
         cosine_weight=float(cosine_weight),
         rel_l2_weight=float(rel_l2_weight),
     )
@@ -683,7 +703,11 @@ def krea_embed_step_loss(
             sorted(krea_concept_words(prompt.positive, prompt.neutral))
         ),
     }
-    stats.update(krea_embed_train_stats(student, teacher))
+    stats.update(
+        krea_embed_train_stats(
+            student, teacher, late_layer_start=int(late_layer_start)
+        )
+    )
     return loss, stats
 
 
@@ -698,6 +722,8 @@ def krea_step_loss(
     recipe: str = KREA_RECIPE_DEFAULT,
     embed_cosine_weight: float = KREA_EMBED_COSINE_WEIGHT,
     embed_rel_l2_weight: float = KREA_EMBED_REL_L2_WEIGHT,
+    embed_late_weight: float = KREA_EMBED_LATE_WEIGHT,
+    embed_late_layer_start: int = KREA_EMBED_LATE_LAYER_START,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """One UNI step. Embed path never scores DiT velocity."""
     resolved = resolve_krea_lm_target(lm_target, recipe)
@@ -708,6 +734,8 @@ def krea_step_loss(
             hold_weight=hold_weight,
             cosine_weight=float(embed_cosine_weight),
             rel_l2_weight=float(embed_rel_l2_weight),
+            late_weight=float(embed_late_weight),
+            late_layer_start=int(embed_late_layer_start),
         )
     unused = unused_words_for(prompt)
     with torch.no_grad():
@@ -829,6 +857,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="embed UNI: weight on mean_L ||s−t||² / (||t||²+eps) so "
         "layer scale cannot drift. Default 1. 0 disables. Ignored "
         "when --lm_target v.",
+    )
+    parser.add_argument(
+        "--embed_late_weight",
+        type=float,
+        default=KREA_EMBED_LATE_WEIGHT,
+        help="embed UNI: per-layer weight for late TE layers "
+        f"(from --embed_late_layer_start, default {KREA_EMBED_LATE_LAYER_START}). "
+        f"Default {KREA_EMBED_LATE_WEIGHT:g} (smile-krea-v4). "
+        "Detail-krea-v2 uses 4.0 so late magnitude is trained harder. "
+        "Ignored when --lm_target v.",
+    )
+    parser.add_argument(
+        "--embed_late_layer_start",
+        type=int,
+        default=KREA_EMBED_LATE_LAYER_START,
+        help="embed UNI: first late layer index (inclusive). "
+        f"Default {KREA_EMBED_LATE_LAYER_START} (live L6–11). Dummy 4-layer "
+        "stack is past this start unless you lower it. Ignored when "
+        "--lm_target v.",
     )
     parser.add_argument(
         "--recipe",
@@ -1251,6 +1298,8 @@ def train(args: argparse.Namespace) -> Path:
         print(
             f"embed UNI cosine_weight={float(getattr(args, 'embed_cosine_weight', KREA_EMBED_COSINE_WEIGHT)):g} "
             f"rel_l2_weight={float(getattr(args, 'embed_rel_l2_weight', KREA_EMBED_REL_L2_WEIGHT)):g} "
+            f"late_weight={float(getattr(args, 'embed_late_weight', KREA_EMBED_LATE_WEIGHT)):g} "
+            f"late_layer_start={int(getattr(args, 'embed_late_layer_start', KREA_EMBED_LATE_LAYER_START))} "
             "(default MSE + rel-L2; cosine hid live magnitude)"
         )
     if meta.bare_captions and abs(float(args.hold_weight) - KREA_HOLD_WEIGHT) < 1e-12:
@@ -1279,6 +1328,12 @@ def train(args: argparse.Namespace) -> Path:
             ),
             embed_rel_l2_weight=float(
                 getattr(args, "embed_rel_l2_weight", KREA_EMBED_REL_L2_WEIGHT)
+            ),
+            embed_late_weight=float(
+                getattr(args, "embed_late_weight", KREA_EMBED_LATE_WEIGHT)
+            ),
+            embed_late_layer_start=int(
+                getattr(args, "embed_late_layer_start", KREA_EMBED_LATE_LAYER_START)
             ),
         )
         opt.zero_grad(set_to_none=True)
@@ -1330,6 +1385,16 @@ def train(args: argparse.Namespace) -> Path:
         else None,
         "embed_rel_l2_weight": float(
             getattr(args, "embed_rel_l2_weight", KREA_EMBED_REL_L2_WEIGHT)
+        )
+        if lm_target == "embed"
+        else None,
+        "embed_late_weight": float(
+            getattr(args, "embed_late_weight", KREA_EMBED_LATE_WEIGHT)
+        )
+        if lm_target == "embed"
+        else None,
+        "embed_late_layer_start": int(
+            getattr(args, "embed_late_layer_start", KREA_EMBED_LATE_LAYER_START)
         )
         if lm_target == "embed"
         else None,

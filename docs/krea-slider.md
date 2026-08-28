@@ -183,9 +183,10 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
   --save_dir models/smile-krea-v4
 ```
 
-`--embed_rel_l2_weight` defaults to 1.0. Logs `embed_max_abs`,
-`embed_late_l2`, and per-layer `embed_l2_l*`, not only
-`embed_cos` / `embed_mse`.
+`--embed_rel_l2_weight` defaults to 1.0. `--embed_late_weight`
+defaults to 2.0 (late layers 6–11); `--embed_late_layer_start`
+defaults to 6. Logs `embed_max_abs`, `embed_late_l2`, and
+per-layer `embed_l2_l*`, not only `embed_cos` / `embed_mse`.
 
 Same flags, non-smile concept (**detail-krea-v1**): **detailed**
 (fine detail / texture / intricacy) on scene rows so stock Krea
@@ -203,6 +204,30 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
   --te_dit_mask auto --rank 16 --steps 800 --lr 1e-4 \
   --resolution 512 --sample_steps 28 --seed 7 --device 0 \
   --save_dir models/detail-krea-v1
+```
+
+**detail-krea-v1** (800 / rank 16 / late=2, smile-krea-v4
+defaults) **GATE FAIL** — L11 L2 stayed huge (~888); student
+neu@1 did not match frozen-plus oracle detail. Retrain with
+heavier late-layer match and a stronger rel-L2 term
+(`--embed_late_weight` / `--embed_rel_l2_weight`; defaults stay
+2.0 / 1.0 so smile-krea-v4 is unchanged).
+
+Retrain card (**detail-krea-v2**). Gate: student neu@1 approaches
+frozen-plus oracle detail on landscape / room / object
+(not `embed_cos`).
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
+  --name detail-krea-v2 \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-detailed.yaml \
+  --model_id krea/Krea-2-Raw --allow_hub \
+  --lora_targets te --lm_target embed \
+  --embed_cosine_weight 0 --embed_rel_l2_weight 2.0 --embed_late_weight 4.0 \
+  --hold_weight 0.1 --sample_guidance 0 --te_dit_mask auto \
+  --rank 32 --steps 1600 --lr 1e-4 --resolution 512 --sample_steps 28 \
+  --seed 7 --device 0 \
+  --save_dir models/detail-krea-v2
 ```
 
 Resmoke the existing **smile-krea-v3** TE adapter with the v5
@@ -362,6 +387,13 @@ python conceptmod/textsliders/train_lora_krea.py \
   --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
   --lora_targets te --lm_target embed --hold_weight 0.1 \
   --save_dir /tmp/krea-embed-v5-dummy
+python conceptmod/textsliders/train_lora_krea.py \
+  --dummy --name detail-krea-v2-dummy \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-detailed.yaml \
+  --lora_targets te --lm_target embed \
+  --embed_cosine_weight 0 --embed_rel_l2_weight 2.0 --embed_late_weight 4.0 \
+  --hold_weight 0.1 --te_dit_mask auto \
+  --save_dir /tmp/krea-detail-v2-dummy
 PYTHONPATH=. pytest tests/test_krea_slider.py -q
 ```
 

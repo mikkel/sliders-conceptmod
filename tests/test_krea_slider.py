@@ -779,9 +779,29 @@ def test_lm_target_resolver_and_cli():
     assert embed.embed_cosine_weight == pytest.approx(0.0)
     assert embed.embed_rel_l2_weight == pytest.approx(KREA_EMBED_REL_L2_WEIGHT)
     assert embed.embed_rel_l2_weight == pytest.approx(1.0)
+    assert embed.embed_late_weight == pytest.approx(KREA_EMBED_LATE_WEIGHT)
+    assert embed.embed_late_weight == pytest.approx(2.0)
+    assert embed.embed_late_layer_start == KREA_EMBED_LATE_LAYER_START == 6
     bare_flags = parse_args([])
     assert bare_flags.embed_cosine_weight == pytest.approx(0.0)
     assert bare_flags.embed_rel_l2_weight == pytest.approx(1.0)
+    assert bare_flags.embed_late_weight == pytest.approx(2.0)
+    assert bare_flags.embed_late_layer_start == 6
+    detail_v2 = parse_args(
+        [
+            "--lm_target",
+            "embed",
+            "--lora_targets",
+            "te",
+            "--embed_rel_l2_weight",
+            "2.0",
+            "--embed_late_weight",
+            "4.0",
+        ]
+    )
+    assert detail_v2.embed_late_weight == pytest.approx(4.0)
+    assert detail_v2.embed_rel_l2_weight == pytest.approx(2.0)
+    assert detail_v2.embed_late_layer_start == 6
     alias = parse_args(["--recipe", "embed_uni"])
     assert resolve_krea_lm_target(alias.lm_target, alias.recipe) == "embed"
     forced = force_krea_embed_lora_targets("dit+te", lm_target="embed")
@@ -877,6 +897,61 @@ def test_embed_late_layers_weigh_more_than_mid_and_early():
     dummy_w = krea_embed_layer_weights(4)
     assert float(dummy_w[0]) < float(dummy_w[2])
     assert float(dummy_w[2]) == pytest.approx(KREA_EMBED_MID_WEIGHT)
+
+
+def test_higher_embed_late_weight_increases_late_layer_loss():
+    """Heavier late_weight raises the late-layer share of embed MSE."""
+    tgt = torch.ones(1, 2, 12, 4)
+    late_miss = tgt.clone()
+    late_miss[:, :, 6:, :] = 0.0
+    mid_miss = tgt.clone()
+    mid_miss[:, :, 3, :] = 0.0
+    w2 = krea_embed_layer_weights(12, late_weight=2.0)
+    w4 = krea_embed_layer_weights(12, late_weight=4.0)
+    assert float(w4[6]) == pytest.approx(4.0)
+    assert float(w2[6]) == pytest.approx(KREA_EMBED_LATE_WEIGHT)
+    late2 = float(krea_embed_mse(late_miss, tgt, layer_weights=w2))
+    late4 = float(krea_embed_mse(late_miss, tgt, layer_weights=w4))
+    mid2 = float(krea_embed_mse(mid_miss, tgt, layer_weights=w2))
+    mid4 = float(krea_embed_mse(mid_miss, tgt, layer_weights=w4))
+    assert late4 > late2
+    # Mid band stays 1.0; a larger late denom shrinks a mid-only miss.
+    assert mid4 < mid2
+    uni2 = float(krea_embed_uni_loss(late_miss, tgt, layer_weights=w2, cosine_weight=0.0))
+    uni4 = float(krea_embed_uni_loss(late_miss, tgt, layer_weights=w4, cosine_weight=0.0))
+    assert uni4 > uni2
+
+    # Dummy 4-layer stack: late_start is past the stack unless lowered.
+    dummy_tgt = torch.ones(1, 8, 4, 8)
+    dummy_late = dummy_tgt.clone()
+    dummy_late[:, :, 2:, :] = 0.0
+    dw2 = krea_embed_layer_weights(4, late_layer_start=2, late_weight=2.0)
+    dw4 = krea_embed_layer_weights(4, late_layer_start=2, late_weight=4.0)
+    assert float(dw4[2]) == pytest.approx(4.0)
+    assert float(krea_embed_mse(dummy_late, dummy_tgt, layer_weights=dw4)) > float(
+        krea_embed_mse(dummy_late, dummy_tgt, layer_weights=dw2)
+    )
+
+    # Same-caption dummy: only LoRA Δ remains, and late (2+) gain is larger.
+    backend = DummyKreaBackend(dim=8, rank=2, seed=3, lora_targets="te")
+    with torch.no_grad():
+        backend.te.lora_up.weight.fill_(0.35)
+    from conceptmod.textsliders.train_lora_krea import KreaSliderPrompt
+
+    prompt = KreaSliderPrompt(
+        target="a person",
+        positive="a person",
+        neutral="a person",
+        negative="a sad person",
+        attributes=["male", "female"],
+    )
+    low, _ = krea_embed_step_loss(
+        backend, prompt, hold_weight=0.0, late_weight=2.0, late_layer_start=2
+    )
+    high, _ = krea_embed_step_loss(
+        backend, prompt, hold_weight=0.0, late_weight=4.0, late_layer_start=2
+    )
+    assert float(high) > float(low)
 
 
 def test_dummy_te_emits_stacked_embeds():
@@ -976,6 +1051,9 @@ def test_dummy_smile_v3_embed_train(tmp_path: Path):
     assert payload["embed_cosine_weight"] == pytest.approx(KREA_EMBED_COSINE_WEIGHT)
     assert payload["embed_cosine_weight"] == pytest.approx(0.0)
     assert payload["embed_rel_l2_weight"] == pytest.approx(KREA_EMBED_REL_L2_WEIGHT)
+    assert payload["embed_late_weight"] == pytest.approx(KREA_EMBED_LATE_WEIGHT)
+    assert payload["embed_late_weight"] == pytest.approx(2.0)
+    assert payload["embed_late_layer_start"] == KREA_EMBED_LATE_LAYER_START == 6
     assert payload["te_lora_path"] == "smile-krea-v3-dummy_lora/te_lora"
     assert payload["dit_lora_path"] is None
     assert payload["plus_label"] == "Happy"
@@ -1061,6 +1139,25 @@ def test_docs_list_detail_krea_v1_card():
     assert "--steps 800" in docs
     assert "not embed_cos" in docs or "not `embed_cos`" in docs
     assert "frozen-plus oracle" in docs or "frozen-plus" in docs
+
+
+def test_docs_list_detail_krea_v2_card():
+    docs = (ROOT / "docs/krea-slider.md").read_text(encoding="utf-8")
+    assert "--name detail-krea-v2" in docs
+    assert "prompts-krea-detailed.yaml" in docs
+    assert "--embed_late_weight 4.0" in docs
+    assert "--embed_rel_l2_weight 2.0" in docs
+    assert "--rank 32" in docs
+    assert "--steps 1600" in docs
+    assert "landscape" in docs
+    assert "room" in docs or "interior" in docs
+    assert "object" in docs
+    assert "GATE FAIL" in docs
+    assert "not embed_cos" in docs or "not `embed_cos`" in docs
+    trainer = KREA_TRAINER.read_text(encoding="utf-8")
+    assert "--embed_late_weight" in trainer
+    assert "--embed_late_layer_start" in trainer
+    assert "KREA_EMBED_LATE_WEIGHT" in trainer
 
 
 def test_docs_list_smile_krea_v4_card():
