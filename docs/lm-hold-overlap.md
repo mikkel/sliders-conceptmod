@@ -170,8 +170,12 @@ are cells in [lm-highd-leftover.md](lm-highd-leftover.md).
 
 ```bash
 PYTHONPATH=. python analysis/slider2d/run_lm_overlap.py --out docs/lm-hold-overlap
-PYTHONPATH=. pytest tests/test_lm_hold_overlap.py tests/test_lm_live_cells.py -q
+PYTHONPATH=. pytest tests/test_lm_hold_overlap.py tests/test_lm_live_cells.py tests/test_lm_signature.py -q
 ```
+
+c+ vs slider-cos as a test, high-D leftover that zeros the residual,
+and leftover-only ê vs `pair_odd_sub_e` are
+[lm-live-signature.md](lm-live-signature.md).
 
 Seed `0`, `200` Adam steps.
 

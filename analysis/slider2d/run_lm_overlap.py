@@ -295,10 +295,14 @@ def write_report(blob: dict, path: Path) -> None:
         "",
         "```bash",
         "PYTHONPATH=. python analysis/slider2d/run_lm_overlap.py --out docs/lm-hold-overlap",
-        "PYTHONPATH=. pytest tests/test_lm_hold_overlap.py tests/test_lm_live_cells.py -q",
+        "PYTHONPATH=. pytest tests/test_lm_hold_overlap.py tests/test_lm_live_cells.py tests/test_lm_signature.py -q",
         "```",
         "",
         f"Seed `{blob['seed']}`, `{blob['steps']}` Adam steps.",
+        "",
+        "c+ vs slider-cos as a test, high-D leftover that zeros the residual,",
+        "and leftover-only ê vs `pair_odd_sub_e` are",
+        "[lm-live-signature.md](lm-live-signature.md).",
         "",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
