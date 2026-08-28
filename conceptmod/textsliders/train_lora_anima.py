@@ -13,6 +13,9 @@ Live card (documented by ``scripts/smoke_anima_slider.py``):
     sample 40 steps   CFG 4   lr 1e-4
     frozen text_encoder; conditioner frozen unless lora_targets includes it
     sample in-process PEFT pipe(prompt=...) at 0 / 0.25 / 0.5 / 1.0
+           default --sample_mode peft_pipe after PEFT sync into ModularPipeline
+           (same nn.Module as encode_text). train_faithful encodes via
+           backend.encode_text then denoise (loss path).
     lm     --lm_target trajectory (K-step FlowMatch Euler; direct /
            cfg_delta kept). 1-step v-space gap is microscopic on Anima.
     traj   --traj_steps 4
@@ -51,6 +54,13 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from conceptmod.textsliders.anima_fake import FakeAnimaBackend, write_plus_alignment
+from conceptmod.textsliders.anima_peft_sync import (
+    adapter_scale_api,
+    assert_sample_train_conditioner_shared,
+    sample_conditioner_module,
+    sync_peft_into_modular_pipeline,
+    train_conditioner_module,
+)
 from conceptmod.textsliders.anima_slider import (
     ANIMA_LM_TARGETS,
     ANIMA_LORA_TARGET_CHOICES,
@@ -64,7 +74,9 @@ from conceptmod.textsliders.anima_slider import (
     DEFAULT_MODEL_ID,
     DEFAULT_RANK,
     DEFAULT_RESOLUTION,
+    ANIMA_SAMPLE_MODES,
     DEFAULT_SAMPLE_EVERY,
+    DEFAULT_SAMPLE_MODE,
     DEFAULT_SAMPLE_SCALES,
     DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
@@ -225,6 +237,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="seed for in-process pipe(prompt=...) samples (default 42)",
     )
     parser.add_argument(
+        "--sample_mode",
+        type=str,
+        choices=ANIMA_SAMPLE_MODES,
+        default=DEFAULT_SAMPLE_MODE,
+        help=(
+            "in-process sample path. peft_pipe (default): ModularPipeline "
+            "pipe(prompt=...) after sync_peft_into_modular_pipeline so "
+            "the PEFT conditioner/transformer are the same objects "
+            "encode_text uses. train_faithful: denoise with "
+            "backend.encode_text + transformer (same path as the loss). "
+            "See docs/anima-slider.md."
+        ),
+    )
+    parser.add_argument(
         "--dummy",
         action="store_true",
         help="tiny CPU DiT, never loads Anima / never hits the Hub",
@@ -233,6 +259,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--allow_hub",
         action="store_true",
         help="permit a Hub download (off; CI must not set this)",
+    )
+    parser.add_argument(
+        "--conditioner_adapter",
+        type=str,
+        default=None,
+        help=(
+            "optional path to a saved PEFT conditioner adapter "
+            "({name}_conditioner_lora). Loads instead of a fresh attach. "
+            "Used by the embed diagnostic / v6 smoke, not a new UNI recipe."
+        ),
+    )
+    parser.add_argument(
+        "--dit_adapter",
+        type=str,
+        default=None,
+        help="optional path to a saved PEFT DiT adapter ({name}_lora)",
     )
     parser.add_argument(
         "--print_card",
@@ -343,7 +385,13 @@ def _assert_lora_train_state(backend, spec) -> None:
 
 
 def _peft_modules(backend) -> list:
-    """Every PEFT-wrapped module (DiT and/or conditioner). Dummy is one API."""
+    """Every PEFT-wrapped module (DiT and/or conditioner). Dummy is one API.
+
+    When ``train_dit`` is false (smile default ``conditioner``), this
+    returns **only** the text_conditioner wrapper. Sample does **not**
+    call transformer PEFT APIs (``set_adapter_scale`` / ``disable_adapter``
+    on DiT). ``pipe(prompt=...)`` still uses the frozen base transformer.
+    """
     if hasattr(backend, "set_lora_scale") or hasattr(backend, "disable_adapter"):
         return [backend]
     pipe = getattr(backend, "pipe", None)
@@ -355,13 +403,32 @@ def _peft_modules(backend) -> list:
             if transformer is not None:
                 modules.append(transformer)
         if spec is not None and spec.train_conditioner:
-            cond = getattr(pipe, "text_conditioner", None)
+            cond = train_conditioner_module(backend)
+            if cond is None:
+                cond = getattr(pipe, "text_conditioner", None)
             if cond is not None:
                 modules.append(cond)
     if not modules:
         fallback = getattr(backend, "transformer", backend)
         modules.append(fallback)
     return modules
+
+
+def _assert_conditioner_scale_api(backend) -> None:
+    """Fail closed if conditioner PEFT cannot be scaled (AnimaTextConditioner)."""
+    spec = getattr(backend, "lora_spec", None)
+    if spec is None or not spec.train_conditioner:
+        return
+    cond = train_conditioner_module(backend)
+    if cond is None:
+        raise RuntimeError("lora_targets includes conditioner but no module")
+    apis = adapter_scale_api(cond)
+    if not apis and not hasattr(backend, "set_lora_scale"):
+        raise RuntimeError(
+            "AnimaTextConditioner PEFT wrapper has no set_adapter_scale / "
+            "disable_adapter / set_lora_scale; sample scale grid cannot "
+            "apply conditioner LoRA"
+        )
 
 
 def _peft_module(backend):
@@ -606,6 +673,141 @@ def apply_anima_guider_cfg(pipe, cfg: float) -> Callable[[], None]:
     return _restore
 
 
+def _decode_latents_to_images(pipe, latents) -> list[np.ndarray] | None:
+    """Best-effort VAE decode for train_faithful live samples."""
+    vae = getattr(pipe, "vae", None)
+    if vae is None or latents is None:
+        return None
+    x = latents
+    if not torch.is_tensor(x):
+        return None
+    if x.ndim == 5:
+        x = x[:, :, 0]
+    decode = getattr(vae, "decode", None)
+    if not callable(decode):
+        return None
+    try:
+        with torch.no_grad():
+            out = decode(x)
+        sample = getattr(out, "sample", out)
+        if isinstance(sample, (list, tuple)):
+            sample = sample[0]
+        if not torch.is_tensor(sample):
+            return None
+        arr = sample.detach().float().cpu()
+        if arr.ndim == 4:
+            arr = arr[0]
+        if arr.ndim == 3 and arr.shape[0] in (1, 3):
+            arr = arr.permute(1, 2, 0)
+        arr = arr.numpy()
+        max_v = float(np.max(np.abs(arr))) if arr.size else 0.0
+        if max_v > 1.5:
+            arr = arr / (max_v + 1e-8)
+        arr = np.clip((arr + 1.0) * 0.5, 0.0, 1.0)
+        return [_as_uint8_hwc(arr)]
+    except Exception:
+        return None
+
+
+def _call_train_faithful_sample(
+    backend,
+    prompt: str,
+    *,
+    steps: int,
+    height: int,
+    width: int,
+    cfg: float,
+    seed: int,
+    device,
+    latent_shape=None,
+    dummy: bool = False,
+) -> list[np.ndarray]:
+    """Denoise with ``backend.encode_text`` + transformer (same as loss).
+
+    Dummy still emits structured images so the RGB-noise gate stays CPU-ok.
+    Live runs the thin FlowMatch Euler over ``predict_v`` then VAE-decodes
+    when a VAE is present. If decode is unavailable, falls back to
+    ``pipe(prompt=...)`` after PEFT sync (same conditioner object).
+    """
+    embeds, _tokens = backend.encode_text(prompt)
+    pipe = getattr(backend, "pipe", None)
+    if pipe is not None:
+        pipe.last_train_embeds = embeds
+    if dummy or type(getattr(pipe, "__class__", type(None))).__name__ == "FakeAnimaModularPipe":
+        return _call_modular_pipe(
+            pipe,
+            prompt,
+            steps=steps,
+            height=height,
+            width=width,
+            cfg=float(cfg),
+            seed=seed,
+            device=device,
+            latent_shape=latent_shape,
+        )
+    z_shape = latent_shape or getattr(backend, "latent_shape", None)
+    if z_shape is None:
+        raise RuntimeError("train_faithful sample needs backend.latent_shape")
+    z = _cpu_noise((1, *tuple(z_shape)), seed, device)
+    x = anima_short_trajectory(
+        backend,
+        prompt,
+        z,
+        num_steps=max(1, int(steps)),
+        frozen=False,
+        scale=None,
+    )
+    images = _decode_latents_to_images(pipe, x)
+    if images:
+        return images
+    return _call_modular_pipe(
+        pipe,
+        prompt,
+        steps=steps,
+        height=height,
+        width=width,
+        cfg=4.0,
+        seed=seed,
+        device=device,
+        latent_shape=latent_shape,
+    )
+
+
+def _prove_pipe_calls_conditioner(pipe, cond) -> bool:
+    """True if ``pipe(prompt=...)`` invokes ``cond.forward`` (PEFT object)."""
+    if pipe is None or cond is None or not callable(pipe):
+        return False
+    if not hasattr(cond, "forward"):
+        return type(pipe).__name__ == "FakeAnimaModularPipe"
+    fired = {"n": 0}
+    orig = cond.forward
+
+    def _hook(*args, **kwargs):
+        fired["n"] += 1
+        return orig(*args, **kwargs)
+
+    cond.forward = _hook
+    try:
+        dummy_prompt = "peft sync probe"
+        kwargs = {
+            "prompt": dummy_prompt,
+            "height": 8,
+            "width": 8,
+            "num_inference_steps": 1,
+            "output_type": "np",
+        }
+        if type(pipe).__name__ == "FakeAnimaModularPipe":
+            pipe(prompt=dummy_prompt, height=8, width=8)
+        else:
+            try:
+                pipe(**kwargs)
+            except Exception:
+                return fired["n"] > 0
+    finally:
+        cond.forward = orig
+    return fired["n"] > 0
+
+
 def _call_modular_pipe(
     pipe,
     prompt: str,
@@ -657,13 +859,35 @@ def emit_inprocess_samples(
     rows,
     dummy: bool,
 ) -> list[dict[str, Any]]:
-    """PEFT scale grid through ``pipe(prompt=...)``. Not a velocity dump."""
+    """PEFT scale grid. Default ``peft_pipe`` after ModularPipeline sync.
+
+    ``peft_pipe`` (default): ``pipe(prompt=...)`` with PEFT still attached
+    to the **same** ``text_conditioner`` / ``transformer`` objects
+    ``encode_text`` uses (``sync_peft_into_modular_pipeline``).
+
+    ``train_faithful``: denoise with ``backend.encode_text`` + transformer
+    (same call path as the train loss). Dummy still writes structured
+    images so the RGB-noise gate stays CPU-ok.
+    """
     pipe = getattr(backend, "pipe", None)
     if pipe is None or not callable(pipe):
         raise RuntimeError(
             "in-process Anima sample needs backend.pipe(prompt=...) "
             "with PEFT still attached to adapted pipe modules"
         )
+    sync_backend_peft_modules(backend)
+    sample_mode = str(getattr(args, "sample_mode", DEFAULT_SAMPLE_MODE) or DEFAULT_SAMPLE_MODE)
+    if sample_mode not in ANIMA_SAMPLE_MODES:
+        raise ValueError(f"sample_mode must be one of {ANIMA_SAMPLE_MODES}")
+    spec = getattr(backend, "lora_spec", None)
+    if spec is not None and spec.train_conditioner:
+        shared = assert_sample_train_conditioner_shared(backend)
+        cond = sample_conditioner_module(backend)
+        if dummy and cond is not None and not _prove_pipe_calls_conditioner(pipe, cond):
+            raise RuntimeError(
+                "pipe(prompt=...) did not call the PEFT text_conditioner "
+                f"(id={shared['id']}); sample would bypass train encode"
+            )
     prompts = infer_sample_prompts(rows, getattr(args, "control_prompt", DEFAULT_CONTROL_PROMPT))
     scales = list(DEFAULT_SAMPLE_SCALES)
     height = int(args.resolution)
@@ -675,20 +899,39 @@ def emit_inprocess_samples(
     out_dir.mkdir(parents=True, exist_ok=True)
     latent_shape = getattr(backend, "latent_shape", None) if not dummy else None
     records: list[dict[str, Any]] = []
+    method = (
+        "train_faithful_encode_text"
+        if sample_mode == "train_faithful"
+        else "peft_pipe_prompt"
+    )
     for prompt in prompts:
         for scale in scales:
             with torch.no_grad(), peft_adapter_scale(backend, scale):
-                images = _call_modular_pipe(
-                    pipe,
-                    prompt,
-                    steps=steps,
-                    height=height,
-                    width=width,
-                    cfg=cfg,
-                    seed=seed,
-                    device=backend.device,
-                    latent_shape=latent_shape,
-                )
+                if sample_mode == "train_faithful":
+                    images = _call_train_faithful_sample(
+                        backend,
+                        prompt,
+                        steps=steps,
+                        height=height,
+                        width=width,
+                        cfg=cfg,
+                        seed=seed,
+                        device=backend.device,
+                        latent_shape=latent_shape,
+                        dummy=dummy,
+                    )
+                else:
+                    images = _call_modular_pipe(
+                        pipe,
+                        prompt,
+                        steps=steps,
+                        height=height,
+                        width=width,
+                        cfg=cfg,
+                        seed=seed,
+                        device=backend.device,
+                        latent_shape=latent_shape,
+                    )
             if not images:
                 raise RuntimeError(f"pipe(prompt={prompt!r}) returned no images")
             arr = images[0]
@@ -716,7 +959,8 @@ def emit_inprocess_samples(
                     "cfg_via": "guider.config.guidance_scale",
                     "height": int(arr.shape[0]),
                     "width": int(arr.shape[1]),
-                    "method": "peft_pipe_prompt",
+                    "method": method,
+                    "sample_mode": sample_mode,
                 }
             )
     meta_path = out_dir / f"step{int(step):04d}_meta.json"
@@ -726,6 +970,7 @@ def emit_inprocess_samples(
         "seed": seed,
         "scales": scales,
         "prompts": prompts,
+        "sample_mode": sample_mode,
         "samples": records,
     }
     meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -873,7 +1118,13 @@ def train_dummy(args: argparse.Namespace) -> dict:
             "n": len(sample_records),
             "scales": list(DEFAULT_SAMPLE_SCALES),
             "seed": int(args.sample_seed),
-            "method": "peft_pipe_prompt",
+            "method": (
+                "train_faithful_encode_text"
+                if str(getattr(args, "sample_mode", DEFAULT_SAMPLE_MODE))
+                == "train_faithful"
+                else "peft_pipe_prompt"
+            ),
+            "sample_mode": str(getattr(args, "sample_mode", DEFAULT_SAMPLE_MODE)),
         },
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
     }
@@ -1068,6 +1319,31 @@ def _attach_peft(module, rank: int, alpha: int, targets: list[str]):
     return get_peft_model(module, config)
 
 
+def load_peft_adapter(module, adapter_path: str):
+    """Wrap ``module`` with a saved PEFT adapter (v6 conditioner_lora)."""
+    from peft import PeftModel
+
+    return PeftModel.from_pretrained(module, adapter_path)
+
+
+def sync_backend_peft_modules(backend) -> dict[str, Any]:
+    """After attach / load_adapter: pipe(prompt=...) and encode_text share modules."""
+    pipe = getattr(backend, "pipe", None)
+    if pipe is None:
+        return {"ok": True, "updated": [], "ids": {}}
+    kwargs: dict[str, Any] = {}
+    transformer = getattr(pipe, "transformer", None)
+    if transformer is not None:
+        kwargs["transformer"] = transformer
+    cond = train_conditioner_module(backend)
+    if cond is not None:
+        kwargs["text_conditioner"] = cond
+    report = sync_peft_into_modular_pipeline(pipe, **kwargs)
+    assert_sample_train_conditioner_shared(backend)
+    _assert_conditioner_scale_api(backend)
+    return report
+
+
 def load_live_backend(args: argparse.Namespace, device: torch.device):
     """Load Anima locally. Never downloads unless ``--allow_hub``."""
     if not args.allow_hub:
@@ -1097,17 +1373,32 @@ def load_live_backend(args: argparse.Namespace, device: torch.device):
 
     rank = int(args.rank)
     alpha = int(args.alpha or args.rank)
+    conditioner_adapter = getattr(args, "conditioner_adapter", None)
+    dit_adapter = getattr(args, "dit_adapter", None)
     try:
         if spec.train_dit:
-            pipe.transformer = _attach_peft(
-                pipe.transformer, rank, alpha, list(DIT_LORA_TARGETS)
-            )
+            if dit_adapter:
+                pipe.transformer = load_peft_adapter(pipe.transformer, str(dit_adapter))
+            else:
+                pipe.transformer = _attach_peft(
+                    pipe.transformer, rank, alpha, list(DIT_LORA_TARGETS)
+                )
             pipe.transformer.to(device)
         if spec.train_conditioner:
-            pipe.text_conditioner = _attach_peft(
-                pipe.text_conditioner, rank, alpha, list(CONDITIONER_LORA_TARGETS)
-            )
+            if conditioner_adapter:
+                pipe.text_conditioner = load_peft_adapter(
+                    pipe.text_conditioner, str(conditioner_adapter)
+                )
+            else:
+                pipe.text_conditioner = _attach_peft(
+                    pipe.text_conditioner, rank, alpha, list(CONDITIONER_LORA_TARGETS)
+                )
             pipe.text_conditioner.to(device)
+        sync_peft_into_modular_pipeline(
+            pipe,
+            transformer=pipe.transformer if spec.train_dit else None,
+            text_conditioner=pipe.text_conditioner if spec.train_conditioner else None,
+        )
     except ImportError as exc:
         raise RuntimeError(
             "live Anima needs diffusers + peft. Use --dummy for CPU tests."
@@ -1130,9 +1421,11 @@ def load_live_backend(args: argparse.Namespace, device: torch.device):
                 pass
 
     freeze_anima_conditioner(pipe, train_conditioner=spec.train_conditioner)
-    return LiveAnimaBackend(
+    backend = LiveAnimaBackend(
         pipe, device, resolution=int(args.resolution), lora_spec=spec
     )
+    sync_backend_peft_modules(backend)
+    return backend
 
 
 def _cycle_row(rows, plans, step: int):
@@ -1366,7 +1659,13 @@ def train_live(args: argparse.Namespace) -> dict:
             "n": len(sample_records),
             "scales": list(DEFAULT_SAMPLE_SCALES),
             "seed": int(args.sample_seed),
-            "method": "peft_pipe_prompt",
+            "method": (
+                "train_faithful_encode_text"
+                if str(getattr(args, "sample_mode", DEFAULT_SAMPLE_MODE))
+                == "train_faithful"
+                else "peft_pipe_prompt"
+            ),
+            "sample_mode": str(getattr(args, "sample_mode", DEFAULT_SAMPLE_MODE)),
         },
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
     }

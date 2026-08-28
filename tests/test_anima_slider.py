@@ -120,6 +120,7 @@ def test_anima_cli_defaults_match_live_card():
     assert args.control_prompt == DEFAULT_CONTROL_PROMPT
     assert args.sample_every == DEFAULT_SAMPLE_EVERY == 100
     assert args.sample_seed == DEFAULT_SAMPLE_SEED == 42
+    assert args.sample_mode == "peft_pipe"
     assert args.dummy is False
     assert args.allow_hub is False
     assert args.lora_targets == DEFAULT_LORA_TARGETS == "conditioner"
@@ -148,6 +149,8 @@ def test_anima_cli_defaults_match_live_card():
     assert "0.99993" in card["one_step_failure"]
     assert card["sample_every"] == 100
     assert "PEFT" in card["sample_gate"]
+    assert card["sample_mode"] == "peft_pipe"
+    assert "train_faithful" in card["sample_modes"]
     assert card["stock_teacher_smoke"]["woman"]["neu"] == WOMAN_NEU
     assert card["stock_teacher_smoke"]["woman"]["plus"] == WOMAN_PLUS
     assert card["device"] == "cuda:0"
@@ -1217,3 +1220,193 @@ def test_convert_anima_turbo_helper_is_preview_only(tmp_path):
     assert dry == 0
     printed = convert.main(["--print-recipe"])
     assert printed == 0
+
+
+def test_sync_peft_updates_stale_components_and_blocks():
+    """Bare setattr leaves a captured components dict / block ref stale."""
+    from types import SimpleNamespace
+
+    from conceptmod.textsliders.anima_peft_sync import (
+        assert_peft_modules_synced,
+        sync_peft_into_modular_pipeline,
+    )
+
+    class _StalePipe:
+        def __init__(self):
+            self.transformer = torch.nn.Linear(2, 2)
+            self.text_conditioner = torch.nn.Linear(3, 3)
+            stale = torch.nn.Linear(3, 3)
+            self.components = {
+                "transformer": self.transformer,
+                "text_conditioner": stale,
+            }
+            inner = SimpleNamespace(text_conditioner=stale, sub_blocks={})
+            self._blocks = SimpleNamespace(
+                text_conditioner=stale,
+                sub_blocks={"text_conditioning": inner},
+            )
+
+    pipe = _StalePipe()
+    peft = torch.nn.Linear(3, 3)
+    stale_id = id(pipe.components["text_conditioner"])
+    assert stale_id != id(peft)
+    report = sync_peft_into_modular_pipeline(pipe, text_conditioner=peft)
+    assert report["ok"] is True
+    assert pipe.text_conditioner is peft
+    assert pipe.components["text_conditioner"] is peft
+    assert pipe._blocks.text_conditioner is peft
+    assert pipe._blocks.sub_blocks["text_conditioning"].text_conditioner is peft
+    assert_peft_modules_synced(pipe, text_conditioner=peft)
+
+
+def test_after_attach_sample_and_encode_share_conditioner():
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0, lora_targets="conditioner")
+    from conceptmod.textsliders.anima_peft_sync import (
+        assert_sample_train_conditioner_shared,
+        sample_conditioner_module,
+        train_conditioner_module,
+    )
+    from conceptmod.textsliders.train_lora_anima import sync_backend_peft_modules
+
+    sync_backend_peft_modules(backend)
+    shared = assert_sample_train_conditioner_shared(backend)
+    assert sample_conditioner_module(backend) is train_conditioner_module(backend)
+    assert sample_conditioner_module(backend) is backend.pipe.text_conditioner
+    assert sample_conditioner_module(backend) is backend.transformer.text_conditioner
+    assert backend.pipe.components["text_conditioner"] is backend.pipe.text_conditioner
+    assert shared["id"] == id(backend.pipe.text_conditioner)
+    backend.pipe("a woman", height=8, width=8)
+    assert backend.pipe.last_embeds is not None
+    train_e, _ = backend.encode_text("a woman")
+    assert torch.allclose(train_e, backend.pipe.last_embeds)
+
+
+def test_scale_nonzero_changes_fake_conditioner_output():
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0, lora_targets="conditioner")
+    for lora in backend.loras:
+        with torch.no_grad():
+            lora.up.weight.add_(0.4)
+            lora.down.weight.add_(0.2)
+    neu = "a woman sitting on a chair"
+    backend.set_lora_scale(0.0)
+    e0, _ = backend.encode_text(neu)
+    pipe0 = backend.pipe.encode_prompt_embeds(neu)
+    backend.set_lora_scale(1.0)
+    e1, _ = backend.encode_text(neu)
+    pipe1 = backend.pipe.encode_prompt_embeds(neu)
+    assert not torch.allclose(e0, e1)
+    assert not torch.allclose(pipe0, pipe1)
+    assert torch.allclose(e1, pipe1)
+
+
+def _load_embed_diag():
+    path = REPO / "scripts" / "diag_anima_conditioner_embed.py"
+    spec = importlib.util.spec_from_file_location("diag_anima_conditioner_embed", path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_embed_diag_pass_fail_on_dummy():
+    from conceptmod.textsliders.anima_peft_sync import (
+        SAMPLE_TRAIN_MISMATCH,
+        compare_sample_train_embeds,
+        measure_conditioner_embed_deltas,
+    )
+    from types import SimpleNamespace
+
+    args = SimpleNamespace(rank=4, seed=0, neu=WOMAN_NEU, plus=WOMAN_PLUS)
+    report = _load_embed_diag().run_dummy(args)
+    assert report["verdict"] == "PASS"
+    assert report["mismatch_flag"] is None
+    assert report["shared_conditioner_id"] == report["train_conditioner_id"]
+
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=1, lora_targets="conditioner")
+
+    def _fresh(prompt, scale):
+        del scale
+        embeds, _ = backend.encode_text(prompt)
+        return embeds
+
+    fresh = measure_conditioner_embed_deltas(_fresh, neu=WOMAN_NEU, plus=WOMAN_PLUS)
+    assert fresh["verdict"] == "FAIL"
+    assert "near-zero" in fresh["reason"]
+    mismatch = compare_sample_train_embeds(
+        torch.zeros(1, 4), torch.ones(1, 4)
+    )
+    assert mismatch["flag"] == SAMPLE_TRAIN_MISMATCH
+
+
+def test_sample_mode_train_faithful_uses_encode_text(tmp_path):
+    rows, _meta = load_anima_prompts(PROMPTS)
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0, lora_targets="conditioner")
+    args = parse_args(
+        [
+            "--dummy",
+            "--device",
+            "cpu",
+            "--save_dir",
+            str(tmp_path),
+            "--sample_mode",
+            "train_faithful",
+            "--resolution",
+            "32",
+        ]
+    )
+    assert args.sample_mode == "train_faithful"
+    records = emit_inprocess_samples(
+        backend, args, tmp_path, step=1, rows=rows, dummy=True
+    )
+    assert all(row["method"] == "train_faithful_encode_text" for row in records)
+    assert all(row["sample_mode"] == "train_faithful" for row in records)
+    assert getattr(backend.pipe, "last_train_embeds", None) is not None
+
+
+def test_peft_modules_skip_transformer_when_train_dit_false():
+    from conceptmod.textsliders.train_lora_anima import _peft_modules
+
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0, lora_targets="conditioner")
+    # Dummy exposes backend-level scale APIs, so _peft_modules returns
+    # [backend] — not the transformer. Live conditioner-only uses only
+    # pipe.text_conditioner (see _LiveCond).
+    modules = _peft_modules(backend)
+    assert modules == [backend]
+    assert backend.lora_spec.train_dit is False
+
+    class _LiveCond:
+        lora_spec = resolve_anima_lora_targets("conditioner")
+
+        def __init__(self):
+            self.pipe = type(
+                "P",
+                (),
+                {
+                    "transformer": object(),
+                    "text_conditioner": object(),
+                },
+            )()
+
+    live = _LiveCond()
+    live_modules = _peft_modules(live)
+    assert live_modules == [live.pipe.text_conditioner]
+    assert live.pipe.transformer not in live_modules
+
+
+def test_sample_train_mismatch_when_pipe_conditioner_stale():
+    from conceptmod.textsliders.anima_peft_sync import (
+        SAMPLE_TRAIN_MISMATCH,
+        compare_sample_train_embeds,
+    )
+
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0, lora_targets="conditioner")
+    for lora in backend.loras:
+        with torch.no_grad():
+            lora.up.weight.add_(0.5)
+    stale = type(backend.pipe.text_conditioner)(8)
+    backend.pipe.text_conditioner = stale
+    train_e, _ = backend.encode_text("a smiling woman")
+    sample_e = backend.pipe.encode_prompt_embeds("a smiling woman")
+    cmp = compare_sample_train_embeds(train_e, sample_e)
+    assert cmp["match"] is False
+    assert cmp["flag"] == SAMPLE_TRAIN_MISMATCH

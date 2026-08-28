@@ -271,6 +271,15 @@ class FakeAnimaBackend:
         # Same call path as live infer: pipe(prompt=...) with LoRA still
         # attached. Conditioner is the same object as transformer.text_conditioner.
         self.pipe = FakeAnimaModularPipe(self)
+        from conceptmod.textsliders.anima_peft_sync import (
+            sync_peft_into_modular_pipeline,
+        )
+
+        sync_peft_into_modular_pipeline(
+            self.pipe,
+            transformer=self.transformer,
+            text_conditioner=self.transformer.text_conditioner,
+        )
 
     def set_lora_scale(self, scale: float) -> None:
         for lora in self.loras:
@@ -386,12 +395,22 @@ class FakeAnimaModularPipe:
 
     Images are structured (low-frequency ramps), never RGB TV-static, so
     ``--dummy`` still passes the in-process sample gate without Hub weights.
+
+    ``components`` / ``update_components`` mirror live ModularPipeline so
+    PEFT sync can patch a stale dict the same way it patches a real pipe.
+    ``text_conditioner`` is the same object ``encode_text`` uses.
     """
 
     def __init__(self, backend: FakeAnimaBackend):
         self.backend = backend
         self.transformer = backend.transformer
         self.text_conditioner = backend.transformer.text_conditioner
+        # Mutable map (live ModularPipeline.components is a property).
+        # Tests can stale this to prove sync_peft_into_modular_pipeline.
+        self.components = {
+            "transformer": self.transformer,
+            "text_conditioner": self.text_conditioner,
+        }
         # Same shape as live ClassifierFreeGuidance: config.guidance_scale
         # is the real field. A top-level pipe(guidance_scale=) is ignored.
         self.guider = SimpleNamespace(
@@ -405,6 +424,34 @@ class FakeAnimaModularPipe:
         self.last_guidance_scale = float(DEFAULT_CFG)
         self.last_prompt = ""
         self.prompts_seen: list[str] = []
+        self.last_embeds = None
+        self.conditioner_calls = 0
+
+    def update_components(self, **kwargs):
+        """Same role as ``ModularPipeline.update_components``."""
+        for name, module in kwargs.items():
+            setattr(self, name, module)
+            self.components[name] = module
+
+    def encode_prompt_embeds(self, prompt: str) -> torch.Tensor:
+        """Sample-path encode: class table then ``self.text_conditioner``.
+
+        Uses the pipe's conditioner attribute (what ``pipe(prompt=...)``
+        would call), not ``backend.transformer.text_conditioner`` directly,
+        so a stale pipe attribute is visible as SAMPLE_TRAIN_MISMATCH.
+        """
+        tokens = word_tokens(prompt) or [""]
+        tokens = tokens[:MAX_TOKENS]
+        ids = torch.tensor(
+            [self.backend.transformer.token_id(tok) for tok in tokens],
+            dtype=torch.long,
+        )
+        table = self.backend.transformer.class_table
+        embeds = table[ids].unsqueeze(0)
+        self.conditioner_calls += 1
+        out = self.text_conditioner(embeds.to(self.backend.device))
+        self.last_embeds = out
+        return out
 
     def __call__(
         self,
@@ -419,6 +466,12 @@ class FakeAnimaModularPipe:
         del num_inference_steps
         self.last_prompt = str(prompt)
         self.prompts_seen.append(str(prompt))
+        # Sample encode goes through ``self.text_conditioner`` (same object
+        # encode_text uses after sync). Scale≠0 must change this output.
+        try:
+            self.encode_prompt_embeds(prompt)
+        except Exception:
+            self.last_embeds = None
         if "guidance_scale" in kwargs:
             warnings.warn(
                 "Unexpected input 'guidance_scale' … ignored",
