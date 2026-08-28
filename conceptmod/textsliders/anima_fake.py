@@ -117,6 +117,10 @@ class AnimaFakeDiT(nn.Module):
         table[1, 0] = 1.0
         # concept cluster (stronger so pos ⟂ unused is visible)
         table[2, 1] = 1.0
+        # crop / zoom: same concept tokens, but only written at high σ
+        # (see forward). Caption-from-z_T jumps crop; same_crop invert
+        # starts mid-σ so channel 2 stays near the neu traj.
+        table[2, 2] = 1.0
         self.register_buffer("class_table", table)
         self._token_ids: dict[str, int] = {}
 
@@ -165,7 +169,19 @@ class AnimaFakeDiT(nn.Module):
             cond = cond.unsqueeze(1)
         h = self.attn(hidden, cond).mean(dim=1)
         v = self.proj_out(h) + self.text_out(cond.mean(dim=1))
-        return v.reshape_as(z)
+        v = v.reshape_as(z)
+        # Crop / zoom analog: concept tokens write one reserved site on
+        # channel 2, scaled by σ. Early plus-from-z_T jumps crop; a
+        # mid-σ invert does not. Keep it one pixel so UNI geometry on
+        # the text_out concept axis is unchanged.
+        pooled = cond.mean(dim=1)
+        crop = pooled[:, 2] * t.reshape(b)
+        v = v.clone()
+        if v.ndim == 4:
+            v[:, 2, 0, 0] = v[:, 2, 0, 0] + crop
+        else:
+            v[:, 2, 0, 0, 0] = v[:, 2, 0, 0, 0] + crop
+        return v
 
 
 class LoRALinear(nn.Module):

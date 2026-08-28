@@ -17,7 +17,9 @@ resolution      768 (4090 smile retrain: 512)
 sample_steps    40
 cfg             4
 lr              1e-4
-lm_target       trajectory (K-step FlowMatch Euler; direct / cfg_delta kept)
+lm_target       trajectory (K-step FlowMatch Euler; direct / cfg_delta /
+                same_crop kept). --teacher same_crop inverts neu so plus
+                does not jump crop.
 traj_steps      4
 sample_every    100 (end-of-train gate always runs)
 sample          in-process PEFT pipe(prompt=...) at 0 / 0.25 / 0.5 / 1.0
