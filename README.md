@@ -7,12 +7,14 @@ shipped sliders, GPU pitfalls) and [slider_pipeline/README.md](slider_pipeline/R
 
 **Krea image sliders (opt-in):** see [docs/krea-slider.md](docs/krea-slider.md).
 UNI analog on `krea/Krea-2-Raw` (train LoRAs on Raw, run on Turbo). Smile
-v4 (TE-only embed UNI): `prompts-krea-happy.yaml`, `--lora_targets te
+v5 (TE-only embed UNI): `prompts-krea-happy.yaml`, `--lora_targets te
 --lm_target embed --hold_weight 0.1 --sample_guidance 0` — live DiT
 v-gap is cos≈0.9999; stacked TE embeds `[1,512,12,2560]` neu/plus
-cos≈0.67. CFG uncond uses frozen TE; oracle apply-audit grid at
-end of train. v3 used Raw CFG 4.5 (Δ cancelled). v2 velocity card
-is `--lora_targets dit+te`. 512 px, Raw 28 steps (A100).
+cos≈0.67. CFG uncond uses frozen TE; TE scale>0 uses an all-ones
+DiT mask so UNI-matched smile slots past neu length are attended
+(v3/v4 oracle: embeds matched, neu mask truncated them). v3 used
+Raw CFG 4.5 (Δ cancelled). v2 velocity card is `--lora_targets
+dit+te`. 512 px, Raw 28 steps (A100).
 `--allow_hub` to download; `--dummy` for CI. Does not change the
 Music 3 default. Anima / ZiT / H3 are not in this trainer.
 

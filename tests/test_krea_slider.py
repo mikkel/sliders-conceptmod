@@ -28,7 +28,9 @@ from conceptmod.textsliders.slider_targets import (
     KREA_LORA_TARGETS,
     KREA_LORA_TARGET_CHOICES,
     KREA_ORACLE_EMBED_COS,
+    KREA_ORACLE_MASK_AB_SHOTS,
     KREA_ORACLE_SHOTS,
+    KREA_TE_DIT_MASK_DEFAULT,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
     KREA_RAW_STEPS,
@@ -44,6 +46,9 @@ from conceptmod.textsliders.slider_targets import (
     krea_cfg_compose,
     krea_cfg_direction,
     krea_cfg_uncond_te_frozen,
+    krea_ones_attention_mask,
+    krea_resolve_dit_encoder_mask,
+    krea_te_sample_use_ones_mask,
     krea_concept_words,
     krea_embed_as_stacked,
     krea_embed_cosine,
@@ -469,6 +474,7 @@ def test_live_loader_does_not_run_in_dummy():
     assert "frozen TE when encoder_lora" in live
     assert "reuse hidden states" in live
     assert "load_te_adapter" in live
+    assert "ones" in live and "smile slots" in live
 
 
 def test_hold_math_token_aligns_4d_krea_embeds():
@@ -940,6 +946,22 @@ def test_docs_list_smile_krea_v4_card():
     live = KREA_LIVE.read_text(encoding="utf-8")
     assert "frozen TE when encoder_lora" in live
     assert "reuse hidden states" in live
+    assert "ones" in live
+
+
+def test_docs_list_smile_krea_v5_ones_mask():
+    docs = (ROOT / "docs/krea-slider.md").read_text(encoding="utf-8")
+    assert "smile-krea-v5-resmoke" in docs
+    assert "mask truncated" in docs.lower() or "hid the smile slots" in docs or "smile slots" in docs
+    assert "--te_dit_mask" in docs
+    assert "student_neu_scale1_tokmask" in docs
+    assert "same_crop" in docs and "embed_struct" in docs
+    trainer = KREA_TRAINER.read_text(encoding="utf-8")
+    assert "--te_dit_mask" in trainer
+    assert "ones" in trainer
+    live = KREA_LIVE.read_text(encoding="utf-8")
+    assert "max_sequence_length" in live
+    assert "smile slots" in live
 
 
 def test_embed_defaults_sample_guidance_zero():
@@ -1091,8 +1113,101 @@ def test_dummy_oracle_grid_and_load_te_lora_resmoke(tmp_path: Path):
     assert "oracle_plus_frozen" in names
     assert "student_neu_scale1" in names
     assert "neu_scale0" in names
-    assert len(list(oracle_dir.glob("*.png"))) == 6
+    assert "student_neu_scale1_onesmask" in names
+    assert "student_neu_scale1_tokmask" in names
+    assert "student_neu_scale1_plusmask" in names
+    assert len(list(oracle_dir.glob("*.png"))) == 12
     meta = json.loads((oracle_dir / "oracle_meta.json").read_text(encoding="utf-8"))
     assert meta["embed_cos_threshold"] == pytest.approx(KREA_ORACLE_EMBED_COS)
     assert "apply bug" in meta["readout"]
+    assert "ones-mask" in meta["readout"] or "smile slots" in meta["readout"]
+    assert meta["mask_ab"] == list(KREA_ORACLE_MASK_AB_SHOTS)
     assert all("embed_cos" in pair for pair in meta["pairs"])
+    assert payload["te_dit_mask"] == KREA_TE_DIT_MASK_DEFAULT
+    assert payload["te_dit_ones_mask"] is True
+
+
+def test_te_scale_gt0_dit_mask_is_ones_not_neu_span():
+    """When TE scale>0 the mask passed to DiT is all-ones (longer than neu)."""
+    neu = "a person, closed mouth"
+    plus = "a person, big smile showing teeth, happy joyful expression"
+    neu_n = len(krea_word_tokens(neu))
+    plus_n = len(krea_word_tokens(plus))
+    assert plus_n > neu_n
+    assert neu_n < KREA_DUMMY_EMBED_SEQ
+
+    tok = torch.zeros(1, KREA_DUMMY_EMBED_SEQ, dtype=torch.long)
+    tok[0, :neu_n] = 1
+    embeds = torch.randn(1, KREA_DUMMY_EMBED_SEQ, KREA_DUMMY_EMBED_LAYERS, 8)
+    ones = krea_resolve_dit_encoder_mask(
+        tok, embeds, encoder_lora=True, scale=1.0
+    )
+    assert ones is not None
+    assert torch.equal(ones, torch.ones_like(tok))
+    assert int(ones.sum()) > neu_n
+    assert int(ones.sum()) == KREA_DUMMY_EMBED_SEQ
+    assert torch.equal(
+        krea_ones_attention_mask(embeds, like=tok), torch.ones_like(tok)
+    )
+
+    frozen = krea_resolve_dit_encoder_mask(
+        tok, embeds, encoder_lora=True, scale=0.0
+    )
+    assert torch.equal(frozen, tok)
+    frozen_te = krea_resolve_dit_encoder_mask(
+        tok, embeds, encoder_lora=True, scale=1.0, frozen=True
+    )
+    assert torch.equal(frozen_te, tok)
+    dit_only = krea_resolve_dit_encoder_mask(
+        tok, embeds, encoder_lora=False, scale=1.0
+    )
+    assert torch.equal(dit_only, tok)
+    old = krea_resolve_dit_encoder_mask(
+        tok, embeds, encoder_lora=True, scale=1.0, te_dit_mask="tokenizer"
+    )
+    assert torch.equal(old, tok)
+    transplant = torch.zeros_like(tok)
+    transplant[0, : min(plus_n, KREA_DUMMY_EMBED_SEQ)] = 1
+    plus_mask = krea_resolve_dit_encoder_mask(
+        tok,
+        embeds,
+        encoder_lora=True,
+        scale=1.0,
+        te_dit_mask="transplant",
+        transplant_mask=transplant,
+    )
+    assert torch.equal(plus_mask, transplant)
+    assert krea_te_sample_use_ones_mask(True, 1.0) is True
+    assert krea_te_sample_use_ones_mask(True, 0.0) is False
+    assert krea_te_sample_use_ones_mask(False, 1.0) is False
+
+    backend = DummyKreaBackend(dim=8, rank=2, seed=9, lora_targets="te")
+    z = torch.ones(1, 8)
+    backend.predict_v(neu, z, scale=1.0)
+    mask1 = backend.last_dit_mask
+    assert mask1 is not None
+    assert torch.all(mask1 == 1)
+    assert int(mask1.sum()) > neu_n
+    assert mask1.shape[-1] == KREA_DUMMY_EMBED_SEQ
+
+    backend.predict_v(neu, z, scale=0.0)
+    mask0 = backend.last_dit_mask
+    assert mask0 is not None
+    assert int(mask0.sum()) == neu_n
+    assert not torch.all(mask0 == 1)
+
+    backend.generate(neu, seed=0, scale=1.0, guidance=0.0)
+    gen_mask = backend.last_dit_mask
+    assert gen_mask is not None
+    assert torch.all(gen_mask == 1)
+
+    backend.generate(neu, seed=0, scale=1.0, te_dit_mask="tokenizer")
+    old_gen = backend.last_dit_mask
+    assert old_gen is not None
+    assert int(old_gen.sum()) == neu_n
+
+    dit = DummyKreaBackend(dim=8, rank=2, seed=9, lora_targets="dit")
+    dit.predict_v(neu, z, scale=1.0)
+    dit_mask = dit.last_dit_mask
+    assert dit_mask is not None
+    assert int(dit_mask.sum()) == neu_n

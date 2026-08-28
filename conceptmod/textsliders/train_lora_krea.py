@@ -22,11 +22,13 @@ Live load is offline-safe unless ``--allow_hub`` (Anima pattern).
 encode. ``te`` / ``dit+te`` keep Qwen3-VL on GPU so encode+backward
 stay coherent. Happy/smile yaml: ``data/prompts-krea-happy.yaml``.
 Smile v2 card: ``--lora_targets dit+te --hold_weight 0.1``.
-Smile v3/v4: ``--lora_targets te --lm_target embed`` (TE-only stacked
+Smile v3/v4/v5: ``--lora_targets te --lm_target embed`` (TE-only stacked
 embeds; DiT stays base). Live gap: DiT v neu/plus cos≈0.9999;
 TE ``[1,512,12,2560]`` cos≈0.67. Do not teach v-space on that path.
 v4: CFG uncond uses frozen TE; encode once per generate; embed
 sample guidance defaults to 0; oracle apply-audit grid.
+v5: TE scale>0 uses an all-ones DiT attention mask so UNI-matched
+rows past neu's token span are actually attended.
 """
 
 from __future__ import annotations
@@ -61,7 +63,10 @@ from conceptmod.textsliders.slider_targets import (
     KREA_LM_TARGET_DEFAULT,
     KREA_LORA_TARGET_CHOICES,
     KREA_ORACLE_EMBED_COS,
+    KREA_ORACLE_MASK_AB_SHOTS,
     KREA_ORACLE_SHOTS,
+    KREA_TE_DIT_MASK_CHOICES,
+    KREA_TE_DIT_MASK_DEFAULT,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
     KREA_RECIPE_CHOICES,
@@ -81,6 +86,7 @@ from conceptmod.textsliders.slider_targets import (
     krea_hold_unused_embeds,
     krea_minus_canary,
     krea_oracle_readout,
+    krea_resolve_dit_encoder_mask,
     krea_plus_neu_loss,
     krea_plus_neu_teachers,
     krea_sample_card,
@@ -331,6 +337,13 @@ class DummyKreaBackend:
         self.latent_shape = (dim,)
         self._timestep: torch.Tensor | None = None
         self.loaded_te_lora: str | None = None
+        self.max_sequence_length = (
+            int(self.te.seq_pad) if self.te is not None else int(KREA_DUMMY_EMBED_SEQ)
+        )
+        self._last_mask: torch.Tensor | None = None
+        self.last_dit_mask: torch.Tensor | None = None
+        self._last_cond_mask: torch.Tensor | None = None
+        self._last_uncond_mask: torch.Tensor | None = None
 
     def begin_step(self) -> None:
         self._timestep = torch.zeros(1)
@@ -339,11 +352,29 @@ class DummyKreaBackend:
         dest = device or torch.device("cpu")
         return torch.randn(1, self.dim, device=dest)
 
+    def _tokenizer_mask(self, tokens: list[str], embeds: torch.Tensor) -> torch.Tensor:
+        """1s on real tokens, 0s on dummy pad — analog of the live neu span."""
+        if embeds.dim() >= 3:
+            batch, seq = int(embeds.shape[0]), int(embeds.shape[1])
+        elif embeds.dim() == 2:
+            batch, seq = 1, int(embeds.shape[0])
+        else:
+            batch, seq = 1, max(len(tokens), 1)
+        seq = max(seq, int(self.max_sequence_length) if self.te is not None else seq)
+        if embeds.dim() >= 3:
+            seq = int(embeds.shape[1])
+        mask = torch.zeros(batch, seq, dtype=torch.long)
+        n = min(len(tokens), seq)
+        if n:
+            mask[:, :n] = 1
+        return mask
+
     def encode_text(
         self, prompt: str, *, frozen: bool = False
     ) -> tuple[torch.Tensor, list[str]]:
         embeds, tokens = self.encode_table.encode(prompt)
         if self.te is None:
+            self._last_mask = self._tokenizer_mask(tokens, embeds)
             return embeds, tokens
         if frozen:
             prev = float(self.te.scale)
@@ -352,8 +383,11 @@ class DummyKreaBackend:
                 embeds = self.te(embeds)
             finally:
                 self.te.scale = prev
+            self._last_mask = self._tokenizer_mask(tokens, embeds)
             return embeds.detach(), tokens
-        return self.te(embeds), tokens
+        embeds = self.te(embeds)
+        self._last_mask = self._tokenizer_mask(tokens, embeds)
+        return embeds, tokens
 
     def set_adapter_scale(self, scale: float) -> None:
         self.dit.scale = float(scale) if self.lora_spec.train_dit else 0.0
@@ -361,16 +395,37 @@ class DummyKreaBackend:
             self.te.scale = float(scale)
 
     def encode_cfg_pair(
-        self, prompt: str, *, scale: float = 1.0
+        self,
+        prompt: str,
+        *,
+        scale: float = 1.0,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+        mask_prompt: str | None = None,
     ) -> tuple[tuple[torch.Tensor, list[str]], tuple[torch.Tensor, list[str]]]:
         """Encode cond at ``scale``; empty uncond with frozen TE if encoder_lora."""
         cond_frozen = abs(float(scale)) < 1e-12
+        transplant = None
+        if mask_prompt:
+            _emb, tok = self.encode_text(str(mask_prompt), frozen=True)
+            transplant = self._tokenizer_mask(tok, _emb)
         self.set_adapter_scale(0.0 if cond_frozen else float(scale))
         cond = self.encode_text(prompt, frozen=cond_frozen)
+        cond_tok = self._last_mask
+        self._last_cond_mask = krea_resolve_dit_encoder_mask(
+            cond_tok,
+            cond[0],
+            encoder_lora=bool(self.encoder_lora),
+            scale=float(scale),
+            frozen=cond_frozen,
+            te_dit_mask=te_dit_mask,
+            transplant_mask=transplant,
+            max_sequence_length=self.max_sequence_length,
+        )
         if krea_cfg_uncond_te_frozen(self.encoder_lora):
             uncond = self.encode_text("", frozen=True)
         else:
             uncond = self.encode_text("", frozen=cond_frozen)
+        self._last_uncond_mask = self._last_mask
         return cond, uncond
 
     def cfg_predict_v(
@@ -380,19 +435,71 @@ class DummyKreaBackend:
         *,
         scale: float = 1.0,
         guidance: float = 0.0,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+        mask_prompt: str | None = None,
     ) -> torch.Tensor:
         """Dummy CFG: cond at ``scale``, uncond frozen TE when encoder_lora."""
-        (cond, _), (uncond, _) = self.encode_cfg_pair(prompt, scale=scale)
+        (cond, _), (uncond, _) = self.encode_cfg_pair(
+            prompt, scale=scale, te_dit_mask=te_dit_mask, mask_prompt=mask_prompt
+        )
         self.set_adapter_scale(scale)
-        v = self.dit(z, cond)
+        v = self._forward(
+            z,
+            cond,
+            self._last_cond_mask,
+            scale=float(scale),
+            frozen=abs(float(scale)) < 1e-12,
+            te_dit_mask=te_dit_mask,
+            mask_resolved=True,
+        )
         if guidance and float(guidance) > 0.0 and prompt != "":
-            v_u = self.dit(z, uncond)
+            v_u = self._forward(
+                z,
+                uncond,
+                self._last_uncond_mask,
+                scale=0.0,
+                frozen=True,
+                mask_resolved=True,
+            )
             return krea_cfg_compose(v, v_u, guidance)
         return v
 
     def load_te_adapter(self, path: str | Path) -> None:
         """Dummy resmoke: record the path. No Hub / PEFT load."""
         self.loaded_te_lora = str(path)
+
+    def _forward(
+        self,
+        z: torch.Tensor,
+        text: torch.Tensor,
+        mask: torch.Tensor | None,
+        *,
+        scale: float | None = None,
+        frozen: bool = False,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+        transplant_mask: torch.Tensor | None = None,
+        mask_resolved: bool = False,
+    ) -> torch.Tensor:
+        if scale is None:
+            if self.te is not None:
+                scale = float(self.te.scale)
+            else:
+                scale = float(self.dit.scale)
+        if mask_resolved:
+            resolved = mask
+        else:
+            resolved = krea_resolve_dit_encoder_mask(
+                mask,
+                text,
+                encoder_lora=bool(self.encoder_lora),
+                scale=float(scale),
+                frozen=bool(frozen),
+                te_dit_mask=te_dit_mask,
+                transplant_mask=transplant_mask,
+                max_sequence_length=self.max_sequence_length,
+            )
+        self.last_dit_mask = None if resolved is None else resolved.detach().clone()
+        return self.dit(z, text)
 
     def predict_v(
         self,
@@ -403,16 +510,32 @@ class DummyKreaBackend:
         pin_unused: bool = False,
         neu_prompt: str | None = None,
         unused_words: Sequence[str] | None = None,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+        mask_prompt: str | None = None,
     ) -> torch.Tensor:
         self.set_adapter_scale(scale)
+        frozen = abs(float(scale)) < 1e-12
+        transplant = None
+        if mask_prompt:
+            _emb, tok = self.encode_text(str(mask_prompt), frozen=True)
+            transplant = self._tokenizer_mask(tok, _emb)
         embeds, tokens = self.encode_text(prompt)
+        tok_mask = self._last_mask
         if pin_unused and neu_prompt is not None:
             neu_embeds, neu_tokens = self.encode_text(neu_prompt, frozen=True)
-            mask = krea_unused_hold_mask(tokens, neu_tokens, unused_words)
+            hold = krea_unused_hold_mask(tokens, neu_tokens, unused_words)
             embeds = krea_hold_unused_embeds(
-                embeds, neu_embeds, tokens, neu_tokens, mask
+                embeds, neu_embeds, tokens, neu_tokens, hold
             )
-        return self.dit(z, embeds)
+        return self._forward(
+            z,
+            embeds,
+            tok_mask,
+            scale=float(scale),
+            frozen=frozen,
+            te_dit_mask=te_dit_mask,
+            transplant_mask=transplant,
+        )
 
     def trainable_parameters(self) -> list[nn.Parameter]:
         params: list[nn.Parameter] = []
@@ -435,11 +558,28 @@ class DummyKreaBackend:
         scale: float = 1.0,
         height: int = 64,
         width: int = 64,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+        mask_prompt: str | None = None,
     ):
         """Structured RGB ramp so ``--dummy`` can write a smile-first grid."""
         del num_steps
         # Encode cond + frozen uncond once (mirrors live generate).
-        self.encode_cfg_pair(prompt, scale=float(scale))
+        (cond, _), _uncond = self.encode_cfg_pair(
+            prompt,
+            scale=float(scale),
+            te_dit_mask=te_dit_mask,
+            mask_prompt=mask_prompt,
+        )
+        z = torch.zeros(1, self.dim)
+        self._forward(
+            z,
+            cond,
+            self._last_cond_mask,
+            scale=float(scale),
+            frozen=abs(float(scale)) < 1e-12,
+            te_dit_mask=te_dit_mask,
+            mask_resolved=True,
+        )
         del guidance
         import numpy as np
         from PIL import Image
@@ -704,6 +844,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="load a saved te_lora and emit sample + oracle grids without "
         "training (resmoke / apply audit). Dummy records the path only.",
     )
+    parser.add_argument(
+        "--te_dit_mask",
+        type=str,
+        default=KREA_TE_DIT_MASK_DEFAULT,
+        choices=list(KREA_TE_DIT_MASK_CHOICES),
+        help="DiT encoder mask when TE LoRA scale > 0. auto/ones attend "
+        "the full padded stack (v5; UNI-matched smile slots past neu "
+        "length). tokenizer is the old neu span. transplant uses "
+        "--mask_prompt / plus caption at oracle time. Scale 0 / frozen "
+        "TE always keep the real tokenizer mask.",
+    )
     return parser.parse_args(argv)
 
 
@@ -772,8 +923,10 @@ def emit_oracle_grid(
     - ``neu_scale0`` = generate(neu, scale=0)
 
     Logs ``embed_cos`` = cos(Eθ(neu)@1, E_frozen(pos)). If oracle has
-    teeth and student does not despite cos>0.95 → remaining apply bug.
-    If oracle also lacks teeth → caption teacher is weak in pixels.
+    teeth and student does not despite cos>0.95 → remaining apply bug
+    (v5: neu tokenizer mask may still hide UNI-matched smile slots —
+    default student uses ones-mask). If oracle also lacks teeth →
+    caption teacher is weak in pixels.
     """
     pairs = infer_oracle_pairs(prompts)
     out_dir = Path(save_dir) / "samples" / "oracle"
@@ -783,6 +936,7 @@ def emit_oracle_grid(
     seed = int(getattr(args, "sample_seed", 42))
     height = 64 if dummy else int(args.resolution)
     width = height
+    te_dit_mask = str(getattr(args, "te_dit_mask", KREA_TE_DIT_MASK_DEFAULT))
     records: list[dict[str, Any]] = []
     pair_meta: list[dict[str, Any]] = []
     shots = (
@@ -791,6 +945,58 @@ def emit_oracle_grid(
         ("neu_scale0", "neu", 0.0),
     )
     assert tuple(tag for tag, _src, _s in shots) == KREA_ORACLE_SHOTS
+    emit_mask_ab = bool(getattr(args, "load_te_lora", None))
+
+    def _save_shot(
+        *,
+        neu: str,
+        plus: str,
+        tag: str,
+        caption: str,
+        scale: float,
+        embed_cos: float,
+        te_mask: str,
+        mask_prompt: str | None,
+    ) -> None:
+        gen_kwargs: dict[str, Any] = {
+            "seed": seed,
+            "num_steps": steps,
+            "guidance": guidance,
+            "scale": float(scale),
+            "height": height,
+            "width": width,
+        }
+        try:
+            image = backend.generate(
+                caption,
+                te_dit_mask=te_mask,
+                mask_prompt=mask_prompt,
+                **gen_kwargs,
+            )
+        except TypeError:
+            image = backend.generate(caption, **gen_kwargs)
+        name = f"{_slug(neu)}_{tag}.png"
+        path = out_dir / name
+        image.save(path)
+        records.append(
+            {
+                "tag": tag,
+                "prompt": caption,
+                "neutral": neu,
+                "positive": plus,
+                "scale": float(scale),
+                "path": f"oracle/{name}",
+                "seed": seed,
+                "sample_steps": steps,
+                "cfg": guidance,
+                "embed_cos": embed_cos,
+                "te_dit_mask": te_mask,
+                "mask_prompt": mask_prompt,
+                "height": int(getattr(image, "height", height)),
+                "width": int(getattr(image, "width", width)),
+            }
+        )
+
     for neu, plus in pairs:
         embed_cos = sample_embed_cos(backend, neu, plus)
         pair_meta.append(
@@ -803,34 +1009,39 @@ def emit_oracle_grid(
         )
         for tag, source, scale in shots:
             caption = plus if source == "plus" else neu
-            image = backend.generate(
-                caption,
-                seed=seed,
-                num_steps=steps,
-                guidance=guidance,
+            shot_mask = te_dit_mask
+            shot_prompt = plus if (source == "neu" and float(scale) > 0 and te_dit_mask == "transplant") else None
+            _save_shot(
+                neu=neu,
+                plus=plus,
+                tag=tag,
+                caption=caption,
                 scale=float(scale),
-                height=height,
-                width=width,
+                embed_cos=embed_cos,
+                te_mask=shot_mask,
+                mask_prompt=shot_prompt,
             )
-            name = f"{_slug(neu)}_{tag}.png"
-            path = out_dir / name
-            image.save(path)
-            records.append(
-                {
-                    "tag": tag,
-                    "prompt": caption,
-                    "neutral": neu,
-                    "positive": plus,
-                    "scale": float(scale),
-                    "path": f"oracle/{name}",
-                    "seed": seed,
-                    "sample_steps": steps,
-                    "cfg": guidance,
-                    "embed_cos": embed_cos,
-                    "height": int(getattr(image, "height", height)),
-                    "width": int(getattr(image, "width", width)),
-                }
+        if emit_mask_ab:
+            assert KREA_ORACLE_MASK_AB_SHOTS == (
+                "student_neu_scale1_onesmask",
+                "student_neu_scale1_tokmask",
+                "student_neu_scale1_plusmask",
             )
+            for tag, te_mask, mask_prompt in (
+                ("student_neu_scale1_onesmask", "ones", None),
+                ("student_neu_scale1_tokmask", "tokenizer", None),
+                ("student_neu_scale1_plusmask", "transplant", plus),
+            ):
+                _save_shot(
+                    neu=neu,
+                    plus=plus,
+                    tag=tag,
+                    caption=neu,
+                    scale=1.0,
+                    embed_cos=embed_cos,
+                    te_mask=te_mask,
+                    mask_prompt=mask_prompt,
+                )
     meta_path = out_dir / "oracle_meta.json"
     payload = {
         "kind": "oracle_apply_audit",
@@ -838,6 +1049,8 @@ def emit_oracle_grid(
         "seed": seed,
         "cfg": guidance,
         "shots": list(KREA_ORACLE_SHOTS),
+        "te_dit_mask": te_dit_mask,
+        "mask_ab": list(KREA_ORACLE_MASK_AB_SHOTS) if emit_mask_ab else [],
         "embed_cos_threshold": float(KREA_ORACLE_EMBED_COS),
         "readout": krea_oracle_readout(),
         "pairs": pair_meta,
@@ -873,11 +1086,11 @@ def emit_inprocess_samples(
     seed = int(getattr(args, "sample_seed", 42))
     height = 64 if dummy else int(args.resolution)
     width = height
+    te_dit_mask = str(getattr(args, "te_dit_mask", KREA_TE_DIT_MASK_DEFAULT))
     records: list[dict[str, Any]] = []
     for prompt in sample_prompts:
         for scale in scales:
-            image = backend.generate(
-                prompt,
+            gen_kwargs = dict(
                 seed=seed,
                 num_steps=steps,
                 guidance=guidance,
@@ -885,6 +1098,12 @@ def emit_inprocess_samples(
                 height=height,
                 width=width,
             )
+            try:
+                image = backend.generate(
+                    prompt, te_dit_mask=te_dit_mask, **gen_kwargs
+                )
+            except TypeError:
+                image = backend.generate(prompt, **gen_kwargs)
             slug = _slug(prompt)
             scale_tag = f"{scale:g}".replace("-", "m")
             name = f"final_{slug}_scale{scale_tag}.png"
@@ -1124,6 +1343,8 @@ def train(args: argparse.Namespace) -> Path:
         },
         "cfg_uncond_te_frozen": bool(lora_spec.encoder_lora),
         "encode_once": True,
+        "te_dit_mask": str(getattr(args, "te_dit_mask", KREA_TE_DIT_MASK_DEFAULT)),
+        "te_dit_ones_mask": bool(lora_spec.encoder_lora),
         "load_te_lora": getattr(args, "load_te_lora", None),
         "skipped_train": bool(skip_train),
         "last": last_stats,

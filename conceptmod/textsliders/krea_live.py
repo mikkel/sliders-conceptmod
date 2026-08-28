@@ -32,6 +32,14 @@ Patterns follow mikkel/conceptmod ``conceptmod/backends/krea.py``:
 - Encode cond + frozen uncond **once** per generate and reuse
   hidden states (conceptmod). Continuous LoRA scale stays on
   ``apply_continuous_lora_scale``.
+- TE-slider sample (v5): when ``encoder_lora`` and adapter scale
+  > 0, DiT ``encoder_attention_mask`` is **ones** over the full
+  padded stack (``max_sequence_length`` / embed seq). Embed UNI
+  MSE-matches rows past neu's valid tokens; the neu tokenizer
+  mask hid those smile slots (v3/v4 oracle: embeds matched,
+  ``generate(plus, frozen)`` had teeth, student neu@1 did not).
+  Scale 0 / frozen TE keep the real tokenizer mask. Optional
+  ``mask_prompt`` transplants a frozen-plus mask.
 
 The public methods match ``DummyKreaBackend`` so ``krea_step_loss`` is
 unchanged: ``encode_text``, ``predict_v``, ``trainable_parameters``,
@@ -64,10 +72,12 @@ from conceptmod.textsliders.slider_targets import (
     krea_cfg_uncond_te_frozen,
     krea_hold_unused_embeds,
     krea_looks_turbo,
+    krea_resolve_dit_encoder_mask,
     krea_unused_hold_mask,
     krea_word_tokens,
     resolve_krea_lora_targets,
     resolve_krea_sample_guidance,
+    KREA_TE_DIT_MASK_DEFAULT,
 )
 
 _TEXT_CACHE_MAX = 16
@@ -442,7 +452,48 @@ class LiveKreaBackend:
         gh, gw = self.grid_hw
         return self.pipe.prepare_position_ids(text_seq_len, gh, gw, self.device)
 
-    def _forward(self, z: torch.Tensor, text: torch.Tensor, mask: torch.Tensor | None):
+    def _dit_encoder_mask(
+        self,
+        tokenizer_mask: torch.Tensor | None,
+        embeds: torch.Tensor,
+        *,
+        scale: float | None = None,
+        frozen: bool = False,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+        transplant_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor | None:
+        """Ones over the padded stack when TE LoRA scale > 0 (v5)."""
+        resolved_scale = float(self._lora_scale if scale is None else scale)
+        return krea_resolve_dit_encoder_mask(
+            tokenizer_mask,
+            embeds,
+            encoder_lora=bool(self.encoder_lora),
+            scale=resolved_scale,
+            frozen=bool(frozen),
+            te_dit_mask=te_dit_mask,
+            transplant_mask=transplant_mask,
+            max_sequence_length=self.max_sequence_length,
+        )
+
+    def _encode_tokenizer_mask(
+        self, prompt: str
+    ) -> torch.Tensor | None:
+        """Frozen-TE tokenizer mask for ``mask_prompt`` transplant."""
+        _embeds, _tokens = self.encode_text(prompt, frozen=True)
+        return self._snapshot_mask()
+
+    def _forward(
+        self,
+        z: torch.Tensor,
+        text: torch.Tensor,
+        mask: torch.Tensor | None,
+        *,
+        scale: float | None = None,
+        frozen: bool = False,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+        transplant_mask: torch.Tensor | None = None,
+        mask_resolved: bool = False,
+    ):
         dtype = self.compute_dtype
         timestep = self._timestep
         if timestep is None:
@@ -454,7 +505,20 @@ class LiveKreaBackend:
             # (T, F) dummy-style should not happen on live; keep a batch dim.
             text = text.unsqueeze(0)
         pos = self._position_ids(int(text.shape[1]))
-        enc_mask = None if mask is None else mask.to(self.device)
+        if mask_resolved:
+            enc_mask = mask
+        else:
+            enc_mask = self._dit_encoder_mask(
+                mask,
+                text,
+                scale=scale,
+                frozen=frozen,
+                te_dit_mask=te_dit_mask,
+                transplant_mask=transplant_mask,
+            )
+        if enc_mask is not None:
+            enc_mask = enc_mask.to(self.device)
+        self._last_dit_mask = None if enc_mask is None else enc_mask.detach()
         out = self.transformer(
             hidden_states=z.to(device=self.device, dtype=dtype),
             encoder_hidden_states=text.to(device=self.device, dtype=dtype),
@@ -556,7 +620,7 @@ class LiveKreaBackend:
                 embeds = krea_hold_unused_embeds(
                     embeds, neu_embeds, tokens, neu_tokens, hold_mask
                 )
-            return self._forward(z, embeds, mask)
+            return self._forward(z, embeds, mask, scale=float(scale), frozen=frozen)
 
     def trainable_parameters(self) -> list[nn.Parameter]:
         params: list[nn.Parameter] = []
@@ -662,7 +726,12 @@ class LiveKreaBackend:
         return mask.detach().clone()
 
     def encode_cfg_pair(
-        self, prompt: str, *, scale: float = 1.0
+        self,
+        prompt: str,
+        *,
+        scale: float = 1.0,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+        mask_prompt: str | None = None,
     ) -> tuple[
         tuple[torch.Tensor, torch.Tensor | None, list[str]],
         tuple[torch.Tensor, torch.Tensor | None, list[str]],
@@ -671,13 +740,26 @@ class LiveKreaBackend:
 
         Called once per generate. Hidden states are reused across denoise
         steps (conceptmod). Continuous LoRA scale via
-        ``apply_continuous_lora_scale``.
+        ``apply_continuous_lora_scale``. Cond mask is ones over the
+        padded stack when TE scale > 0 (v5); uncond / scale 0 keep
+        the tokenizer mask. ``mask_prompt`` transplants a frozen mask.
         """
         cond_frozen = abs(float(scale)) < 1e-12
+        transplant_mask = None
+        if mask_prompt:
+            transplant_mask = self._encode_tokenizer_mask(str(mask_prompt))
         with self._scale_ctx(float(scale), frozen=cond_frozen):
             cond_embeds, cond_tokens = self.encode_text(prompt, frozen=cond_frozen)
-            cond_mask = self._snapshot_mask()
+            cond_tok_mask = self._snapshot_mask()
             cond_embeds = cond_embeds.detach()
+        cond_mask = self._dit_encoder_mask(
+            cond_tok_mask,
+            cond_embeds,
+            scale=float(scale),
+            frozen=cond_frozen,
+            te_dit_mask=te_dit_mask,
+            transplant_mask=transplant_mask,
+        )
         # CFG uncond: frozen TE when encoder_lora (do not cancel the TE Δ)
         if krea_cfg_uncond_te_frozen(self.encoder_lora):
             uncond_embeds, uncond_tokens = self.encode_text("", frozen=True)
@@ -694,12 +776,19 @@ class LiveKreaBackend:
         )
 
     def _predict_current(
-        self, prompt: str, z: torch.Tensor, *, frozen_te: bool = False
+        self,
+        prompt: str,
+        z: torch.Tensor,
+        *,
+        frozen_te: bool = False,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
     ) -> torch.Tensor:
         """Forward at whatever adapter scale the caller already set."""
         embeds, _tokens = self.encode_text(prompt, frozen=frozen_te)
         mask = getattr(self, "_last_mask", None)
-        return self._forward(z, embeds, mask)
+        return self._forward(
+            z, embeds, mask, frozen=frozen_te, te_dit_mask=te_dit_mask
+        )
 
     def _cfg_from_embeds(
         self,
@@ -710,13 +799,30 @@ class LiveKreaBackend:
         cond_mask: torch.Tensor | None,
         uncond_embeds: torch.Tensor,
         uncond_mask: torch.Tensor | None,
+        *,
+        scale: float | None = None,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
     ) -> torch.Tensor:
         prev = self._timestep
         self._timestep = timestep
         try:
-            v = self._forward(z, cond_embeds, cond_mask)
+            # Masks already resolved by encode_cfg_pair (ones / tok / transplant).
+            v = self._forward(
+                z,
+                cond_embeds,
+                cond_mask,
+                scale=scale,
+                mask_resolved=True,
+            )
             if guidance and float(guidance) > 0:
-                v_u = self._forward(z, uncond_embeds, uncond_mask)
+                v_u = self._forward(
+                    z,
+                    uncond_embeds,
+                    uncond_mask,
+                    scale=0.0 if krea_cfg_uncond_te_frozen(self.encoder_lora) else scale,
+                    frozen=True,
+                    mask_resolved=True,
+                )
                 v = v + float(guidance) * (v - v_u)
             return v
         finally:
@@ -771,8 +877,15 @@ class LiveKreaBackend:
         scale: float = 1.0,
         height: int | None = None,
         width: int | None = None,
+        te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+        mask_prompt: str | None = None,
     ):
-        """Smile-first sample. Parks frozen TE + VAE around the 12B denoise."""
+        """Smile-first sample. Parks frozen TE + VAE around the 12B denoise.
+
+        When TE LoRA scale > 0, DiT attends an all-ones mask over the
+        padded embed stack (v5). ``mask_prompt`` transplants a frozen
+        tokenizer mask (plus caption at apply-audit time).
+        """
         from PIL import Image
 
         del height, width
@@ -792,7 +905,12 @@ class LiveKreaBackend:
         try:
             # Encode cond + frozen uncond once; reuse hidden states (conceptmod)
             (cond_embeds, cond_mask, _), (uncond_embeds, uncond_mask, _) = (
-                self.encode_cfg_pair(prompt, scale=float(scale))
+                self.encode_cfg_pair(
+                    prompt,
+                    scale=float(scale),
+                    te_dit_mask=te_dit_mask,
+                    mask_prompt=mask_prompt,
+                )
             )
             with self._scale_ctx(float(scale), frozen=abs(float(scale)) < 1e-12):
                 for t in sched.timesteps:
@@ -804,6 +922,8 @@ class LiveKreaBackend:
                         cond_mask,
                         uncond_embeds,
                         uncond_mask,
+                        scale=float(scale),
+                        te_dit_mask=te_dit_mask,
                     )
                     z = sched.step(v, t, z, return_dict=False)[0]
             img = self.decode(z)
