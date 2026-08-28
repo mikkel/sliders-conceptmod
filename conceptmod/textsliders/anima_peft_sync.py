@@ -302,15 +302,15 @@ def measure_conditioner_embed_deltas(
     PASS at scale 1 requires a student Δ that is not near-zero and is
     meaningfully aligned with the teacher Δ.
     """
-    e_neu_0 = encode_fn(neu, 0.0)
-    e_plus_0 = encode_fn(plus, 0.0)
+    e_neu_0 = _pool_embed(encode_fn(neu, 0.0))
+    e_plus_0 = _pool_embed(encode_fn(plus, 0.0))
     teacher = e_plus_0 - e_neu_0
-    teacher_norm = float(_flatten_embed(teacher).norm().item())
+    teacher_norm = float(teacher.reshape(-1).norm().item())
     rows: list[dict[str, Any]] = []
     for scale in scales:
-        e_neu_s = encode_fn(neu, float(scale))
+        e_neu_s = _pool_embed(encode_fn(neu, float(scale)))
         student = e_neu_s - e_neu_0
-        student_norm = float(_flatten_embed(student).norm().item())
+        student_norm = float(student.reshape(-1).norm().item())
         rel = student_norm / (teacher_norm + 1e-12)
         cos = _cosine(student, teacher) if student_norm > 0 and teacher_norm > 0 else 0.0
         rows.append(
