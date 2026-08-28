@@ -24,17 +24,18 @@ Train and in-process sample use the **same bare strings**.
 `rows[i].infer_prompt` / `neutral` is exactly the `prompt=` passed to
 `pipe(...)`. No attribute-prefix strip.
 
-| scale | student | teacher (`--lm_target trajectory`, default) | `direct` (1-step) | `cfg_delta` (1-step) |
+| scale | student | teacher (`--lm_target trajectory`, `--teacher caption`) | `same_crop` invert teacher | `direct` / `cfg_delta` |
 |---|---|---|---|---|
-| **+1** | infer / neu caption | short Euler traj of frozen **plus** | `v(z, t, + concept)` frozen | `v(+) − v('')` |
-| **0** | infer / neu | light identity vs frozen **neu** traj | `v(z, t, neu)` frozen | `v(neu) − v('')` |
+| **+1** | infer / neu caption | short Euler traj of frozen **plus** from `z_T` | invert `x_neu`, Euler plus from mid-σ | 1-step (do not retry for smile) |
+| **0** | infer / neu | light identity vs frozen **neu** traj | same | 1-step |
 | **−1** | unscored canary only | — | — | — |
 
-`--lm_target trajectory` (default, live smile): sample `z_T ~ N(0,I)`
-at infer noise, run **K** FlowMatch Euler steps (`--traj_steps`,
-default **4**) with the frozen pipeline on the **plus** caption →
-`x_plus` (no grad). Same schedule from the same `z_T` with the adapter
-on and the **neu/infer** caption → `x_student`. Loss is
+`--lm_target trajectory` (default) + `--teacher caption`: sample
+`z_T ~ N(0,I)` at infer noise, run **K** FlowMatch Euler steps
+(`--traj_steps`, default **4**) with the frozen pipeline on the
+**plus** caption → `x_plus` (no grad). Same schedule from the same
+`z_T` with the adapter on and the **neu/infer** caption →
+`x_student`. Loss is
 
 ```
 MSE(x_student, x_plus) + λ_id * MSE(x_zero, x_neu)
@@ -43,6 +44,28 @@ MSE(x_student, x_plus) + λ_id * MSE(x_zero, x_neu)
 `x_zero` is scale-0 / disabled-adapter on the same short schedule;
 `x_neu` is the frozen neu trajectory. `λ_id` is
 `--traj_identity_weight` (default **0.25**, light; `0` = off).
+
+Caption-only plus **already shares `z_T`** and still fails smile:
+stock Anima jumps full-body → close-up portrait when the caption
+goes closed-mouth → teeth. The UNI target then bundles zoom/identity.
+Pixel gate at 0.25 only "passes" when the adapter collapses crop.
+Wiring is cleared (#70: `peft_pipe≡train_faithful`, no
+`SAMPLE_TRAIN_MISMATCH`). This is formulation.
+
+`--teacher same_crop` / `--lm_target same_crop` is the invert /
+img2img teacher. Same loss, same `z_T`, but plus is **not**
+denoised from infer noise:
+
+```
+x_neu  = Euler_K(frozen, neu, z_T)
+z_mid  = (1 − σ) · x_neu + σ · z_T     # σ = --teacher_strength (default 0.5)
+x_plus = Euler_from_σ(frozen, plus, z_mid)
+```
+
+Crop is committed by the neu traj. Plus only runs late σ, so teeth
+edit expression instead of rebuilding a portrait. No Comfy — same
+thin `predict_v` Euler as trajectory. `--teacher_strength 0.35` is
+more crop-locked; `0.75` leaves more plus steps.
 
 The loop is a **thin Euler/flow over `predict_v`**, not
 `ModularPipeline` denoise (`pipe(...)` has no grad through the DiT).
@@ -106,7 +129,9 @@ doubling the 768 OOM.
 | sample steps | **40** |
 | CFG (guider) | **4** |
 | lr | **`1e-4`** (DiT LoRA; `1e-2` is not sane — prior RunPod run fitted loss ~8e-4 then any nonzero scale collapsed denoise to RGB noise) |
-| `--lm_target` | **`trajectory`** (K-step FlowMatch Euler). `direct` / `cfg_delta` kept. Music 3 stays `v9`. |
+| `--lm_target` | **`trajectory`** (K-step FlowMatch Euler). `same_crop` = that loss + invert teacher. `direct` / `cfg_delta` kept. Music 3 stays `v9`. |
+| `--teacher` | **`caption`** (default) or **`same_crop`**. Next smile smoke should use `same_crop`. |
+| `--teacher_strength` | **0.5** (invert start σ; `same_crop` only) |
 | `--traj_steps` | **4** (live option: 8) |
 | `--teacher_gap_boost` | **1** (off; 1-step recipes only) |
 | `--sample_every` | **100** (end-of-train gate always runs) |
@@ -147,6 +172,42 @@ conditioner-only smile is still weak.
 
 `--traj_steps 8` is the longer live option. `--teacher_gap_boost 4`
 only applies to a `direct` / `cfg_delta` debug run.
+
+## Same-crop smile teacher (next GPU smoke)
+
+Caption-only `--teacher caption` is why v6/v7 still failed the
+**pixel** gate after apply/wiring (#70) passed. Stock teacher itself
+zooms when plus says teeth. Next smile attempt should invert neu
+and denoise plus from mid-σ.
+
+**Do not start a 500-step train in the agent.** Short 4090 / L40S
+smoke (8 optimizer steps, 8 sample steps, end-of-train grid only):
+
+```bash
+HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \
+  --name smile-anima-same-crop-smoke \
+  --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \
+  --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
+  --lora_targets conditioner --rank 16 --resolution 512 \
+  --sample_steps 8 --cfg 4 \
+  --lr 1e-4 --lm_target same_crop --teacher same_crop \
+  --teacher_strength 0.5 --traj_steps 4 \
+  --steps 8 --sample_every 0 \
+  --device cuda:0 --save_dir models/smile-anima-same-crop-smoke
+```
+
+If 0→0.25 now moves teeth **without** a crop jump, continue a real
+retrain with `--steps 500 --sample_steps 40 --sample_every 100` and
+the same `--teacher same_crop`. If crop still jumps, lower
+`--teacher_strength` (0.35) before touching LoRA rank.
+
+CPU dummy (CI / no Hub):
+
+```bash
+PYTHONPATH=. python scripts/smoke_anima_same_crop_teacher.py
+PYTHONPATH=. python conceptmod/textsliders/train_lora_anima.py \
+  --dummy --lm_target same_crop --teacher same_crop --steps 8 --device cpu
+```
 
 ## Turbo v1.1 is preview only
 
@@ -233,6 +294,7 @@ PYTHONPATH=. python conceptmod/textsliders/train_lora_anima.py \
   --dummy --steps 8 --device cpu --save_dir /tmp/anima-dummy
 PYTHONPATH=. pytest tests/test_anima_slider.py -q
 python scripts/smoke_anima_slider.py
+python scripts/smoke_anima_same_crop_teacher.py
 ```
 
 ## PEFT sync: why v6/v7 may have invalidated the 0→0.25 gate

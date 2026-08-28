@@ -6,6 +6,9 @@ Image analog of Music 3 UNI (not lyric-hold — images have no lyrics /
 - student +1 fits the + concept prompt (CFG / trajectory teacher)
 - student scale 0 fits the neutral prompt
 - live smile uses ``--lm_target trajectory`` (1-step v-space gap is tiny)
+- caption-only plus teacher jumps crop (full-body→close-up). Opt-in
+  ``--teacher same_crop`` / ``--lm_target same_crop`` inverts the frozen
+  neu traj and denoises plus from mid-σ so expression moves without zoom
 - no minus teacher unless the yaml still declares one as a canary
 - hold unused prompt tokens / attributes (subject, composition, pins)
   to encode(neu); do **not** hold the concept words
@@ -51,12 +54,24 @@ ANIMA_SAMPLE_MODES = ("peft_pipe", "train_faithful")
 DEFAULT_SAMPLE_MODE = "peft_pipe"
 # v4 1-step direct / cfg_delta cannot carry Anima expression (v-space
 # pos/neu gap is microscopic). Live default is short-trajectory MSE.
-ANIMA_LM_TARGETS = ("direct", "cfg_delta", "trajectory")
+# same_crop is trajectory loss + invert/img2img plus teacher (crop lock).
+ANIMA_LM_TARGETS = ("direct", "cfg_delta", "trajectory", "same_crop")
 DEFAULT_LM_TARGET = "trajectory"
 DEFAULT_TRAJ_STEPS = 4
 DEFAULT_TRAJ_IDENTITY_WEIGHT = 0.25
 # Off: values <= 1 leave the 1-step teacher unamplified.
 DEFAULT_TEACHER_GAP_BOOST = 1.0
+# caption: denoise plus from the same z_T (already true) — stock still
+# zooms when the plus caption says teeth. same_crop: invert x_neu and
+# continue under plus at --teacher_strength so crop stays.
+ANIMA_TEACHERS = ("caption", "same_crop")
+DEFAULT_TEACHER = "caption"
+DEFAULT_TEACHER_STRENGTH = 0.5
+# Dummy DiT: concept tokens write expression on channel 1 always, and
+# crop/zoom on channel 2 only at high σ (early denoise). That is the
+# stock "teeth → close-up" analog the same-crop teacher is meant to skip.
+FAKE_EXPR_CHANNEL = 1
+FAKE_CROP_CHANNEL = 2
 # Turbo v1.1 is preview-only. Train stays on Base. Official CircleStone
 # card: CFG 1, 8–12 steps. This repo's sample helper uses 10.
 TURBO_PREVIEW_ONLY = True
@@ -358,24 +373,216 @@ def anima_short_trajectory(
     num_steps: int,
     frozen: bool = False,
     scale: float | None = None,
+    start_index: int = 0,
 ) -> torch.Tensor:
     """K-step flow Euler over ``predict_v``. Not ModularPipeline denoise.
 
     ``z_t ~ N(0, I)`` at infer noise (σ=1). Same ``z_t`` + schedule for
     teacher and student. Thin loop so the student path keeps grad;
     ``pipe(...)`` is inference-only and has no grad through the DiT.
+
+    ``start_index`` skips early σ (same-crop invert starts mid-schedule).
+    ``z_t`` must already be the state at ``sigmas[start_index]``.
     """
     steps = int(num_steps)
+    if steps < 1:
+        raise ValueError(f"traj_steps must be >= 1, got {num_steps!r}")
+    begin = int(start_index)
+    if begin < 0 or begin >= steps:
+        raise ValueError(f"start_index must be in [0, {steps}), got {start_index!r}")
     n_train = anima_num_train_timesteps(backend)
     sigmas = anima_flow_sigmas(steps, device=z_t.device, dtype=torch.float32)
     x = z_t
-    for i in range(steps):
+    for i in range(begin, steps):
         sigma = sigmas[i]
         sigma_next = sigmas[i + 1]
         t = (sigma * float(n_train)).reshape(1).to(device=z_t.device)
         v = backend.predict_v(prompt, x, t, frozen=frozen, scale=scale)
         x = anima_flow_euler_step(x, v, sigma, sigma_next)
     return x
+
+
+def anima_flow_invert(
+    x0: torch.Tensor,
+    noise: torch.Tensor,
+    sigma: torch.Tensor | float,
+) -> torch.Tensor:
+    """Flow-match re-noise: ``x_σ = (1−σ)·x0 + σ·ε``.
+
+    ``σ=1`` is the infer-noise latent; ``σ=0`` is the clean traj end.
+    Same-crop uses the training ``z_T`` as ``ε`` so invert is latent-locked.
+    """
+    if torch.is_tensor(sigma):
+        sig = sigma.to(device=x0.device, dtype=x0.dtype)
+        while sig.ndim < x0.ndim:
+            sig = sig.reshape(sig.shape + (1,))
+    else:
+        sig = x0.new_tensor(float(sigma))
+    return (1.0 - sig) * x0 + sig * noise
+
+
+def anima_teacher_start_index(
+    sigmas: torch.Tensor,
+    strength: float,
+) -> int:
+    """First denoise index whose σ is ``<= strength`` (terminal 0 excluded).
+
+    ``strength=1`` → index 0 (caption-like, from infer noise).
+    ``strength=0.5`` on K=4 (σ=1, 0.75, 0.5, 0.25, 0) → index 2.
+    Always leaves at least one plus step.
+    """
+    scale = float(strength)
+    if scale <= 0.0:
+        raise ValueError(f"teacher_strength must be > 0, got {strength!r}")
+    if sigmas.numel() < 2:
+        raise ValueError("sigmas must be linspace(1,1/K,K) ∪ {0}")
+    n_denoise = int(sigmas.numel()) - 1
+    if scale >= 1.0 - 1e-8:
+        return 0
+    for i in range(n_denoise):
+        if float(sigmas[i]) <= scale + 1e-8:
+            return i
+    return n_denoise - 1
+
+
+def anima_latent_channel_mean(x: torch.Tensor, channel: int) -> torch.Tensor:
+    """Mean of one latent channel. Dummy CHW or live CTHW."""
+    if x.ndim < 3:
+        raise ValueError(f"latent must be BCHW or BCTHW, got {tuple(x.shape)}")
+    if x.shape[1] <= int(channel):
+        raise ValueError(f"latent channel {channel} missing in {tuple(x.shape)}")
+    plane = x[:, int(channel)]
+    return plane.reshape(plane.shape[0], -1).mean(dim=-1)
+
+
+def anima_fake_crop_code(x: torch.Tensor) -> torch.Tensor:
+    """Dummy crop/zoom: reserved site on channel 2 (high-σ write)."""
+    if x.ndim == 5:
+        return x[:, FAKE_CROP_CHANNEL, 0, 0, 0]
+    if x.ndim == 4:
+        return x[:, FAKE_CROP_CHANNEL, 0, 0]
+    raise ValueError(f"latent must be BCHW or BCTHW, got {tuple(x.shape)}")
+
+
+def anima_fake_expr_code(x: torch.Tensor) -> torch.Tensor:
+    """Dummy expression: original text_out concept pixel (flat index 1)."""
+    if x.ndim == 5:
+        return x[:, 0, 0, 0, 1]
+    if x.ndim == 4:
+        return x[:, 0, 0, 1]
+    raise ValueError(f"latent must be BCHW or BCTHW, got {tuple(x.shape)}")
+
+
+def anima_teacher_crop_gap(x_neu: torch.Tensor, x_plus: torch.Tensor) -> float:
+    """|crop(plus) − crop(neu)| on the dummy crop channel."""
+    return float((anima_fake_crop_code(x_plus) - anima_fake_crop_code(x_neu)).abs().mean())
+
+
+def anima_teacher_expr_gap(x_neu: torch.Tensor, x_plus: torch.Tensor) -> float:
+    """|expr(plus) − expr(neu)| on the dummy expression channel."""
+    return float((anima_fake_expr_code(x_plus) - anima_fake_expr_code(x_neu)).abs().mean())
+
+
+@dataclass(frozen=True)
+class AnimaTeacherPair:
+    """Frozen neu / plus short trajectories from one ``z_T``."""
+
+    x_neu: torch.Tensor
+    x_plus: torch.Tensor
+    z_t: torch.Tensor
+    teacher: str
+    strength: float
+    start_index: int
+    start_sigma: float
+    z_mid: torch.Tensor | None = None
+    shared_crop: bool = False
+
+
+def anima_same_crop_plus(
+    backend,
+    plus_prompt: str,
+    x_neu: torch.Tensor,
+    z_t: torch.Tensor,
+    *,
+    num_steps: int,
+    strength: float = DEFAULT_TEACHER_STRENGTH,
+    frozen: bool = True,
+    scale: float | None = None,
+) -> tuple[torch.Tensor, int, float, torch.Tensor]:
+    """Img2img / invert: re-noise ``x_neu`` with ``z_T``, denoise under plus.
+
+    Crop is committed by the frozen neu traj. Plus only runs the late
+    σ ≤ strength steps, so teeth do not rebuild a close-up from noise.
+    No ModularPipeline / Comfy — same ``predict_v`` Euler as trajectory.
+    """
+    steps = int(num_steps)
+    sigmas = anima_flow_sigmas(steps, device=z_t.device, dtype=torch.float32)
+    start_i = anima_teacher_start_index(sigmas, strength)
+    start_sigma = sigmas[start_i]
+    z_mid = anima_flow_invert(x_neu, z_t, start_sigma)
+    x_plus = anima_short_trajectory(
+        backend,
+        plus_prompt,
+        z_mid,
+        num_steps=steps,
+        frozen=frozen,
+        scale=scale,
+        start_index=start_i,
+    )
+    return x_plus, start_i, float(start_sigma), z_mid
+
+
+def anima_teacher_pair(
+    backend,
+    neu_prompt: str,
+    plus_prompt: str,
+    z_t: torch.Tensor,
+    *,
+    num_steps: int,
+    teacher: str | None = None,
+    strength: float = DEFAULT_TEACHER_STRENGTH,
+    frozen: bool = True,
+) -> AnimaTeacherPair:
+    """Build frozen neu + plus teachers. ``same_crop`` shares neu crop."""
+    recipe = resolve_anima_teacher(teacher)
+    x_neu = anima_short_trajectory(
+        backend, neu_prompt, z_t, num_steps=num_steps, frozen=frozen
+    )
+    if recipe == "same_crop":
+        x_plus, start_i, start_sigma, z_mid = anima_same_crop_plus(
+            backend,
+            plus_prompt,
+            x_neu,
+            z_t,
+            num_steps=num_steps,
+            strength=strength,
+            frozen=frozen,
+        )
+        return AnimaTeacherPair(
+            x_neu=x_neu,
+            x_plus=x_plus,
+            z_t=z_t,
+            teacher=recipe,
+            strength=float(strength),
+            start_index=start_i,
+            start_sigma=start_sigma,
+            z_mid=z_mid,
+            shared_crop=True,
+        )
+    x_plus = anima_short_trajectory(
+        backend, plus_prompt, z_t, num_steps=num_steps, frozen=frozen
+    )
+    return AnimaTeacherPair(
+        x_neu=x_neu,
+        x_plus=x_plus,
+        z_t=z_t,
+        teacher=recipe,
+        strength=1.0,
+        start_index=0,
+        start_sigma=1.0,
+        z_mid=None,
+        shared_crop=False,
+    )
 
 
 def anima_trajectory_loss(
@@ -405,6 +612,74 @@ def resolve_anima_lm_target(lm_target: str | None = None) -> str:
             f"anima lm_target must be one of {ANIMA_LM_TARGETS}, got {lm_target!r}"
         )
     return recipe
+
+
+def resolve_anima_teacher(teacher: str | None = None) -> str:
+    raw = str(teacher if teacher is not None else DEFAULT_TEACHER).strip().lower()
+    aliases = {
+        "img2img": "same_crop",
+        "invert": "same_crop",
+        "caption_only": "caption",
+    }
+    raw = aliases.get(raw, raw)
+    if raw not in ANIMA_TEACHERS:
+        raise ValueError(
+            f"anima teacher must be one of {ANIMA_TEACHERS}, got {teacher!r}"
+        )
+    return raw
+
+
+@dataclass(frozen=True)
+class AnimaTrainRecipe:
+    """Resolved loss + teacher. ``same_crop`` is trajectory loss + invert."""
+
+    lm_target: str
+    loss_kind: str
+    teacher: str
+    teacher_strength: float
+
+
+def resolve_anima_train_recipe(
+    lm_target: str | None = None,
+    teacher: str | None = None,
+    teacher_strength: float | None = None,
+) -> AnimaTrainRecipe:
+    """``--lm_target same_crop`` aliases trajectory + invert teacher.
+
+    ``--teacher same_crop`` on ``trajectory`` is the same path.
+    ``direct`` / ``cfg_delta`` cannot take a same-crop teacher.
+    """
+    lm = resolve_anima_lm_target(lm_target)
+    explicit = teacher is not None and str(teacher).strip() != ""
+    teach = resolve_anima_teacher(teacher if explicit else None)
+    if lm == "same_crop":
+        if explicit and teach != "same_crop":
+            raise ValueError(
+                "--lm_target same_crop requires --teacher same_crop "
+                f"(got {teacher!r})"
+            )
+        teach = "same_crop"
+        loss = "trajectory"
+    else:
+        if teach == "same_crop" and lm in ("direct", "cfg_delta"):
+            raise ValueError(
+                "same_crop teacher requires --lm_target trajectory or same_crop, "
+                f"got {lm!r}"
+            )
+        loss = lm
+    strength = float(
+        DEFAULT_TEACHER_STRENGTH if teacher_strength is None else teacher_strength
+    )
+    if teach == "same_crop" and not (0.0 < strength <= 1.0):
+        raise ValueError(
+            f"teacher_strength must be in (0, 1], got {teacher_strength!r}"
+        )
+    return AnimaTrainRecipe(
+        lm_target=lm,
+        loss_kind=loss,
+        teacher=teach,
+        teacher_strength=strength,
+    )
 
 
 @dataclass(frozen=True)
@@ -720,13 +995,47 @@ def stock_teacher_smoke_captions() -> dict[str, Any]:
     }
 
 
-def anima_recipe_label(lm_target: str | None = None) -> str:
-    recipe = resolve_anima_lm_target(lm_target)
-    if recipe == "trajectory":
+def anima_recipe_label(
+    lm_target: str | None = None,
+    teacher: str | None = None,
+) -> str:
+    resolved = resolve_anima_train_recipe(lm_target, teacher)
+    if resolved.teacher == "same_crop":
+        return (
+            "same_crop invert teacher + trajectory MSE + unused_token_hold "
+            "(plus from re-noised neu, not caption-from-z_T)"
+        )
+    if resolved.loss_kind == "trajectory":
         return "trajectory short FlowMatch Euler + unused_token_hold"
-    if recipe == "direct":
+    if resolved.loss_kind == "direct":
         return "direct velocity UNI + unused_token_hold"
     return "cfg_delta UNI + unused_token_hold"
+
+
+def same_crop_smoke_command(
+    *,
+    name: str = "smile-anima-same-crop-smoke",
+    resolution: int = 512,
+    steps: int = 8,
+    sample_steps: int = 8,
+    traj_steps: int = DEFAULT_TRAJ_STEPS,
+    teacher_strength: float = DEFAULT_TEACHER_STRENGTH,
+    save_dir: str = "models/smile-anima-same-crop-smoke",
+) -> str:
+    """Short 4090/L40S smoke — not a 500-step train."""
+    return (
+        "HF_HUB_OFFLINE=1 python conceptmod/textsliders/train_lora_anima.py \\\n"
+        f"  --name {name} \\\n"
+        "  --prompts_file conceptmod/textsliders/data/prompts-anima.yaml \\\n"
+        "  --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \\\n"
+        f"  --lora_targets conditioner --rank 16 --resolution {int(resolution)} "
+        f"--sample_steps {int(sample_steps)} --cfg 4 \\\n"
+        f"  --lr 1e-4 --lm_target same_crop --teacher same_crop "
+        f"--teacher_strength {float(teacher_strength)} \\\n"
+        f"  --traj_steps {int(traj_steps)} --steps {int(steps)} "
+        "--sample_every 0 \\\n"
+        f"  --device cuda:0 --save_dir {save_dir}"
+    )
 
 
 def live_train_card(
@@ -746,10 +1055,13 @@ def live_train_card(
     traj_steps: int = DEFAULT_TRAJ_STEPS,
     traj_identity_weight: float = DEFAULT_TRAJ_IDENTITY_WEIGHT,
     teacher_gap_boost: float = DEFAULT_TEACHER_GAP_BOOST,
+    teacher: str = DEFAULT_TEACHER,
+    teacher_strength: float = DEFAULT_TEACHER_STRENGTH,
     lora_targets: str = DEFAULT_LORA_TARGETS,
 ) -> dict[str, Any]:
     """Documented live train card. CI never downloads these weights."""
-    recipe = resolve_anima_lm_target(lm_target)
+    resolved = resolve_anima_train_recipe(lm_target, teacher, teacher_strength)
+    recipe = resolved.lm_target
     spec = resolve_anima_lora_targets(lora_targets)
     return {
         "name": name,
@@ -797,6 +1109,26 @@ def live_train_card(
         "traj_steps": int(traj_steps),
         "traj_identity_weight": float(traj_identity_weight),
         "teacher_gap_boost": float(teacher_gap_boost),
+        "teacher": resolved.teacher,
+        "teachers": list(ANIMA_TEACHERS),
+        "teacher_strength": float(resolved.teacher_strength),
+        "caption_teacher_failure": (
+            "caption-only plus from the same z_T still jumps crop: stock "
+            "Anima goes full-body → close-up portrait when the caption "
+            "goes closed-mouth → teeth. Pixel gate then only 'passes' "
+            "smile with identity/crop collapse. Wiring (#70) is cleared "
+            "(peft_pipe≡train_faithful, no SAMPLE_TRAIN_MISMATCH); this "
+            "is formulation."
+        ),
+        "same_crop_teacher": (
+            "invert frozen neu traj: x_σ=(1−σ)·x_neu+σ·z_T, then Euler "
+            "plus from σ=teacher_strength. Crop is committed by neu; "
+            "plus only edits late σ. No Comfy — same predict_v loop."
+        ),
+        "same_crop_smoke_4090": same_crop_smoke_command(
+            traj_steps=traj_steps,
+            teacher_strength=resolved.teacher_strength,
+        ),
         "traj_loop": (
             "thin FlowMatch Euler over predict_v: σ=linspace(1,1/K,K)+0, "
             "x ← x+(σ_next−σ)*v. Not ModularPipeline denoise (no grad "
@@ -804,7 +1136,8 @@ def live_train_card(
         ),
         "traj_loss": (
             "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu); "
-            "x_plus=Euler_K(frozen, plus, z_T); "
+            "caption: x_plus=Euler_K(frozen, plus, z_T); "
+            "same_crop: x_plus=Euler_from_σ(frozen, plus, invert(x_neu,z_T)); "
             "x_student=Euler_K(adapter, neu/infer, z_T); "
             "x_neu=Euler_K(frozen, neu, z_T); "
             "x_zero=Euler_K(scale=0, neu/infer, z_T); "
@@ -829,7 +1162,7 @@ def live_train_card(
         ),
         "stock_teacher_smoke": stock_teacher_smoke_captions(),
         "train_sample_prompts": "same bare infer/neu captions; attributes are pins only",
-        "recipe": anima_recipe_label(recipe),
+        "recipe": anima_recipe_label(recipe, resolved.teacher),
         "music3_default_untouched": {"lm_target": "v9", "pole_mode": "hidden"},
         "turbo": "preview_only",
         "smile_retrain_4090": live_train_command(

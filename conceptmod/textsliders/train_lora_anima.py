@@ -17,7 +17,9 @@ Live card (documented by ``scripts/smoke_anima_slider.py``):
            (same nn.Module as encode_text). train_faithful encodes via
            backend.encode_text then denoise (loss path).
     lm     --lm_target trajectory (K-step FlowMatch Euler; direct /
-           cfg_delta kept). 1-step v-space gap is microscopic on Anima.
+           cfg_delta / same_crop kept). 1-step v-space gap is microscopic
+           on Anima. --teacher same_crop inverts neu and denoises plus
+           from mid-σ so the UNI target does not bundle zoom.
     traj   --traj_steps 4
     every  --sample_every 100 (end-of-train gate always runs)
 
@@ -64,6 +66,7 @@ from conceptmod.textsliders.anima_peft_sync import (
 from conceptmod.textsliders.anima_slider import (
     ANIMA_LM_TARGETS,
     ANIMA_LORA_TARGET_CHOICES,
+    ANIMA_TEACHERS,
     CONDITIONER_LORA_TARGETS,
     DEFAULT_CFG,
     DEFAULT_CONTROL_PROMPT,
@@ -80,7 +83,9 @@ from conceptmod.textsliders.anima_slider import (
     DEFAULT_SAMPLE_SCALES,
     DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
+    DEFAULT_TEACHER,
     DEFAULT_TEACHER_GAP_BOOST,
+    DEFAULT_TEACHER_STRENGTH,
     DEFAULT_TRAJ_IDENTITY_WEIGHT,
     DEFAULT_TRAJ_STEPS,
     DIT_LORA_TARGETS,
@@ -90,6 +95,7 @@ from conceptmod.textsliders.anima_slider import (
     anima_direct_teachers,
     anima_recipe_label,
     anima_short_trajectory,
+    anima_teacher_pair,
     anima_trajectory_loss,
     anima_uni_loss,
     anima_uni_teachers,
@@ -106,7 +112,9 @@ from conceptmod.textsliders.anima_slider import (
     minus_canary_cosine,
     resolve_anima_lm_target,
     resolve_anima_lora_targets,
+    resolve_anima_train_recipe,
     row_token_plan,
+    same_crop_smoke_command,
 )
 
 DEFAULT_PROMPTS = Path(__file__).resolve().parent / "data" / "prompts-anima.yaml"
@@ -180,10 +188,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=ANIMA_LM_TARGETS,
         default=DEFAULT_LM_TARGET,
         help=(
-            "trajectory (default, live smile): K-step FlowMatch Euler "
-            "MSE(x_student, x_plus). direct / cfg_delta are 1-step and "
-            "cannot carry Anima expression (v-space gap ~1e-4). "
-            "Music 3 --lm_target v9 is untouched."
+            "trajectory (default): K-step FlowMatch Euler "
+            "MSE(x_student, x_plus). same_crop is that loss plus an "
+            "invert/img2img plus teacher (crop stays). direct / cfg_delta "
+            "are 1-step and cannot carry Anima expression "
+            "(v-space gap ~1e-4). Music 3 --lm_target v9 is untouched."
+        ),
+    )
+    parser.add_argument(
+        "--teacher",
+        type=str,
+        choices=ANIMA_TEACHERS,
+        default=None,
+        help=(
+            "plus-teacher construction. Default caption (denoise plus "
+            "from the same z_T — stock still zooms closed-mouth→teeth), "
+            "or same_crop when --lm_target same_crop. same_crop: invert "
+            "frozen neu traj, denoise plus from --teacher_strength so "
+            "the UNI target moves expression without bundling crop."
+        ),
+    )
+    parser.add_argument(
+        "--teacher_strength",
+        type=float,
+        default=DEFAULT_TEACHER_STRENGTH,
+        help=(
+            "img2img / invert start σ for --teacher same_crop "
+            f"(default {DEFAULT_TEACHER_STRENGTH}; (0, 1]). "
+            "0.35 is more crop-locked; 0.75 leaves more plus steps."
         ),
     )
     parser.add_argument(
@@ -1029,6 +1061,11 @@ def train_dummy(args: argparse.Namespace) -> dict:
     history: list[float] = []
     canary: list[float] = []
     lm_target = resolve_anima_lm_target(getattr(args, "lm_target", DEFAULT_LM_TARGET))
+    resolved = resolve_anima_train_recipe(
+        lm_target,
+        getattr(args, "teacher", DEFAULT_TEACHER),
+        getattr(args, "teacher_strength", DEFAULT_TEACHER_STRENGTH),
+    )
     plans = [row_token_plan(row) for row in rows]
     align_row = rows[0]
     infer = align_row.infer_prompt
@@ -1058,6 +1095,8 @@ def train_dummy(args: argparse.Namespace) -> dict:
             traj_steps=int(args.traj_steps),
             traj_identity_weight=float(args.traj_identity_weight),
             teacher_gap_boost=float(args.teacher_gap_boost),
+            teacher=resolved.teacher,
+            teacher_strength=float(resolved.teacher_strength),
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -1090,16 +1129,20 @@ def train_dummy(args: argparse.Namespace) -> dict:
         "sample_every": int(args.sample_every),
         "device": str(device),
         **_sidecar_lora_fields(spec),
-        "recipe": anima_recipe_label(lm_target),
+        "recipe": anima_recipe_label(lm_target, resolved.teacher),
         "traj_steps": int(args.traj_steps),
         "traj_identity_weight": float(args.traj_identity_weight),
         "teacher_gap_boost": float(args.teacher_gap_boost),
+        "teacher": resolved.teacher,
+        "teacher_strength": float(resolved.teacher_strength),
         "traj_loop": (
             "thin FlowMatch Euler over predict_v "
             "(σ=linspace(1,1/K,K)+0, x←x+(σ_next−σ)*v)"
         ),
         "traj_loss": (
             "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu)"
+            if resolved.teacher == "caption"
+            else "MSE(x_student, invert_plus) + λ_id*MSE(x_zero, x_neu)"
         ),
         "plus_label": meta.plus_label,
         "minus_canary": any(r.has_minus_canary for r in rows),
@@ -1458,16 +1501,28 @@ def _trajectory_step(
     hold_weight: float,
     traj_steps: int,
     identity_weight: float,
+    teacher: str = DEFAULT_TEACHER,
+    teacher_strength: float = DEFAULT_TEACHER_STRENGTH,
 ):
-    """Same z_T, K-step Euler: student(neu, adapter) → frozen plus traj."""
+    """Same z_T, K-step Euler: student(neu, adapter) → frozen plus traj.
+
+    ``teacher=same_crop`` inverts ``x_neu`` and denoises plus from mid-σ
+    so the plus target keeps the neu crop (no caption-from-z_T zoom).
+    """
     infer = row.infer_prompt
     with torch.no_grad():
-        x_plus = anima_short_trajectory(
-            backend, row.positive, z, num_steps=traj_steps, frozen=True
+        pair = anima_teacher_pair(
+            backend,
+            row.neutral,
+            row.positive,
+            z,
+            num_steps=traj_steps,
+            teacher=teacher,
+            strength=teacher_strength,
+            frozen=True,
         )
-        x_neu = anima_short_trajectory(
-            backend, row.neutral, z, num_steps=traj_steps, frozen=True
-        )
+        x_plus = pair.x_plus
+        x_neu = pair.x_neu
         v_null = backend.predict_v("", z, torch.tensor([1000.0], device=z.device), frozen=True)
         v_neg = (
             backend.predict_v(
@@ -1511,10 +1566,13 @@ def _train_step(
     traj_steps: int = DEFAULT_TRAJ_STEPS,
     traj_identity_weight: float = DEFAULT_TRAJ_IDENTITY_WEIGHT,
     teacher_gap_boost: float = DEFAULT_TEACHER_GAP_BOOST,
+    teacher: str = DEFAULT_TEACHER,
+    teacher_strength: float = DEFAULT_TEACHER_STRENGTH,
 ):
     """Student +1 stays on infer/neu. + caption is teacher only (#62 analog)."""
     infer = row.infer_prompt
-    recipe = resolve_anima_lm_target(lm_target)
+    resolved = resolve_anima_train_recipe(lm_target, teacher, teacher_strength)
+    recipe = resolved.loss_kind
     if recipe == "trajectory":
         return _trajectory_step(
             backend,
@@ -1524,6 +1582,8 @@ def _train_step(
             hold_weight,
             traj_steps=int(traj_steps),
             identity_weight=float(traj_identity_weight),
+            teacher=resolved.teacher,
+            teacher_strength=float(resolved.teacher_strength),
         )
     with torch.no_grad():
         v_pos = backend.predict_v(row.positive, z, t, frozen=True)
@@ -1575,6 +1635,11 @@ def train_live(args: argparse.Namespace) -> dict:
     _assert_lora_train_state(backend, spec)
     rows, meta = load_anima_prompts(args.prompts_file)
     lm_target = resolve_anima_lm_target(getattr(args, "lm_target", DEFAULT_LM_TARGET))
+    resolved = resolve_anima_train_recipe(
+        lm_target,
+        getattr(args, "teacher", DEFAULT_TEACHER),
+        getattr(args, "teacher_strength", DEFAULT_TEACHER_STRENGTH),
+    )
     plans = [row_token_plan(row) for row in rows]
     opt = torch.optim.AdamW(backend.trainable_parameters(), lr=float(args.lr))
     history: list[float] = []
@@ -1600,6 +1665,8 @@ def train_live(args: argparse.Namespace) -> dict:
             traj_steps=int(args.traj_steps),
             traj_identity_weight=float(args.traj_identity_weight),
             teacher_gap_boost=float(args.teacher_gap_boost),
+            teacher=resolved.teacher,
+            teacher_strength=float(resolved.teacher_strength),
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -1633,16 +1700,20 @@ def train_live(args: argparse.Namespace) -> dict:
         "sample_every": int(args.sample_every),
         "device": str(device),
         **_sidecar_lora_fields(spec),
-        "recipe": anima_recipe_label(lm_target),
+        "recipe": anima_recipe_label(lm_target, resolved.teacher),
         "traj_steps": int(args.traj_steps),
         "traj_identity_weight": float(args.traj_identity_weight),
         "teacher_gap_boost": float(args.teacher_gap_boost),
+        "teacher": resolved.teacher,
+        "teacher_strength": float(resolved.teacher_strength),
         "traj_loop": (
             "thin FlowMatch Euler over predict_v "
             "(σ=linspace(1,1/K,K)+0, x←x+(σ_next−σ)*v)"
         ),
         "traj_loss": (
             "MSE(x_student, x_plus) + λ_id*MSE(x_zero, x_neu)"
+            if resolved.teacher == "caption"
+            else "MSE(x_student, invert_plus) + λ_id*MSE(x_zero, x_neu)"
         ),
         "plus_label": meta.plus_label,
         "minus_canary": any(r.has_minus_canary for r in rows),
@@ -1700,6 +1771,8 @@ def train(args: argparse.Namespace) -> dict:
             traj_steps=int(args.traj_steps),
             traj_identity_weight=float(args.traj_identity_weight),
             teacher_gap_boost=float(args.teacher_gap_boost),
+            teacher=args.teacher,
+            teacher_strength=float(args.teacher_strength),
             lora_targets=str(args.lora_targets),
         )
         print(json.dumps(card, indent=2))
@@ -1720,6 +1793,12 @@ def train(args: argparse.Namespace) -> dict:
             teacher_gap_boost=float(args.teacher_gap_boost),
             lora_targets=str(args.lora_targets),
         ))
+        if str(getattr(args, "teacher", "") or "") == "same_crop" or str(args.lm_target) == "same_crop":
+            print()
+            print(same_crop_smoke_command(
+                traj_steps=int(args.traj_steps),
+                teacher_strength=float(args.teacher_strength),
+            ))
         return card
     if args.dummy:
         return train_dummy(args)

@@ -29,7 +29,9 @@ from conceptmod.textsliders.anima_slider import (
     DEFAULT_SAMPLE_SCALES,
     DEFAULT_SAMPLE_SEED,
     DEFAULT_SAMPLE_STEPS,
+    DEFAULT_TEACHER,
     DEFAULT_TEACHER_GAP_BOOST,
+    DEFAULT_TEACHER_STRENGTH,
     DEFAULT_TRAJ_IDENTITY_WEIGHT,
     DEFAULT_TRAJ_STEPS,
     LORA_TARGETS,
@@ -43,9 +45,15 @@ from conceptmod.textsliders.anima_slider import (
     anima_cfg_delta,
     anima_direct_loss,
     anima_direct_teachers,
+    anima_fake_crop_code,
     anima_flow_euler_step,
+    anima_flow_invert,
     anima_flow_sigmas,
     anima_short_trajectory,
+    anima_teacher_crop_gap,
+    anima_teacher_expr_gap,
+    anima_teacher_pair,
+    anima_teacher_start_index,
     anima_trajectory_loss,
     anima_uni_loss,
     anima_uni_teachers,
@@ -62,6 +70,9 @@ from conceptmod.textsliders.anima_slider import (
     parse_concept_words,
     resolve_anima_lm_target,
     resolve_anima_lora_targets,
+    resolve_anima_teacher,
+    resolve_anima_train_recipe,
+    same_crop_smoke_command,
     row_token_plan,
     splice_unused_embeds,
     stock_teacher_smoke_captions,
@@ -114,9 +125,12 @@ def test_anima_cli_defaults_match_live_card():
     assert args.cfg == DEFAULT_CFG == 4.0
     assert args.lr == DEFAULT_LR == 1e-4
     assert args.lm_target == DEFAULT_LM_TARGET == "trajectory"
+    assert args.teacher is None
+    assert resolve_anima_train_recipe(args.lm_target, args.teacher).teacher == DEFAULT_TEACHER == "caption"
     assert args.traj_steps == DEFAULT_TRAJ_STEPS == 4
     assert args.traj_identity_weight == DEFAULT_TRAJ_IDENTITY_WEIGHT == 0.25
     assert args.teacher_gap_boost == DEFAULT_TEACHER_GAP_BOOST == 1.0
+    assert args.teacher_strength == DEFAULT_TEACHER_STRENGTH == 0.5
     assert args.control_prompt == DEFAULT_CONTROL_PROMPT
     assert args.sample_every == DEFAULT_SAMPLE_EVERY == 100
     assert args.sample_seed == DEFAULT_SAMPLE_SEED == 42
@@ -142,6 +156,13 @@ def test_anima_cli_defaults_match_live_card():
     assert card["sample_scales"] == list(DEFAULT_SAMPLE_SCALES)
     assert card["sample_seed"] == 42
     assert card["lm_target"] == "trajectory"
+    assert card["teacher"] == "caption"
+    assert card["teachers"] == ["caption", "same_crop"]
+    assert card["teacher_strength"] == 0.5
+    assert "full-body" in card["caption_teacher_failure"]
+    assert "invert" in card["same_crop_teacher"]
+    assert "--teacher same_crop" in card["same_crop_smoke_4090"]
+    assert "--steps 8" in card["same_crop_smoke_4090"]
     assert card["traj_steps"] == 4
     assert card["teacher_gap_boost"] == 1.0
     assert "predict_v" in card["traj_loop"]
@@ -606,8 +627,13 @@ def test_print_card_does_not_train():
     assert out["lora"]["train_text_encoder"] is False
     assert out["lr"] == 1e-4
     assert out["lm_target"] == "trajectory"
+    assert out["teacher"] == "caption"
     assert out["traj_steps"] == 4
     assert "MSE(x_student, x_plus)" in out["traj_loss"]
+    same = train(parse_args(["--print_card", "--lm_target", "same_crop"]))
+    assert same["lm_target"] == "same_crop"
+    assert same["teacher"] == "same_crop"
+    assert "invert" in same["recipe"]
     dit = train(parse_args(["--print_card", "--lora_targets", "dit"]))
     assert dit["lora"]["lora_targets"] == "dit"
     assert dit["lora"]["train_text_conditioner"] is False
@@ -854,6 +880,7 @@ def test_anima_lm_target_default_trajectory_rejects_unknown():
     assert resolve_anima_lm_target("direct") == "direct"
     assert resolve_anima_lm_target("cfg_delta") == "cfg_delta"
     assert resolve_anima_lm_target("trajectory") == "trajectory"
+    assert resolve_anima_lm_target("same_crop") == "same_crop"
     with pytest.raises(ValueError, match="lm_target"):
         resolve_anima_lm_target("v9")
     args = parse_args(["--lm_target", "cfg_delta"])
@@ -861,6 +888,9 @@ def test_anima_lm_target_default_trajectory_rejects_unknown():
     traj = parse_args(["--lm_target", "trajectory", "--traj_steps", "8"])
     assert traj.lm_target == "trajectory"
     assert traj.traj_steps == 8
+    locked = parse_args(["--lm_target", "same_crop", "--teacher", "same_crop"])
+    assert locked.lm_target == "same_crop"
+    assert locked.teacher == "same_crop"
 
 
 def test_direct_loss_is_raw_velocity_mse():
@@ -1063,10 +1093,126 @@ def test_dummy_train_trajectory_prints_target(tmp_path):
     )
     sidecar = train_dummy(args)
     assert sidecar["lm_target"] == "trajectory"
+    assert sidecar["teacher"] == "caption"
     assert sidecar["traj_steps"] == 4
     assert "Euler" in sidecar["traj_loop"]
     assert sidecar["sample_grid"]["scales"] == [0.0, 0.25, 0.5, 1.0]
     assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
+
+
+def test_same_crop_teacher_resolver_and_cli():
+    assert resolve_anima_teacher() == "caption"
+    assert resolve_anima_teacher("same_crop") == "same_crop"
+    assert resolve_anima_teacher("img2img") == "same_crop"
+    assert resolve_anima_teacher("invert") == "same_crop"
+    with pytest.raises(ValueError, match="teacher"):
+        resolve_anima_teacher("v9")
+    implied = resolve_anima_train_recipe("same_crop")
+    assert implied.loss_kind == "trajectory"
+    assert implied.teacher == "same_crop"
+    assert implied.teacher_strength == 0.5
+    explicit = resolve_anima_train_recipe("trajectory", "same_crop", 0.35)
+    assert explicit.lm_target == "trajectory"
+    assert explicit.teacher == "same_crop"
+    assert explicit.teacher_strength == 0.35
+    with pytest.raises(ValueError, match="same_crop"):
+        resolve_anima_train_recipe("direct", "same_crop")
+    with pytest.raises(ValueError, match="same_crop"):
+        resolve_anima_train_recipe("same_crop", "caption")
+    args = parse_args(["--teacher", "same_crop", "--teacher_strength", "0.35"])
+    assert args.teacher == "same_crop"
+    assert args.teacher_strength == 0.35
+    smoke = same_crop_smoke_command()
+    assert "--lm_target same_crop" in smoke
+    assert "--teacher same_crop" in smoke
+    assert "--steps 8" in smoke
+    assert "--resolution 512" in smoke
+
+
+def test_flow_invert_is_linear_and_start_index_picks_sigma():
+    x0 = torch.tensor([2.0, 0.0])
+    noise = torch.tensor([0.0, 4.0])
+    mid = anima_flow_invert(x0, noise, 0.5)
+    assert torch.allclose(mid, torch.tensor([1.0, 2.0]))
+    assert torch.allclose(anima_flow_invert(x0, noise, 1.0), noise)
+    assert torch.allclose(anima_flow_invert(x0, noise, 0.0), x0)
+    sigmas = anima_flow_sigmas(4)
+    assert anima_teacher_start_index(sigmas, 1.0) == 0
+    assert anima_teacher_start_index(sigmas, 0.5) == 2
+    assert anima_teacher_start_index(sigmas, 0.35) == 3
+    assert anima_teacher_start_index(sigmas, 0.25) == 3
+
+
+def test_same_crop_teacher_shares_neu_crop_in_fake_backend():
+    """Caption plus from z_T jumps crop; invert plus keeps neu crop."""
+    backend = FakeAnimaBackend(device="cpu", rank=4, seed=0, lora_targets="dit")
+    neu, pos = WOMAN_NEU, WOMAN_PLUS
+    g = torch.Generator().manual_seed(3)
+    z = torch.randn((1, *backend.latent_shape), generator=g)
+    caption = anima_teacher_pair(
+        backend, neu, pos, z, num_steps=4, teacher="caption"
+    )
+    locked = anima_teacher_pair(
+        backend, neu, pos, z, num_steps=4, teacher="same_crop", strength=0.5
+    )
+    assert caption.shared_crop is False
+    assert locked.shared_crop is True
+    assert locked.z_mid is not None
+    assert locked.start_index == 2
+    assert locked.start_sigma == pytest.approx(0.5)
+    cap_crop = anima_teacher_crop_gap(caption.x_neu, caption.x_plus)
+    lock_crop = anima_teacher_crop_gap(locked.x_neu, locked.x_plus)
+    lock_expr = anima_teacher_expr_gap(locked.x_neu, locked.x_plus)
+    cap_expr = anima_teacher_expr_gap(caption.x_neu, caption.x_plus)
+    assert cap_crop > lock_crop
+    assert cap_crop > 0.05
+    assert lock_crop < 0.5 * cap_crop
+    assert lock_expr > 1e-3
+    assert cap_expr > 1e-3
+    assert torch.allclose(caption.x_neu, locked.x_neu)
+    # Invert is latent-locked to the same z_T.
+    assert locked.z_mid.shape == z.shape
+    crop_neu = float(anima_fake_crop_code(locked.x_neu))
+    crop_plus = float(anima_fake_crop_code(locked.x_plus))
+    assert abs(crop_plus - crop_neu) < abs(
+        float(anima_fake_crop_code(caption.x_plus)) - crop_neu
+    )
+
+
+def test_dummy_train_same_crop_runs(tmp_path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--steps",
+            "6",
+            "--device",
+            "cpu",
+            "--name",
+            "anima-same-crop",
+            "--prompts_file",
+            str(PROMPTS),
+            "--save_dir",
+            str(tmp_path),
+            "--rank",
+            "4",
+            "--lm_target",
+            "same_crop",
+            "--teacher",
+            "same_crop",
+            "--teacher_strength",
+            "0.5",
+            "--traj_steps",
+            "4",
+        ]
+    )
+    sidecar = train_dummy(args)
+    assert sidecar["lm_target"] == "same_crop"
+    assert sidecar["teacher"] == "same_crop"
+    assert sidecar["teacher_strength"] == 0.5
+    assert "invert" in sidecar["recipe"]
+    assert sidecar["loss_last"] is not None
+    assert sidecar["music3_default_untouched"]["lm_target"] == "v9"
+    assert sidecar["sample_grid"]["n"] == 12
 
 
 def test_turbo_is_preview_only_train_stays_base():
