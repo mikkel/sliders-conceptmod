@@ -2180,6 +2180,29 @@ KREA_DUMMY_EMBED_SEQ = 8
 KREA_EMBED_SAMPLE_CFG = 0.0
 KREA_ORACLE_EMBED_COS = 0.95
 KREA_ORACLE_SHOTS = ("oracle_plus_frozen", "student_neu_scale1", "neu_scale0")
+# Live oracle on smile-krea-v3: cos(Eθ(neu)@1, E_frozen(plus))≈0.9959
+# and generate(plus, TE frozen) shows teeth, but generate(neu, TE@1)
+# stayed closed-mouth. Plus is longer than neu; embed UNI MSE-matches
+# the full [B,512,12,2560] stack, while the neu tokenizer mask only
+# attends the shorter neu span — DiT never saw the smile slots.
+# Default TE-slider sample: ones mask over the padded stack when
+# TE LoRA scale > 0. Scale 0 / frozen TE keep the real tokenizer mask.
+KREA_TE_DIT_MASK_AUTO = "auto"
+KREA_TE_DIT_MASK_ONES = "ones"
+KREA_TE_DIT_MASK_TOKENIZER = "tokenizer"
+KREA_TE_DIT_MASK_TRANSPLANT = "transplant"
+KREA_TE_DIT_MASK_CHOICES = (
+    KREA_TE_DIT_MASK_AUTO,
+    KREA_TE_DIT_MASK_ONES,
+    KREA_TE_DIT_MASK_TOKENIZER,
+    KREA_TE_DIT_MASK_TRANSPLANT,
+)
+KREA_TE_DIT_MASK_DEFAULT = KREA_TE_DIT_MASK_AUTO
+KREA_ORACLE_MASK_AB_SHOTS = (
+    "student_neu_scale1_onesmask",
+    "student_neu_scale1_tokmask",
+    "student_neu_scale1_plusmask",
+)
 
 
 @dataclass(frozen=True)
@@ -2422,9 +2445,98 @@ def krea_oracle_readout() -> str:
     """How to read the apply-audit grid (pixels vs embed_cos)."""
     return (
         "If oracle_plus_frozen has teeth and student_neu_scale1 does not "
-        f"despite embed_cos>{KREA_ORACLE_EMBED_COS:g} → remaining apply bug. "
+        f"despite embed_cos>{KREA_ORACLE_EMBED_COS:g} → remaining apply bug "
+        "(v4 CFG uncond; v5 TE ones-mask: plus is longer than neu, UNI "
+        "matched the full [B,512,12,2560] stack, but the neu tokenizer "
+        "mask hid the smile slots). "
         "If oracle also lacks teeth → caption teacher is weak in pixels "
         "(need harder plus / different path)."
+    )
+
+
+def krea_te_sample_use_ones_mask(
+    encoder_lora: bool,
+    scale: float,
+    *,
+    frozen: bool = False,
+    te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+) -> bool:
+    """DiT should attend the full padded embed stack (not neu token length).
+
+    Scale 0 / frozen TE / no TE adapter always keep the tokenizer mask.
+    ``tokenizer`` forces the old neu span. ``ones`` / ``auto`` (default)
+    use all-ones when TE LoRA scale > 0. ``transplant`` is handled by
+    ``krea_resolve_dit_encoder_mask`` (plus caption mask when given).
+    """
+    if not encoder_lora or frozen or abs(float(scale)) < 1e-12:
+        return False
+    mode = str(te_dit_mask or KREA_TE_DIT_MASK_AUTO).strip().lower()
+    if mode == KREA_TE_DIT_MASK_TOKENIZER:
+        return False
+    if mode == KREA_TE_DIT_MASK_TRANSPLANT:
+        return False
+    return True
+
+
+def krea_embed_seq_len(
+    embeds: torch.Tensor, max_sequence_length: int | None = None
+) -> tuple[int, int]:
+    """``(batch, seq)`` for a Krea TE stack ``[B, S, ...]`` or dummy ``[T, D]``."""
+    if embeds.dim() >= 3:
+        batch, seq = int(embeds.shape[0]), int(embeds.shape[1])
+    elif embeds.dim() == 2:
+        batch, seq = 1, int(embeds.shape[0])
+    else:
+        batch, seq = 1, int(max_sequence_length or 1)
+    if max_sequence_length is not None and embeds.dim() < 3:
+        seq = max(seq, int(max_sequence_length))
+    return batch, seq
+
+
+def krea_ones_attention_mask(
+    embeds: torch.Tensor,
+    like: torch.Tensor | None = None,
+    *,
+    max_sequence_length: int | None = None,
+) -> torch.Tensor:
+    """All-ones encoder mask over the padded embed sequence."""
+    batch, seq = krea_embed_seq_len(embeds, max_sequence_length)
+    if like is not None and int(like.shape[-1]) >= seq:
+        return torch.ones_like(like)
+    device = embeds.device
+    dtype = like.dtype if like is not None else torch.long
+    if like is not None:
+        batch = int(like.shape[0])
+    return torch.ones((batch, seq), device=device, dtype=dtype)
+
+
+def krea_resolve_dit_encoder_mask(
+    tokenizer_mask: torch.Tensor | None,
+    embeds: torch.Tensor,
+    *,
+    encoder_lora: bool,
+    scale: float,
+    frozen: bool = False,
+    te_dit_mask: str = KREA_TE_DIT_MASK_DEFAULT,
+    transplant_mask: torch.Tensor | None = None,
+    max_sequence_length: int | None = None,
+) -> torch.Tensor | None:
+    """Mask the DiT actually attends. Ones when TE scale > 0 (default).
+
+    Optional ``transplant`` uses a frozen-plus tokenizer mask (apply-audit
+    when the plus caption is available). Scale 0 / frozen TE unchanged.
+    """
+    mode = str(te_dit_mask or KREA_TE_DIT_MASK_AUTO).strip().lower()
+    if mode not in KREA_TE_DIT_MASK_CHOICES:
+        mode = KREA_TE_DIT_MASK_AUTO
+    if not encoder_lora or frozen or abs(float(scale)) < 1e-12:
+        return tokenizer_mask
+    if mode == KREA_TE_DIT_MASK_TOKENIZER:
+        return tokenizer_mask
+    if mode == KREA_TE_DIT_MASK_TRANSPLANT and transplant_mask is not None:
+        return transplant_mask
+    return krea_ones_attention_mask(
+        embeds, like=tokenizer_mask, max_sequence_length=max_sequence_length
     )
 
 

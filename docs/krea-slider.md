@@ -105,13 +105,35 @@ encoded both CFG branches under the same TE scale, so
 (embed_cos≈0.988, pixels only soft closed-lip). Embed sample
 guidance defaults to **0**; velocity UNI keeps Raw 4.5.
 
+**Apply (v5, TE attention mask):** live oracle on the v3 TE adapter
+proved embeds already matched plus:
+
+- `cos(Eθ(neu)@1, E_frozen(plus)) ≈ 0.9959` (meanpool ≈ 0.9995)
+- `generate(plus, TE frozen)` → clear teeth grin (oracle)
+- `generate(neu, TE@1, cfg 0 or 4.5)` → closed mouth / soft lip
+- CFG-0 did not close the gap → not only uncond cancel
+
+Plus is longer than neu. Embed UNI MSE-matches the full
+`[B,512,12,2560]` stack (including positions past neu's valid
+tokens), but `encoder_attention_mask` from encoding **neu** only
+attends the shorter neu span — DiT never saw the rows where smile
+content was written. Oracle uses plus's mask with plus embeds →
+teeth. Default TE-slider sample now uses an **all-ones** attention
+mask over `max_sequence_length` whenever TE LoRA scale > 0. Scale 0
+/ frozen TE keep the real tokenizer mask. Optional `mask_prompt`
+transplants a frozen-plus mask at apply-audit time.
+`--te_dit_mask tokenizer` is the old neu span (A/B). Retrain is
+**not** required if this mask fix recovers teeth from the existing
+v3 adapter.
+
 End-of-train **oracle / apply-audit grid** (`save_dir/samples/oracle/`):
 for each neu prompt, `oracle_plus_frozen` = generate(plus, scale=0),
-`student_neu_scale1` = generate(neu, scale=1), `neu_scale0` =
+`student_neu_scale1` = generate(neu, scale=1, ones-mask), `neu_scale0` =
 generate(neu, scale=0). Meta logs `cos(Eθ(neu)@1, E_frozen(pos))`.
-If oracle has teeth and student does not despite cos>0.95 →
-remaining apply bug. If oracle also lacks teeth → caption teacher
-is weak in pixels.
+`--load_te_lora` resmoke also writes ones-mask vs old tokmask vs
+transplanted plus-mask A/B. If oracle has teeth and student does
+not despite cos>0.95 → remaining apply bug. If oracle also lacks
+teeth → caption teacher is weak in pixels.
 
 `--recipe embed_uni` is an alias for `--lm_target embed`. `--lora_targets`
 is forced to `te` on this path (DiT LoRA is not attached).
@@ -128,8 +150,27 @@ is forced to `te` on this path (DiT LoRA is not attached).
 `--allow_hub` is required for the first download; afterwards a warm
 cache can run with `HF_HUB_OFFLINE=1` and no flag.
 
-Retrain card (**smile-krea-v4**, TE-only embed UNI + frozen CFG
-uncond + sample_guidance 0, A100 80GB):
+Resmoke the existing **smile-krea-v3** TE adapter with the v5
+ones-mask (no retrain). Compare `student_neu_scale1` /
+`student_neu_scale1_onesmask` vs `student_neu_scale1_tokmask`:
+
+```bash
+python conceptmod/textsliders/train_lora_krea.py \
+  --name smile-krea-v5-resmoke \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
+  --model_id krea/Krea-2-Raw --allow_hub \
+  --lora_targets te --lm_target embed \
+  --load_te_lora models/smile-krea-v3/smile-krea-v3_lora/te_lora \
+  --sample_guidance 0 --te_dit_mask auto \
+  --save_dir models/smile-krea-v5-resmoke
+```
+
+If ones-mask student shows teeth and tokmask does not, the v3
+adapter already learned plus embeds — only the DiT mask was
+wrong. Then skip retrain.
+
+Previous card (**smile-krea-v4**, TE-only embed UNI + frozen CFG
+uncond + sample_guidance 0; still used the neu tokenizer mask):
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
@@ -257,6 +298,11 @@ python conceptmod/textsliders/train_lora_krea.py \
   --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
   --lora_targets te --lm_target embed --hold_weight 0.1 \
   --save_dir /tmp/krea-embed-v4-dummy
+python conceptmod/textsliders/train_lora_krea.py \
+  --dummy --name smile-krea-v5-dummy \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
+  --lora_targets te --lm_target embed --hold_weight 0.1 \
+  --save_dir /tmp/krea-embed-v5-dummy
 PYTHONPATH=. pytest tests/test_krea_slider.py -q
 ```
 
