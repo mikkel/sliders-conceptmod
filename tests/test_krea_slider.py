@@ -15,14 +15,21 @@ import torch.nn.functional as F
 
 from conceptmod.textsliders.slider_targets import (
     KREA_CONTROL_PROMPT,
+    KREA_DEFAULT_LORA_TARGETS,
     KREA_DEFAULT_RANK,
     KREA_DEFAULT_RESOLUTION,
+    KREA_HOLD_WEIGHT,
+    KREA_LORA_TARGETS,
+    KREA_LORA_TARGET_CHOICES,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
     KREA_RAW_STEPS,
     KREA_SAMPLE_SCALES,
+    KREA_SMILE_HOLD_WEIGHT,
     KREA_TURBO_CFG,
     KREA_TURBO_STEPS,
+    KREA_TE_LORA_TARGETS,
+    apply_continuous_lora_scale,
     expand_attributes_krea,
     krea_cfg_compose,
     krea_cfg_direction,
@@ -37,9 +44,11 @@ from conceptmod.textsliders.slider_targets import (
     krea_unused_hold_loss,
     krea_unused_hold_mask,
     krea_word_tokens,
+    resolve_krea_lora_targets,
 )
 from conceptmod.textsliders.train_lora_krea import (
     DummyKreaBackend,
+    DummyKreaTE,
     assert_krea_only,
     infer_sample_prompts,
     krea_step_loss,
@@ -343,6 +352,13 @@ def test_dummy_train_writes_sidecar_without_hub(tmp_path: Path):
     assert payload["allow_hub"] is False
     assert payload["encoder_lora"] is False
     assert payload["dit_lora_only"] is True
+    assert payload["lora_targets"] == "dit"
+    assert payload["dit_lora"] is True
+    assert payload["te_lora"] is False
+    assert payload["dit_lora_path"] == "krea-age-dummy_lora"
+    assert payload["te_lora_path"] is None
+    assert payload["hold_weight"] == KREA_HOLD_WEIGHT
+    assert payload["te_parking"] is True
     assert payload["sample_grid"]["gate"] == "smile-first"
     assert payload["sample_grid"]["crop_purity"] is False
     assert payload["sample_grid"]["scales"] == list(KREA_SAMPLE_SCALES)
@@ -420,8 +436,11 @@ def test_live_loader_does_not_run_in_dummy():
     live = KREA_LIVE.read_text(encoding="utf-8")
     assert "Krea2Pipeline.from_pretrained" in live
     assert "to_q" in live
+    assert "q_proj" in live
     assert "park" in live.lower()
     assert "encoder_lora" in live
+    assert "lora_targets" in live
+    assert "apply_continuous_lora_scale" in live
     assert "allow_hub" in live
     assert "same_crop" not in live
     assert "embed_struct" not in live
@@ -444,3 +463,202 @@ def test_hold_math_token_aligns_4d_krea_embeds():
     assert torch.allclose(held[0, 0], neu[0, 0])
     assert torch.allclose(held[0, 1], pos[0, 1])
     assert torch.allclose(held[0, 2], neu[0, 1])
+
+
+class _FakePeftLoraLinear(torch.nn.Module):
+    """Duck-typed PEFT LoraLayer: ``scaling`` multiplies the delta."""
+
+    def __init__(self, dim: int = 4, rank: int = 2):
+        super().__init__()
+        self.base = torch.nn.Linear(dim, dim, bias=False)
+        self.lora_A = torch.nn.ModuleDict(
+            {"default": torch.nn.Linear(dim, rank, bias=False)}
+        )
+        self.lora_B = torch.nn.ModuleDict(
+            {"default": torch.nn.Linear(rank, dim, bias=False)}
+        )
+        self.scaling = {"default": 1.0}
+        torch.nn.init.eye_(self.base.weight)
+        torch.nn.init.ones_(self.lora_A["default"].weight)
+        torch.nn.init.ones_(self.lora_B["default"].weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        delta = self.lora_B["default"](self.lora_A["default"](x))
+        return self.base(x) + delta * self.scaling["default"]
+
+
+class _NoOpSetAdapterScale(_FakePeftLoraLinear):
+    """PEFT-shaped wrapper whose ``set_adapter_scale`` does nothing."""
+
+    def set_adapter_scale(self, *args, **kwargs):
+        return None
+
+
+def test_krea_lora_targets_resolver_and_cli():
+    spec = resolve_krea_lora_targets()
+    assert spec.label == KREA_DEFAULT_LORA_TARGETS == "dit"
+    assert spec.train_dit is True
+    assert spec.train_te is False
+    assert spec.dit_lora_only is True
+    assert spec.te_parking is True
+    assert spec.dit_lora_targets == list(KREA_LORA_TARGETS)
+    assert spec.te_lora_targets == []
+    te = resolve_krea_lora_targets("text_encoder")
+    assert te.label == "te"
+    assert te.train_te is True
+    assert te.train_dit is False
+    assert te.te_lora_targets == list(KREA_TE_LORA_TARGETS)
+    assert te.frozen_modules == ("transformer",)
+    joint = resolve_krea_lora_targets("dit+te")
+    assert joint.train_dit is True
+    assert joint.train_te is True
+    assert joint.adapted_module_names == ["transformer", "text_encoder"]
+    assert resolve_krea_lora_targets("dit+text_encoder").label == "dit+te"
+    with pytest.raises(ValueError, match="lora_targets"):
+        resolve_krea_lora_targets("conditioner")
+    args = parse_args(["--lora_targets", "dit+te", "--hold_weight", "0.1"])
+    assert args.lora_targets == "dit+te"
+    assert args.hold_weight == pytest.approx(KREA_SMILE_HOLD_WEIGHT)
+    bare = parse_args([])
+    assert bare.lora_targets == "dit"
+    assert bare.hold_weight == KREA_HOLD_WEIGHT
+    assert KREA_LORA_TARGET_CHOICES == ("dit", "te", "dit+te")
+
+
+def test_continuous_lora_scale_changes_nonzero_mock_output():
+    """Mid-scales must move the LoRA delta — not just 0 vs 1.
+
+    Live smile-krea grids at 0.25 / 0.5 / 1.0 were byte-identical because
+    PEFT ``set_adapter_scale`` no-op'd. This writes ``scaling`` the way
+    dummy ``dit.scale`` already multiplies the delta.
+    """
+    layer = _NoOpSetAdapterScale()
+    x = torch.ones(2, 4)
+    layer.set_adapter_scale(0.25)
+    noop_a = layer(x).detach().clone()
+    layer.set_adapter_scale(0.5)
+    noop_b = layer(x).detach().clone()
+    assert torch.allclose(noop_a, noop_b)
+
+    outs = {}
+    for scale in (0.25, 0.5, 1.0):
+        n = apply_continuous_lora_scale(layer, scale)
+        assert n >= 1
+        outs[scale] = layer(x).detach().clone()
+    assert not torch.allclose(outs[0.25], outs[0.5], atol=1e-6)
+    assert not torch.allclose(outs[0.5], outs[1.0], atol=1e-6)
+    apply_continuous_lora_scale(layer, 0.0)
+    out0 = layer(x)
+    apply_continuous_lora_scale(layer, 1.0)
+    # Linear in the delta: 0.5 is halfway between 0 and 1.
+    mid = out0 + 0.5 * (outs[1.0] - out0)
+    assert torch.allclose(outs[0.5], mid, atol=1e-5)
+
+
+def test_dummy_nonzero_scales_change_velocity():
+    backend = DummyKreaBackend(dim=8, rank=2, seed=0)
+    with torch.no_grad():
+        backend.dit.lora_up.weight.fill_(0.35)
+    z = torch.ones(1, 8)
+    v0 = backend.predict_v("a person", z, scale=0.0)
+    v25 = backend.predict_v("a person", z, scale=0.25)
+    v50 = backend.predict_v("a person", z, scale=0.5)
+    v100 = backend.predict_v("a person", z, scale=1.0)
+    assert not torch.allclose(v0, v25, atol=1e-6)
+    assert not torch.allclose(v25, v50, atol=1e-6)
+    assert not torch.allclose(v50, v100, atol=1e-6)
+    expected_mid = v0 + 0.5 * (v100 - v0)
+    assert torch.allclose(v50, expected_mid, atol=1e-5)
+
+
+def test_dummy_te_lora_is_trainable_and_scaled():
+    backend = DummyKreaBackend(dim=8, rank=2, seed=1, lora_targets="dit+te")
+    assert backend.encoder_lora is True
+    assert isinstance(backend.te, DummyKreaTE)
+    names = " ".join(n for n, _p in backend.te.named_parameters() if _p.requires_grad)
+    assert "lora_down" in names
+    assert all(t in dict(backend.te.named_modules()) for t in KREA_TE_LORA_TARGETS)
+    with torch.no_grad():
+        backend.te.lora_up.weight.fill_(0.4)
+    z = torch.ones(1, 8)
+    v25 = backend.predict_v("a person", z, scale=0.25)
+    v50 = backend.predict_v("a person", z, scale=0.5)
+    assert not torch.allclose(v25, v50, atol=1e-6)
+    backend.set_adapter_scale(1.0)
+    pos, _ = backend.encode_text("an old person")
+    neu, _ = backend.encode_text("a person", frozen=True)
+    assert pos.requires_grad
+    assert not neu.requires_grad or neu.grad_fn is None
+
+
+def test_dummy_te_hold_has_grad(tmp_path: Path):
+    backend = DummyKreaBackend(dim=8, rank=2, seed=2, lora_targets="te")
+    with torch.no_grad():
+        backend.te.lora_up.weight.fill_(0.2)
+    from conceptmod.textsliders.train_lora_krea import KreaSliderPrompt
+
+    prompt = KreaSliderPrompt(
+        target="a person",
+        positive="an old person",
+        neutral="a person",
+        negative="a young person",
+        attributes=["male"],
+    )
+    z = torch.zeros(1, 8)
+    loss, stats = krea_step_loss(backend, prompt, z, guidance=0.0, hold_weight=0.1)
+    assert torch.isfinite(loss)
+    loss.backward()
+    te_grads = [p.grad for p in backend.te.lora_down.parameters() if p.grad is not None]
+    assert te_grads
+    dit_grads = [p.grad for p in backend.dit.lora_down.parameters() if p.grad is not None]
+    assert not dit_grads
+
+
+def test_dummy_smile_v2_dit_plus_te(tmp_path: Path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--name",
+            "smile-krea-v2-dummy",
+            "--prompts_file",
+            str(KREA_HAPPY_YAML),
+            "--save_dir",
+            str(tmp_path),
+            "--lora_targets",
+            "dit+te",
+            "--hold_weight",
+            "0.1",
+            "--steps",
+            "8",
+            "--seed",
+            "7",
+        ]
+    )
+    sidecar = train(args)
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert payload["lora_targets"] == "dit+te"
+    assert payload["dit_lora"] is True
+    assert payload["te_lora"] is True
+    assert payload["encoder_lora"] is True
+    assert payload["dit_lora_only"] is False
+    assert payload["te_parking"] is False
+    assert payload["hold_weight"] == pytest.approx(KREA_SMILE_HOLD_WEIGHT)
+    assert payload["dit_lora_path"] == "smile-krea-v2-dummy_lora/dit_lora"
+    assert payload["te_lora_path"] == "smile-krea-v2-dummy_lora/te_lora"
+    assert payload["te_lora_targets"] == list(KREA_TE_LORA_TARGETS)
+    assert payload["plus_label"] == "Happy"
+    pngs = list((tmp_path / "samples").glob("*.png"))
+    assert len(pngs) == 12
+
+
+def test_docs_list_smile_krea_v2_card():
+    docs = (ROOT / "docs/krea-slider.md").read_text(encoding="utf-8")
+    assert "--name smile-krea-v2" in docs
+    assert "--lora_targets dit+te" in docs
+    assert "--hold_weight 0.1" in docs
+    assert "--allow_hub" in docs
+    assert "--steps 500" in docs
+    assert "same_crop" in docs and "embed_struct" in docs
+    trainer = KREA_TRAINER.read_text(encoding="utf-8")
+    assert "--lora_targets" in trainer
+    assert "smile-krea-v2" in trainer or "hold_weight 0.1" in trainer

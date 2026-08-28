@@ -17,9 +17,11 @@ rank 16, 512 px. Run on Turbo (local ComfyUI ``.safetensors``, 8 steps,
 CFG 0). Default Music 3 trainers are unchanged.
 
 ``--dummy`` never loads Hub weights or a 12B transformer. CI uses that.
-Live load is offline-safe unless ``--allow_hub`` (Anima pattern). DiT
-LoRA only; the text encoder is frozen and parked. Happy/smile yaml:
-``data/prompts-krea-happy.yaml``.
+Live load is offline-safe unless ``--allow_hub`` (Anima pattern).
+``--lora_targets dit`` (default) parks the frozen text encoder after
+encode. ``te`` / ``dit+te`` keep Qwen3-VL on GPU so encode+backward
+stay coherent. Happy/smile yaml: ``data/prompts-krea-happy.yaml``.
+Smile card: ``--lora_targets dit+te --hold_weight 0.1``.
 """
 
 from __future__ import annotations
@@ -42,18 +44,19 @@ if str(_REPO_ROOT) not in sys.path:
 
 from conceptmod.textsliders.slider_targets import (
     KREA_CONTROL_PROMPT,
+    KREA_DEFAULT_LORA_TARGETS,
     KREA_DEFAULT_RANK,
     KREA_DEFAULT_RESOLUTION,
     KREA_HOLD_WEIGHT,
+    KREA_LORA_TARGET_CHOICES,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
-    KREA_RAW_STEPS,
     KREA_SAMPLE_SCALES,
+    KREA_SMILE_HOLD_WEIGHT,
     expand_attributes_krea,
     krea_cfg_direction,
     krea_concept_words,
     krea_hold_unused_embeds,
-    krea_looks_turbo,
     krea_minus_canary,
     krea_plus_neu_loss,
     krea_plus_neu_teachers,
@@ -61,6 +64,7 @@ from conceptmod.textsliders.slider_targets import (
     krea_unused_hold_loss,
     krea_unused_hold_mask,
     krea_word_tokens,
+    resolve_krea_lora_targets,
 )
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "data" / "config-krea.yaml"
@@ -199,14 +203,50 @@ class DummyKreaDiT(nn.Module):
         return base + float(self.scale) * delta
 
 
+class DummyKreaTE(nn.Module):
+    """Fake Qwen3-VL attn + LoRA delta. Names match live TE targets."""
+
+    def __init__(self, dim: int = 8, rank: int = 2):
+        super().__init__()
+        self.q_proj = nn.Linear(dim, dim, bias=False)
+        self.k_proj = nn.Linear(dim, dim, bias=False)
+        self.v_proj = nn.Linear(dim, dim, bias=False)
+        self.o_proj = nn.Linear(dim, dim, bias=False)
+        for layer in (self.q_proj, self.k_proj, self.v_proj, self.o_proj):
+            nn.init.eye_(layer.weight)
+            layer.weight.requires_grad_(False)
+        self.lora_down = nn.Linear(dim, rank, bias=False)
+        self.lora_up = nn.Linear(rank, dim, bias=False)
+        nn.init.zeros_(self.lora_up.weight)
+        self.scale = 1.0
+
+    def forward(self, embeds: torch.Tensor) -> torch.Tensor:
+        hidden = self.o_proj(self.v_proj(embeds))
+        delta = self.lora_up(self.lora_down(embeds))
+        return hidden + float(self.scale) * delta
+
+
 class DummyKreaBackend:
     """Mock Krea velocity backend. Never downloads weights."""
 
-    def __init__(self, dim: int = 8, rank: int = 2, seed: int = 0):
+    def __init__(
+        self,
+        dim: int = 8,
+        rank: int = 2,
+        seed: int = 0,
+        lora_targets: str = KREA_DEFAULT_LORA_TARGETS,
+    ):
         self.dim = dim
+        self.lora_spec = resolve_krea_lora_targets(lora_targets)
         self.encode_table = DummyKreaEncode(dim=dim, seed=seed)
         self.dit = DummyKreaDiT(dim=dim, rank=rank)
-        self.encoder_lora = False
+        self.te = DummyKreaTE(dim=dim, rank=rank) if self.lora_spec.train_te else None
+        self.encoder_lora = self.lora_spec.train_te
+        if not self.lora_spec.train_dit:
+            for param in list(self.dit.lora_down.parameters()) + list(
+                self.dit.lora_up.parameters()
+            ):
+                param.requires_grad_(False)
         self.latent_shape = (dim,)
         self._timestep: torch.Tensor | None = None
 
@@ -217,11 +257,18 @@ class DummyKreaBackend:
         dest = device or torch.device("cpu")
         return torch.randn(1, self.dim, device=dest)
 
-    def encode_text(self, prompt: str) -> tuple[torch.Tensor, list[str]]:
-        return self.encode_table.encode(prompt)
+    def encode_text(
+        self, prompt: str, *, frozen: bool = False
+    ) -> tuple[torch.Tensor, list[str]]:
+        embeds, tokens = self.encode_table.encode(prompt)
+        if self.te is not None and not frozen:
+            embeds = self.te(embeds)
+        return embeds, tokens
 
     def set_adapter_scale(self, scale: float) -> None:
-        self.dit.scale = float(scale)
+        self.dit.scale = float(scale) if self.lora_spec.train_dit else 0.0
+        if self.te is not None:
+            self.te.scale = float(scale)
 
     def predict_v(
         self,
@@ -233,20 +280,27 @@ class DummyKreaBackend:
         neu_prompt: str | None = None,
         unused_words: Sequence[str] | None = None,
     ) -> torch.Tensor:
+        self.set_adapter_scale(scale)
         embeds, tokens = self.encode_text(prompt)
         if pin_unused and neu_prompt is not None:
-            neu_embeds, neu_tokens = self.encode_text(neu_prompt)
+            neu_embeds, neu_tokens = self.encode_text(neu_prompt, frozen=True)
             mask = krea_unused_hold_mask(tokens, neu_tokens, unused_words)
             embeds = krea_hold_unused_embeds(
                 embeds, neu_embeds, tokens, neu_tokens, mask
             )
-        self.dit.scale = float(scale)
         return self.dit(z, embeds)
 
     def trainable_parameters(self) -> list[nn.Parameter]:
-        return list(self.dit.lora_down.parameters()) + list(
-            self.dit.lora_up.parameters()
-        )
+        params: list[nn.Parameter] = []
+        if self.lora_spec.train_dit:
+            params.extend(self.dit.lora_down.parameters())
+            params.extend(self.dit.lora_up.parameters())
+        if self.te is not None:
+            params.extend(self.te.lora_down.parameters())
+            params.extend(self.te.lora_up.parameters())
+        if not params:
+            raise RuntimeError("Krea dummy LoRA attached but no trainable parameters")
+        return params
 
     def generate(
         self,
@@ -321,8 +375,16 @@ def krea_step_loss(
     pred_zero = backend.predict_v(prompt.neutral, z, scale=0.0)
     loss = krea_plus_neu_loss(pred_plus, tgt_plus, pred_zero, tgt_zero)
 
+    # Hold unused student TE tokens to frozen encode(neu). When TE is
+    # frozen this is a constant (logged only). When TE trains, scale-1
+    # pos embeds must keep a graph; neu is the adapter-off reference.
+    if getattr(backend, "encoder_lora", False) and hasattr(backend, "set_adapter_scale"):
+        backend.set_adapter_scale(1.0)
     pos_embeds, pos_tokens = backend.encode_text(prompt.positive)
-    neu_embeds, neu_tokens = backend.encode_text(prompt.neutral)
+    try:
+        neu_embeds, neu_tokens = backend.encode_text(prompt.neutral, frozen=True)
+    except TypeError:
+        neu_embeds, neu_tokens = backend.encode_text(prompt.neutral)
     unused_mask = krea_unused_hold_mask(pos_tokens, neu_tokens, unused)
     hold = krea_unused_hold_loss(
         pos_embeds, neu_embeds, pos_tokens, neu_tokens, unused_mask
@@ -361,7 +423,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--sample_steps", type=int, default=None)
     parser.add_argument("--sample_guidance", type=float, default=None)
-    parser.add_argument("--hold_weight", type=float, default=KREA_HOLD_WEIGHT)
+    parser.add_argument(
+        "--hold_weight",
+        type=float,
+        default=KREA_HOLD_WEIGHT,
+        help="unused-token hold → encode(neu). Age yaml keeps 1.0. "
+        f"Smile/happy: pass {KREA_SMILE_HOLD_WEIGHT} so hold does not "
+        "dominate the logged loss (live smile-krea: hold≈7.31 of ≈7.35).",
+    )
+    parser.add_argument(
+        "--lora_targets",
+        type=str,
+        default=KREA_DEFAULT_LORA_TARGETS,
+        help="dit (default: transformer to_q/k/v/out), te / text_encoder "
+        "(Qwen3-VL q_proj/k_proj/v_proj/o_proj), or dit+te. "
+        f"Choices: {', '.join(KREA_LORA_TARGET_CHOICES)} plus aliases.",
+    )
     parser.add_argument(
         "--recipe",
         choices=["uni"],
@@ -499,11 +576,17 @@ def train(args: argparse.Namespace) -> Path:
         prompts_path = candidate if candidate.exists() else Path(args.prompts_file)
     prompts, meta = load_prompts(prompts_path)
     card = resolve_krea_card(args.model_id, args.sample_steps, args.sample_guidance)
+    lora_spec = resolve_krea_lora_targets(getattr(args, "lora_targets", KREA_DEFAULT_LORA_TARGETS))
     steps = int(args.steps)
     if args.dummy:
         steps = min(steps, 2)
         device = torch.device("cpu")
-        backend = DummyKreaBackend(dim=8, rank=min(2, int(args.rank)), seed=int(args.seed))
+        backend = DummyKreaBackend(
+            dim=8,
+            rank=min(2, int(args.rank)),
+            seed=int(args.seed),
+            lora_targets=lora_spec.label,
+        )
     else:
         device = torch.device(f"cuda:{int(args.device)}" if torch.cuda.is_available() else "cpu")
         backend = _load_live_backend(args, device)
@@ -526,8 +609,15 @@ def train(args: argparse.Namespace) -> Path:
         f"variant={card['variant']} sample_steps={card['sample_steps']} "
         f"cfg={card['sample_guidance']} dummy={bool(args.dummy)} "
         f"allow_hub={bool(getattr(args, 'allow_hub', False))} "
+        f"lora_targets={lora_spec.label} hold_weight={float(args.hold_weight)} "
         f"minus_teacher=off unused_hold=on control={control_prompt!r}"
     )
+    if meta.bare_captions and abs(float(args.hold_weight) - KREA_HOLD_WEIGHT) < 1e-12:
+        print(
+            f"note: happy/smile yaml with default --hold_weight {KREA_HOLD_WEIGHT:g}; "
+            f"smile-krea-v2 uses --hold_weight {KREA_SMILE_HOLD_WEIGHT:g} so "
+            "hold does not dominate the logged loss"
+        )
 
     progress = tqdm(range(steps), desc="train-krea")
     for step in progress:
@@ -562,6 +652,15 @@ def train(args: argparse.Namespace) -> Path:
     adapter_dir = save_dir / f"{args.name}_lora"
     if hasattr(backend, "save_trained") and not args.dummy:
         backend.save_trained(adapter_dir)
+    dit_lora_path = None
+    te_lora_path = None
+    if lora_spec.train_dit and lora_spec.train_te:
+        dit_lora_path = f"{args.name}_lora/dit_lora"
+        te_lora_path = f"{args.name}_lora/te_lora"
+    elif lora_spec.train_dit:
+        dit_lora_path = f"{args.name}_lora"
+    elif lora_spec.train_te:
+        te_lora_path = f"{args.name}_lora/te_lora"
 
     sidecar = {
         "kind": "krea",
@@ -577,9 +676,19 @@ def train(args: argparse.Namespace) -> Path:
         "lyric_hold": False,
         "dummy": bool(args.dummy),
         "allow_hub": bool(getattr(args, "allow_hub", False)),
-        "encoder_lora": False,
-        "dit_lora_only": True,
-        "te_parking": True,
+        "lora_targets": lora_spec.label,
+        "dit_lora": lora_spec.train_dit,
+        "te_lora": lora_spec.train_te,
+        "dit_lora_path": dit_lora_path,
+        "te_lora_path": te_lora_path,
+        "dit_lora_targets": lora_spec.dit_lora_targets,
+        "te_lora_targets": lora_spec.te_lora_targets,
+        "adapted_modules": lora_spec.adapted_module_names,
+        "frozen_modules": list(lora_spec.frozen_modules),
+        "encoder_lora": lora_spec.encoder_lora,
+        "dit_lora_only": lora_spec.dit_lora_only,
+        "te_parking": lora_spec.te_parking,
+        "hold_weight": float(args.hold_weight),
         "plus_label": meta.plus_label,
         "minus_label": meta.minus_label,
         "concept_words": meta.concept_words,

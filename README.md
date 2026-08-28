@@ -7,8 +7,9 @@ shipped sliders, GPU pitfalls) and [slider_pipeline/README.md](slider_pipeline/R
 
 **Krea image sliders (opt-in):** see [docs/krea-slider.md](docs/krea-slider.md).
 UNI analog on `krea/Krea-2-Raw` (train LoRAs on Raw, run on Turbo). Smile
-recipe: `prompts-krea-happy.yaml`, rank 16, 512 px, Raw 28 steps CFG 4.5
-(~48GB, TE parked). `--allow_hub` to download; `--dummy` for CI. Does
+v2: `prompts-krea-happy.yaml`, `--lora_targets dit+te --rank 16
+--hold_weight 0.1`, 512 px, Raw 28 steps CFG 4.5 (A100; A6000 is tight
+with TE resident). `--allow_hub` to download; `--dummy` for CI. Does
 not change the Music 3 default. Anima / ZiT / H3 are not in this trainer.
 
 **Sana 0.6B image sliders (opt-in cheap test backend):** see

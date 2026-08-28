@@ -53,14 +53,27 @@ from `_load_live_backend`):
 
 - `Krea2Pipeline.from_pretrained("krea/Krea-2-Raw", dtype=bfloat16)`
   (falls back to `torch_dtype=` if the installed Diffusers wants that)
-- LoRA-only on DiT attn `to_q/to_k/to_v/to_out.0` via peft (**rank 16**)
+- `--lora_targets dit` (default): LoRA on DiT attn
+  `to_q/to_k/to_v/to_out.0` via peft (**rank 16**)
+- `--lora_targets te` / `text_encoder`: Qwen3-VL attention
+  `q_proj/k_proj/v_proj/o_proj`. `--lora_targets dit+te` is joint
+  (Anima lesson: expression can live in the text path)
 - frozen ref = adapter disabled (a second 12B copy will not fit)
-- Park VAE on CPU; move the 4B Qwen3-VL text encoder onto GPU only for
-  encode, then park it before DiT backward
-- **~48GB GPU** (A6000 / A100). Text encoder is not trained.
+- Continuous sample scales write LoRA `scaling` (`alpha/r * scale`).
+  PEFT `set_adapter_scale` often no-ops, which made live 0.25 / 0.5 /
+  1.0 grids byte-identical (only scale 0 / `disable_adapter` differed)
+- Park VAE on CPU. Frozen TE: encode on GPU, then park before DiT
+  backward (**~48GB**, A6000 / A100). Trained TE stays resident so
+  encode+backward stay coherent (prefer 80GB A100 for `dit+te`)
 - End-of-train smile-first grid: scales `0 / 0.25 / 0.5 / 1.0` on
   neu / infer captions plus the fruit-bowl control, PNGs under
-  `save_dir/samples`. Not a crop-purity gate.
+  `save_dir/samples`. Not a crop-purity gate. Do **not** port Anima
+  `same_crop` / `embed_struct`.
+
+`--hold_weight` defaults to **1.0** (age yaml unused-gender hold).
+Live smile-krea logs were hold-dominated (`hold≈7.31` of `loss≈7.35`)
+because frozen-TE hold is a near-constant. **Smile card uses 0.1.**
+Do not silently lower the age-yaml default.
 
 | | Raw (train here) | Turbo (run) |
 |---|---|---|
@@ -74,20 +87,42 @@ from `_load_live_backend`):
 `--allow_hub` is required for the first download; afterwards a warm
 cache can run with `HF_HUB_OFFLINE=1` and no flag.
 
+Retrain card (**smile-krea-v2**, A100 80GB preferred; A6000 48GB is
+tight once TE stays resident):
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
+  --name smile-krea-v2 \
+  --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
+  --model_id krea/Krea-2-Raw \
+  --allow_hub \
+  --lora_targets dit+te --rank 16 --hold_weight 0.1 \
+  --resolution 512 \
+  --sample_steps 28 --sample_guidance 4.5 \
+  --steps 500 --lr 1e-4 --seed 7 --device 0 \
+  --save_dir models/smile-krea-v2
+```
+
+Adapters: `{save_dir}/{name}_lora/dit_lora` and
+`{save_dir}/{name}_lora/te_lora` (sidecar keys `dit_lora` /
+`te_lora`). Sample PNGs: `{save_dir}/samples/`. Mid-scales must
+differ — if 0.25 / 0.5 / 1.0 PNGs are byte-identical, scale is
+broken again.
+
+DiT-only (v1 card, frozen TE parked, 48GB):
+
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_krea.py \
   --name smile-krea \
   --prompts_file conceptmod/textsliders/data/prompts-krea-happy.yaml \
   --model_id krea/Krea-2-Raw \
   --allow_hub \
-  --rank 16 --resolution 512 \
+  --lora_targets dit --rank 16 --hold_weight 0.1 \
+  --resolution 512 \
   --sample_steps 28 --sample_guidance 4.5 \
   --steps 500 --lr 1e-4 --seed 7 --device 0 \
   --save_dir models/smile-krea
 ```
-
-`--name happy-krea` is the same recipe. Adapter writes to
-`{save_dir}/{name}_lora`. Sample PNGs: `{save_dir}/samples/`.
 
 Age yaml (prefixed unused gender) is still the stock file:
 

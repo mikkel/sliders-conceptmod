@@ -7,14 +7,19 @@ Patterns follow mikkel/conceptmod ``conceptmod/backends/krea.py``:
 
 - ``Krea2Pipeline.from_pretrained(..., dtype=bfloat16)`` (falls back to
   ``torch_dtype=`` on older Diffusers)
-- LoRA-only on DiT attn ``to_q/to_k/to_v/to_out.0`` via peft (rank 16)
+- LoRA on DiT attn ``to_q/to_k/to_v/to_out.0`` via peft (rank 16)
+  and optionally Qwen3-VL ``q_proj/k_proj/v_proj/o_proj``
+  (``--lora_targets dit`` / ``te`` / ``dit+te``)
 - frozen ref = adapter disabled (a second 12B copy will not fit)
-- Park VAE on CPU; move text encoder onto GPU only for encode, then
-  park it before DiT backward so a 48GB card can train
+- Park VAE on CPU. Frozen TE: encode on GPU, then park before DiT
+  backward so a 48GB card can train. Trained TE: stay on GPU so
+  encode+backward stay coherent
 - Raw: ~28 steps, CFG 4.5; Turbo (local ``.safetensors`` or hub id
   containing ``turbo``): 8 steps, CFG 0
 - Official: train LoRAs on Raw, run on Turbo
-- DiT LoRA only — text encoder stays frozen. No encoder LoRA.
+- Continuous adapter scale writes LoRA ``scaling`` (PEFT
+  ``set_adapter_scale`` often no-ops, which made 0.25/0.5/1.0 grids
+  byte-identical)
 
 The public methods match ``DummyKreaBackend`` so ``krea_step_loss`` is
 unchanged: ``encode_text``, ``predict_v``, ``trainable_parameters``,
@@ -33,18 +38,22 @@ import torch
 import torch.nn as nn
 
 from conceptmod.textsliders.slider_targets import (
+    KREA_DEFAULT_LORA_TARGETS,
     KREA_DEFAULT_RANK,
     KREA_DEFAULT_RESOLUTION,
     KREA_LORA_TARGETS,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
     KREA_RAW_STEPS,
+    KREA_TE_LORA_TARGETS,
     KREA_TURBO_CFG,
     KREA_TURBO_STEPS,
+    apply_continuous_lora_scale,
     krea_hold_unused_embeds,
     krea_looks_turbo,
     krea_unused_hold_mask,
     krea_word_tokens,
+    resolve_krea_lora_targets,
 )
 
 _TEXT_CACHE_MAX = 16
@@ -130,18 +139,48 @@ def _load_pipeline(model_id: str, *, allow_hub: bool):
     return pipe
 
 
-def _set_adapter_scale(module, scale: float) -> bool:
-    if not hasattr(module, "set_adapter_scale"):
-        return False
-    try:
-        module.set_adapter_scale(float(scale))
-        return True
-    except TypeError:
-        try:
-            module.set_adapter_scale("default", float(scale))
-            return True
-        except Exception:
-            return False
+def _enable_adapter_layers(module) -> None:
+    for name in ("enable_adapter_layers", "enable_adapters", "enable_adapter"):
+        fn = getattr(module, name, None)
+        if callable(fn):
+            try:
+                fn()
+                return
+            except Exception:
+                continue
+
+
+def _try_peft_set_adapter_scale(module, scale: float) -> bool:
+    """Last-resort PEFT APIs. Often no-ops — prefer ``apply_continuous_lora_scale``."""
+    if hasattr(module, "set_adapter_scale"):
+        for args in ((float(scale),), ({"default": float(scale)},), ("default", float(scale))):
+            try:
+                module.set_adapter_scale(*args)
+                return True
+            except TypeError:
+                continue
+            except Exception:
+                continue
+    if hasattr(module, "set_adapters"):
+        for args, kwargs in (
+            (("default",), {"weights": float(scale)}),
+            ((["default"],), {"weights": [float(scale)]}),
+        ):
+            try:
+                module.set_adapters(*args, **kwargs)
+                return True
+            except Exception:
+                continue
+    return False
+
+
+def set_module_lora_scale(module, scale: float) -> int:
+    """Write a real LoRA delta multiplier. Fail closed if nothing moved."""
+    n = apply_continuous_lora_scale(module, float(scale))
+    if n == 0:
+        _try_peft_set_adapter_scale(module, float(scale))
+        n = apply_continuous_lora_scale(module, float(scale))
+    return n
 
 
 class LiveKreaBackend:
@@ -156,6 +195,7 @@ class LiveKreaBackend:
         sample_steps: int | None = None,
         sample_guidance: float | None = None,
         allow_hub: bool = False,
+        lora_targets: str = KREA_DEFAULT_LORA_TARGETS,
     ):
         if not torch.cuda.is_available() or device.type != "cuda":
             raise RuntimeError(
@@ -166,7 +206,8 @@ class LiveKreaBackend:
         self.resolution = int(resolution)
         self.model_id = str(model_id)
         self.allow_hub = bool(allow_hub)
-        self.encoder_lora = False
+        self.lora_spec = resolve_krea_lora_targets(lora_targets)
+        self.encoder_lora = self.lora_spec.train_te
         self.pipe = _load_pipeline(self.model_id, allow_hub=self.allow_hub)
         self.pipe.vae.to("cpu")
         self.pipe.text_encoder.to(self.device)
@@ -188,25 +229,41 @@ class LiveKreaBackend:
 
         from peft import LoraConfig, get_peft_model
 
-        config = LoraConfig(
-            r=int(rank),
-            lora_alpha=int(rank),
-            target_modules=list(KREA_LORA_TARGETS),
-        )
-        self.pipe.transformer = get_peft_model(self.pipe.transformer, config)
-        self.pipe.transformer.to(self.device)
-        for param in self.pipe.transformer.parameters():
-            if param.requires_grad:
-                param.data = param.data.float().to(self.device)
         self.transformer = self.pipe.transformer
+        if self.lora_spec.train_dit:
+            config = LoraConfig(
+                r=int(rank),
+                lora_alpha=int(rank),
+                target_modules=list(KREA_LORA_TARGETS),
+            )
+            self.pipe.transformer = get_peft_model(self.pipe.transformer, config)
+            self.pipe.transformer.to(self.device)
+            for param in self.pipe.transformer.parameters():
+                if param.requires_grad:
+                    param.data = param.data.float().to(self.device)
+            self.transformer = self.pipe.transformer
         self.transformer.eval()
-        base = self.transformer.get_base_model()
+        base = (
+            self.transformer.get_base_model()
+            if hasattr(self.transformer, "get_base_model")
+            else self.transformer
+        )
         if hasattr(base, "enable_gradient_checkpointing"):
             base.enable_gradient_checkpointing()
 
+        self._text_cache: OrderedDict[
+            tuple[str, str], tuple[torch.Tensor, torch.Tensor | None, list[str]]
+        ] = OrderedDict()
+        self._timestep: torch.Tensor | None = None
+        self._lora_scale = 1.0
+
+        if self.lora_spec.train_te:
+            self._attach_encoder_lora(int(rank))
+        else:
+            self._park_text_encoder()
+
         self.pipe.vae.to("cpu")
         torch.cuda.empty_cache()
-        self._park_text_encoder()
 
         self.patch_size = int(getattr(self.pipe, "patch_size", 2))
         self.vae_scale_factor = int(getattr(self.pipe, "vae_scale_factor", 8))
@@ -220,11 +277,32 @@ class LiveKreaBackend:
         self.dim = in_channels
         self.compute_dtype = torch.bfloat16
         self.max_sequence_length = 512
-        self._text_cache: OrderedDict[str, tuple[torch.Tensor, torch.Tensor | None, list[str]]] = (
-            OrderedDict()
+
+    def _attach_encoder_lora(self, rank: int) -> None:
+        """conceptmod ``attach_encoder_lora``: Qwen3-VL attn q/k/v/o."""
+        from peft import LoraConfig, get_peft_model
+
+        if any(
+            hasattr(child, "lora_A") for child in self.pipe.text_encoder.modules()
+        ):
+            raise RuntimeError("Krea text-encoder LoRA already attached")
+        config = LoraConfig(
+            r=int(rank),
+            lora_alpha=int(rank),
+            target_modules=list(KREA_TE_LORA_TARGETS),
         )
-        self._timestep: torch.Tensor | None = None
-        self._lora_scale = 1.0
+        self.pipe.text_encoder = get_peft_model(self.pipe.text_encoder, config)
+        self.pipe.text_encoder.to(self.device)
+        for _name, param in self.pipe.text_encoder.named_parameters():
+            if param.requires_grad:
+                param.data = param.data.float().to(self.device)
+        self.encoder_lora = True
+        self._text_cache.clear()
+        print(
+            f"krea text-encoder LoRA on {self.device} "
+            f"targets={list(KREA_TE_LORA_TARGETS)} rank={int(rank)}; "
+            "TE stays resident (no park-after-encode)"
+        )
 
     def begin_step(self) -> None:
         """Sample one timestep shared by every predict_v in this UNI step."""
@@ -281,27 +359,70 @@ class LiveKreaBackend:
         tokens = self._prompt_tokens(prompt)
         return embeds, mask, tokens
 
-    def encode_text(self, prompt: str) -> tuple[torch.Tensor, list[str]]:
-        """Encode then park the text encoder. Returns (embeds, tokens)."""
-        key = str(prompt)
-        if key not in self._text_cache:
-            try:
-                embeds, mask, tokens = self._encode_raw(prompt)
-            finally:
-                self._park_text_encoder()
-            self._text_cache[key] = (
-                embeds.detach().to("cpu"),
-                None if mask is None else mask.detach().to("cpu"),
-                tokens,
-            )
-            self._text_cache.move_to_end(key)
-            while len(self._text_cache) > _TEXT_CACHE_MAX:
-                self._text_cache.popitem(last=False)
+    def _encode_with_te_disabled(
+        self, prompt: str
+    ) -> tuple[torch.Tensor, torch.Tensor | None, list[str]]:
+        te = self.pipe.text_encoder
+        disable = getattr(te, "disable_adapter", None)
+        if callable(disable):
+            with disable():
+                return self._encode_raw(prompt)
+        prev = float(self._lora_scale)
+        set_module_lora_scale(te, 0.0)
+        try:
+            return self._encode_raw(prompt)
+        finally:
+            set_module_lora_scale(te, prev if prev > 0.0 else 1.0)
+
+    def _remember_text(
+        self,
+        key: tuple[str, str],
+        embeds: torch.Tensor,
+        mask: torch.Tensor | None,
+        tokens: list[str],
+    ) -> None:
+        self._text_cache[key] = (
+            embeds.detach().to("cpu"),
+            None if mask is None else mask.detach().to("cpu"),
+            tokens,
+        )
+        self._text_cache.move_to_end(key)
+        while len(self._text_cache) > _TEXT_CACHE_MAX:
+            self._text_cache.popitem(last=False)
+
+    def encode_text(
+        self, prompt: str, *, frozen: bool = False
+    ) -> tuple[torch.Tensor, list[str]]:
+        """Encode. Frozen TE parks after. Trained TE stays for backward."""
+        use_te_lora = bool(self.encoder_lora) and not frozen
+        cacheable = not (use_te_lora and torch.is_grad_enabled())
+        if self.encoder_lora and frozen:
+            cache_tag = "frozen"
+        elif use_te_lora:
+            cache_tag = f"{float(self._lora_scale):.6f}"
         else:
+            cache_tag = "base"
+        key = (str(prompt), cache_tag)
+        if cacheable and key in self._text_cache:
             self._text_cache.move_to_end(key)
-        embeds, mask, tokens = self._text_cache[key]
+            embeds, mask, tokens = self._text_cache[key]
+            self._last_mask = None if mask is None else mask.to(self.device)
+            return embeds.to(self.device), tokens
+        try:
+            if self.encoder_lora and frozen:
+                embeds, mask, tokens = self._encode_with_te_disabled(prompt)
+            else:
+                embeds, mask, tokens = self._encode_raw(prompt)
+        finally:
+            if not self.encoder_lora:
+                self._park_text_encoder()
+        if cacheable:
+            self._remember_text(key, embeds, mask, tokens)
+            embeds, mask, tokens = self._text_cache[key]
+            self._last_mask = None if mask is None else mask.to(self.device)
+            return embeds.to(self.device), tokens
         self._last_mask = None if mask is None else mask.to(self.device)
-        return embeds.to(self.device), tokens
+        return embeds, tokens
 
     def _position_ids(self, text_seq_len: int):
         gh, gw = self.grid_hw
@@ -330,41 +451,76 @@ class LiveKreaBackend:
         )[0]
         return out.float()
 
+    def _lora_modules(self) -> list:
+        modules: list = []
+        if self.lora_spec.train_dit:
+            modules.append(self.transformer)
+        if self.lora_spec.train_te:
+            modules.append(self.pipe.text_encoder)
+        return modules
+
     @contextmanager
     def _scale_ctx(self, scale: float, *, frozen: bool):
-        module = self.transformer
+        modules = self._lora_modules()
         prev = self._lora_scale
-        self._lora_scale = 0.0 if frozen or float(scale) == 0.0 else float(scale)
-        if frozen or float(scale) == 0.0:
-            disable = getattr(module, "disable_adapter", None)
-            if callable(disable):
-                try:
-                    with torch.no_grad(), disable():
-                        yield
-                finally:
-                    self._lora_scale = prev
-                return
-            _set_adapter_scale(module, 0.0)
+        target = 0.0 if frozen or abs(float(scale)) < 1e-12 else float(scale)
+        self._lora_scale = target
+        if target == 0.0:
+            exits: list = []
             try:
+                for module in modules:
+                    disable = getattr(module, "disable_adapter", None)
+                    if callable(disable):
+                        ctx = disable()
+                        if hasattr(ctx, "__enter__"):
+                            ctx.__enter__()
+                            exits.append(ctx)
+                            continue
+                    n = set_module_lora_scale(module, 0.0)
+                    if n == 0:
+                        raise RuntimeError(
+                            "cannot disable Krea LoRA for scale 0 "
+                            f"on {type(module).__name__}"
+                        )
                 with torch.no_grad():
                     yield
             finally:
-                _set_adapter_scale(module, 1.0)
+                for ctx in reversed(exits):
+                    ctx.__exit__(None, None, None)
+                for module in modules:
+                    set_module_lora_scale(module, 1.0)
                 self._lora_scale = prev
             return
-        _set_adapter_scale(module, float(scale))
+        for module in modules:
+            _enable_adapter_layers(module)
+            n = set_module_lora_scale(module, target)
+            if n == 0:
+                raise RuntimeError(
+                    f"cannot apply continuous LoRA scale {target} on "
+                    f"{type(module).__name__}; need LoraLayer.scaling "
+                    "(PEFT set_adapter_scale is not trusted)"
+                )
         try:
             yield
         finally:
-            _set_adapter_scale(module, 1.0)
+            for module in modules:
+                set_module_lora_scale(module, 1.0)
             self._lora_scale = prev
 
     def set_adapter_scale(self, scale: float) -> None:
-        _set_adapter_scale(self.transformer, float(scale))
-        self._lora_scale = float(scale)
+        target = float(scale)
+        self._lora_scale = target
+        for module in self._lora_modules():
+            if abs(target) >= 1e-12:
+                _enable_adapter_layers(module)
+            set_module_lora_scale(module, target)
 
     def disable_adapter(self):
-        return self.transformer.disable_adapter()
+        if self.lora_spec.train_dit and hasattr(self.transformer, "disable_adapter"):
+            return self.transformer.disable_adapter()
+        if self.lora_spec.train_te and hasattr(self.pipe.text_encoder, "disable_adapter"):
+            return self.pipe.text_encoder.disable_adapter()
+        raise RuntimeError("no PEFT disable_adapter on adapted Krea modules")
 
     def predict_v(
         self,
@@ -381,7 +537,7 @@ class LiveKreaBackend:
             embeds, tokens = self.encode_text(prompt)
             mask = getattr(self, "_last_mask", None)
             if pin_unused and neu_prompt is not None:
-                neu_embeds, neu_tokens = self.encode_text(neu_prompt)
+                neu_embeds, neu_tokens = self.encode_text(neu_prompt, frozen=True)
                 hold_mask = krea_unused_hold_mask(tokens, neu_tokens, unused_words)
                 embeds = krea_hold_unused_embeds(
                     embeds, neu_embeds, tokens, neu_tokens, hold_mask
@@ -389,15 +545,40 @@ class LiveKreaBackend:
             return self._forward(z, embeds, mask)
 
     def trainable_parameters(self) -> list[nn.Parameter]:
-        self.transformer.train()
-        params = [p for p in self.transformer.parameters() if p.requires_grad]
+        params: list[nn.Parameter] = []
+        if self.lora_spec.train_dit:
+            self.transformer.train()
+            params.extend(p for p in self.transformer.parameters() if p.requires_grad)
+        if self.lora_spec.train_te:
+            self.pipe.text_encoder.train()
+            params.extend(
+                p for p in self.pipe.text_encoder.parameters() if p.requires_grad
+            )
         if not params:
-            raise RuntimeError("Krea DiT LoRA attached but no trainable parameters")
+            raise RuntimeError(
+                f"Krea LoRA ({self.lora_spec.label}) attached but no trainable parameters"
+            )
         return params
 
     def save_trained(self, path: str | Path) -> None:
-        Path(path).mkdir(parents=True, exist_ok=True)
-        self.transformer.save_pretrained(str(path))
+        root = Path(path)
+        root.mkdir(parents=True, exist_ok=True)
+        spec = self.lora_spec
+        if spec.train_dit and spec.train_te:
+            dit_dir = root / "dit_lora"
+            te_dir = root / "te_lora"
+            dit_dir.mkdir(parents=True, exist_ok=True)
+            te_dir.mkdir(parents=True, exist_ok=True)
+            self.transformer.save_pretrained(str(dit_dir))
+            self.pipe.text_encoder.save_pretrained(str(te_dir))
+        elif spec.train_dit:
+            self.transformer.save_pretrained(str(root))
+        elif spec.train_te:
+            te_dir = root / "te_lora"
+            te_dir.mkdir(parents=True, exist_ok=True)
+            self.pipe.text_encoder.save_pretrained(str(te_dir))
+        else:
+            raise RuntimeError("nothing to save: lora_targets trained neither dit nor te")
 
     def _fresh_scheduler(self, num_steps: int):
         import numpy as np
@@ -474,7 +655,7 @@ class LiveKreaBackend:
         height: int | None = None,
         width: int | None = None,
     ):
-        """Smile-first sample. Parks TE + VAE around the 12B denoise."""
+        """Smile-first sample. Parks frozen TE + VAE around the 12B denoise."""
         from PIL import Image
 
         del height, width
@@ -488,6 +669,9 @@ class LiveKreaBackend:
             device=self.device,
             dtype=torch.float32,
         )
+        was_training = [module.training for module in self._lora_modules()]
+        for module in self._lora_modules():
+            module.eval()
         try:
             with self._scale_ctx(float(scale), frozen=float(scale) == 0.0):
                 for t in sched.timesteps:
@@ -495,6 +679,8 @@ class LiveKreaBackend:
                     z = sched.step(v, t, z, return_dict=False)[0]
             img = self.decode(z)
         finally:
+            for module, flag in zip(self._lora_modules(), was_training):
+                module.train(flag)
             self.pipe.vae.to("cpu")
             self._park_text_encoder()
             torch.cuda.empty_cache()
@@ -525,12 +711,14 @@ def load_live_krea_backend(args: Any, device: torch.device) -> LiveKreaBackend:
             sample_steps=getattr(args, "sample_steps", None),
             sample_guidance=getattr(args, "sample_guidance", None),
             allow_hub=allow_hub,
+            lora_targets=str(getattr(args, "lora_targets", KREA_DEFAULT_LORA_TARGETS)),
         )
     except Exception as exc:
         raise RuntimeError(
             f"live Krea weights not available for {args.model_id!r} "
             f"(local_files_only={not allow_hub}). "
             "Pass --allow_hub to download krea/Krea-2-Raw (gated; accept "
-            "the card, ~48GB GPU, TE parked on CPU). CI uses --dummy."
+            "the card, ~48GB GPU; frozen TE parks on CPU, --lora_targets "
+            "te/dit+te keeps TE resident). CI uses --dummy."
         ) from exc
     return backend
