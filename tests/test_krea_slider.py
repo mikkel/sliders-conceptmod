@@ -22,10 +22,13 @@ from conceptmod.textsliders.slider_targets import (
     KREA_DUMMY_EMBED_SEQ,
     KREA_EMBED_COSINE_WEIGHT,
     KREA_EMBED_EARLY_LAYERS,
+    KREA_EMBED_SAMPLE_CFG,
     KREA_HOLD_WEIGHT,
     KREA_LM_TARGET_DEFAULT,
     KREA_LORA_TARGETS,
     KREA_LORA_TARGET_CHOICES,
+    KREA_ORACLE_EMBED_COS,
+    KREA_ORACLE_SHOTS,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
     KREA_RAW_STEPS,
@@ -40,6 +43,7 @@ from conceptmod.textsliders.slider_targets import (
     force_krea_embed_lora_targets,
     krea_cfg_compose,
     krea_cfg_direction,
+    krea_cfg_uncond_te_frozen,
     krea_concept_words,
     krea_embed_as_stacked,
     krea_embed_cosine,
@@ -59,16 +63,19 @@ from conceptmod.textsliders.slider_targets import (
     krea_word_tokens,
     resolve_krea_lm_target,
     resolve_krea_lora_targets,
+    resolve_krea_sample_guidance,
 )
 from conceptmod.textsliders.train_lora_krea import (
     DummyKreaBackend,
     DummyKreaTE,
     assert_krea_only,
+    infer_oracle_pairs,
     infer_sample_prompts,
     krea_embed_step_loss,
     krea_step_loss,
     load_prompts,
     parse_args,
+    resolve_krea_card,
     train,
     unused_words_for,
 )
@@ -459,6 +466,9 @@ def test_live_loader_does_not_run_in_dummy():
     assert "allow_hub" in live
     assert "same_crop" not in live
     assert "embed_struct" not in live
+    assert "frozen TE when encoder_lora" in live
+    assert "reuse hidden states" in live
+    assert "load_te_adapter" in live
 
 
 def test_hold_math_token_aligns_4d_krea_embeds():
@@ -849,6 +859,10 @@ def test_dummy_smile_v3_embed_train(tmp_path: Path):
     assert payload["plus_label"] == "Happy"
     assert payload["sample_grid"]["gate"] == "smile-first"
     assert payload["sample_grid"]["crop_purity"] is False
+    assert payload["sample_guidance"] == pytest.approx(KREA_EMBED_SAMPLE_CFG)
+    assert payload["cfg_uncond_te_frozen"] is True
+    assert payload["encode_once"] is True
+    assert payload["oracle_grid"]["shots"] == list(KREA_ORACLE_SHOTS)
     log = tmp_path / "smile-krea-v3-dummy_train.jsonl"
     lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     assert len(lines) == 2
@@ -857,6 +871,13 @@ def test_dummy_smile_v3_embed_train(tmp_path: Path):
     assert "cfg_dir_norm" not in lines[0]
     pngs = list((tmp_path / "samples").glob("*.png"))
     assert len(pngs) == 12
+    oracle_pngs = list((tmp_path / "samples" / "oracle").glob("*.png"))
+    assert len(oracle_pngs) == 6
+    oracle_meta = json.loads(
+        (tmp_path / "samples" / "oracle" / "oracle_meta.json").read_text(encoding="utf-8")
+    )
+    assert oracle_meta["kind"] == "oracle_apply_audit"
+    assert "embed_cos" in oracle_meta["pairs"][0]
 
 
 def test_dummy_embed_uni_recipe_alias(tmp_path: Path):
@@ -902,3 +923,176 @@ def test_velocity_path_still_default_after_embed_flag():
     assert stats.get("lm_target") != "embed"
     assert torch.isfinite(loss)
     assert KREA_EMBED_EARLY_LAYERS == 2
+
+
+def test_docs_list_smile_krea_v4_card():
+    docs = (ROOT / "docs/krea-slider.md").read_text(encoding="utf-8")
+    assert "--name smile-krea-v4" in docs
+    assert "--sample_guidance 0" in docs
+    assert "oracle_plus_frozen" in docs
+    assert "student_neu_scale1" in docs
+    assert "frozen TE" in docs
+    assert "--load_te_lora" in docs
+    assert "same_crop" in docs and "embed_struct" in docs
+    trainer = KREA_TRAINER.read_text(encoding="utf-8")
+    assert "--load_te_lora" in trainer
+    assert "oracle_plus_frozen" in trainer
+    live = KREA_LIVE.read_text(encoding="utf-8")
+    assert "frozen TE when encoder_lora" in live
+    assert "reuse hidden states" in live
+
+
+def test_embed_defaults_sample_guidance_zero():
+    assert resolve_krea_sample_guidance(
+        None, model_id=KREA_RAW_MODEL, lm_target="embed"
+    ) == pytest.approx(KREA_EMBED_SAMPLE_CFG)
+    assert resolve_krea_sample_guidance(
+        None, model_id=KREA_RAW_MODEL, lm_target="v"
+    ) == pytest.approx(KREA_RAW_CFG)
+    assert resolve_krea_sample_guidance(
+        4.5, model_id=KREA_RAW_MODEL, lm_target="embed"
+    ) == pytest.approx(4.5)
+    embed_card = resolve_krea_card(
+        KREA_RAW_MODEL, None, None, lm_target="embed"
+    )
+    assert embed_card["sample_guidance"] == pytest.approx(KREA_EMBED_SAMPLE_CFG)
+    vel_card = resolve_krea_card(KREA_RAW_MODEL, None, None, lm_target="v")
+    assert vel_card["sample_guidance"] == pytest.approx(KREA_RAW_CFG)
+    turbo = resolve_krea_sample_guidance(
+        None, model_id="/comfy/Krea-2-Turbo.safetensors", lm_target="v"
+    )
+    assert turbo == pytest.approx(KREA_TURBO_CFG)
+
+
+def test_cfg_uncond_uses_frozen_te_when_encoder_lora():
+    assert krea_cfg_uncond_te_frozen(True) is True
+    assert krea_cfg_uncond_te_frozen(False) is False
+    backend = DummyKreaBackend(dim=8, rank=2, seed=4, lora_targets="te")
+    with torch.no_grad():
+        backend.te.lora_up.weight.fill_(0.3)
+    calls: list[tuple[str, bool]] = []
+    orig = backend.encode_text
+
+    def spy(prompt: str, *, frozen: bool = False):
+        calls.append((prompt, frozen))
+        return orig(prompt, frozen=frozen)
+
+    backend.encode_text = spy  # type: ignore[method-assign]
+    z = torch.ones(1, 8)
+    vel = backend.cfg_predict_v("a person", z, scale=1.0, guidance=4.5)
+    assert torch.isfinite(vel).all()
+    uncond = [frozen for prompt, frozen in calls if prompt == ""]
+    assert uncond
+    assert all(frozen is True for frozen in uncond)
+    cond = [frozen for prompt, frozen in calls if prompt == "a person"]
+    assert any(frozen is False for frozen in cond)
+
+    calls.clear()
+    dit = DummyKreaBackend(dim=8, rank=2, seed=4, lora_targets="dit")
+    dit_orig = dit.encode_text
+
+    def dit_spy(prompt: str, *, frozen: bool = False):
+        calls.append((prompt, frozen))
+        return dit_orig(prompt, frozen=frozen)
+
+    dit.encode_text = dit_spy  # type: ignore[method-assign]
+    dit.cfg_predict_v("a person", z, scale=1.0, guidance=4.5)
+    dit_uncond = [frozen for prompt, frozen in calls if prompt == ""]
+    assert dit_uncond
+    assert all(frozen is False for frozen in dit_uncond)
+
+
+def test_generate_encodes_cfg_pair_once():
+    backend = DummyKreaBackend(dim=8, rank=2, seed=5, lora_targets="te")
+    calls: list[str] = []
+    orig = backend.encode_text
+
+    def spy(prompt: str, *, frozen: bool = False):
+        calls.append(prompt)
+        return orig(prompt, frozen=frozen)
+
+    backend.encode_text = spy  # type: ignore[method-assign]
+    backend.generate("a person", seed=0, scale=1.0, guidance=4.5, num_steps=8)
+    assert calls.count("a person") == 1
+    assert calls.count("") == 1
+
+
+def test_embed_hold_does_not_adapt_encode_plus():
+    backend = DummyKreaBackend(dim=8, rank=2, seed=6, lora_targets="te")
+    with torch.no_grad():
+        backend.te.lora_up.weight.fill_(0.3)
+    from conceptmod.textsliders.train_lora_krea import KreaSliderPrompt
+
+    prompt = KreaSliderPrompt(
+        target="a person, closed mouth",
+        positive="a person, big smile showing teeth",
+        neutral="a person, closed mouth",
+        negative="a sad person",
+        attributes=["male", "female"],
+    )
+    calls: list[dict[str, object]] = []
+    orig = backend.encode_text
+
+    def spy(caption: str, *, frozen: bool = False):
+        calls.append({"prompt": caption, "frozen": frozen})
+        return orig(caption, frozen=frozen)
+
+    backend.encode_text = spy  # type: ignore[method-assign]
+    loss, stats = krea_embed_step_loss(backend, prompt, hold_weight=0.1)
+    assert torch.isfinite(loss)
+    assert stats["lm_target"] == "embed"
+    plus = [c for c in calls if c["prompt"] == prompt.positive]
+    assert plus
+    assert all(c["frozen"] is True for c in plus)
+    neu_adapted = [
+        c for c in calls if c["prompt"] == prompt.neutral and c["frozen"] is False
+    ]
+    assert neu_adapted
+
+
+def test_dummy_oracle_grid_and_load_te_lora_resmoke(tmp_path: Path):
+    prompts, _meta = load_prompts(KREA_HAPPY_YAML)
+    pairs = infer_oracle_pairs(prompts)
+    assert len(pairs) == 2
+    assert all("closed mouth" in neu for neu, _plus in pairs)
+    assert all("teeth" in plus for _neu, plus in pairs)
+
+    adapter = tmp_path / "saved_te_lora"
+    adapter.mkdir()
+    args = parse_args(
+        [
+            "--dummy",
+            "--name",
+            "smile-krea-v4-resmoke",
+            "--prompts_file",
+            str(KREA_HAPPY_YAML),
+            "--save_dir",
+            str(tmp_path),
+            "--lora_targets",
+            "te",
+            "--lm_target",
+            "embed",
+            "--hold_weight",
+            "0.1",
+            "--load_te_lora",
+            str(adapter),
+        ]
+    )
+    sidecar = train(args)
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert payload["skipped_train"] is True
+    assert payload["load_te_lora"] == str(adapter)
+    assert payload["lm_target"] == "embed"
+    assert payload["sample_guidance"] == pytest.approx(KREA_EMBED_SAMPLE_CFG)
+    log = tmp_path / "smile-krea-v4-resmoke_train.jsonl"
+    assert not log.exists() or log.read_text(encoding="utf-8").strip() == ""
+    oracle_dir = tmp_path / "samples" / "oracle"
+    names = " ".join(p.name for p in oracle_dir.glob("*.png"))
+    assert "oracle_plus_frozen" in names
+    assert "student_neu_scale1" in names
+    assert "neu_scale0" in names
+    assert len(list(oracle_dir.glob("*.png"))) == 6
+    meta = json.loads((oracle_dir / "oracle_meta.json").read_text(encoding="utf-8"))
+    assert meta["embed_cos_threshold"] == pytest.approx(KREA_ORACLE_EMBED_COS)
+    assert "apply bug" in meta["readout"]
+    assert all("embed_cos" in pair for pair in meta["pairs"])

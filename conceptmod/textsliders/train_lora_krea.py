@@ -22,9 +22,11 @@ Live load is offline-safe unless ``--allow_hub`` (Anima pattern).
 encode. ``te`` / ``dit+te`` keep Qwen3-VL on GPU so encode+backward
 stay coherent. Happy/smile yaml: ``data/prompts-krea-happy.yaml``.
 Smile v2 card: ``--lora_targets dit+te --hold_weight 0.1``.
-Smile v3: ``--lora_targets te --lm_target embed`` (TE-only stacked
+Smile v3/v4: ``--lora_targets te --lm_target embed`` (TE-only stacked
 embeds; DiT stays base). Live gap: DiT v neu/plus cos≈0.9999;
 TE ``[1,512,12,2560]`` cos≈0.67. Do not teach v-space on that path.
+v4: CFG uncond uses frozen TE; encode once per generate; embed
+sample guidance defaults to 0; oracle apply-audit grid.
 """
 
 from __future__ import annotations
@@ -53,10 +55,13 @@ from conceptmod.textsliders.slider_targets import (
     KREA_DUMMY_EMBED_LAYERS,
     KREA_DUMMY_EMBED_SEQ,
     KREA_EMBED_COSINE_WEIGHT,
+    KREA_EMBED_SAMPLE_CFG,
     KREA_HOLD_WEIGHT,
     KREA_LM_TARGET_CHOICES,
     KREA_LM_TARGET_DEFAULT,
     KREA_LORA_TARGET_CHOICES,
+    KREA_ORACLE_EMBED_COS,
+    KREA_ORACLE_SHOTS,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
     KREA_RECIPE_CHOICES,
@@ -65,7 +70,9 @@ from conceptmod.textsliders.slider_targets import (
     KREA_SMILE_HOLD_WEIGHT,
     expand_attributes_krea,
     force_krea_embed_lora_targets,
+    krea_cfg_compose,
     krea_cfg_direction,
+    krea_cfg_uncond_te_frozen,
     krea_concept_words,
     krea_embed_cosine,
     krea_embed_mse,
@@ -73,6 +80,7 @@ from conceptmod.textsliders.slider_targets import (
     krea_embed_uni_loss,
     krea_hold_unused_embeds,
     krea_minus_canary,
+    krea_oracle_readout,
     krea_plus_neu_loss,
     krea_plus_neu_teachers,
     krea_sample_card,
@@ -81,6 +89,7 @@ from conceptmod.textsliders.slider_targets import (
     krea_word_tokens,
     resolve_krea_lm_target,
     resolve_krea_lora_targets,
+    resolve_krea_sample_guidance,
 )
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "data" / "config-krea.yaml"
@@ -173,12 +182,26 @@ def resolve_krea_card(
     model_id: str,
     sample_steps: int | None,
     sample_guidance: float | None,
+    *,
+    lm_target: str | None = None,
+    recipe: str | None = None,
 ) -> dict[str, float | int | str]:
     card = krea_sample_card(model_id)
     if sample_steps is not None:
         card["sample_steps"] = int(sample_steps)
-    if sample_guidance is not None:
-        card["sample_guidance"] = float(sample_guidance)
+    resolved_lm = resolve_krea_lm_target(lm_target, recipe)
+    card["sample_guidance"] = resolve_krea_sample_guidance(
+        sample_guidance,
+        model_id=model_id,
+        lm_target=resolved_lm,
+        recipe=recipe,
+    )
+    if (
+        sample_guidance is None
+        and resolved_lm == "embed"
+        and abs(float(card["sample_guidance"]) - KREA_EMBED_SAMPLE_CFG) < 1e-12
+    ):
+        card["sample_guidance_default"] = "embed_te_only"
     return card
 
 
@@ -307,6 +330,7 @@ class DummyKreaBackend:
                 param.requires_grad_(False)
         self.latent_shape = (dim,)
         self._timestep: torch.Tensor | None = None
+        self.loaded_te_lora: str | None = None
 
     def begin_step(self) -> None:
         self._timestep = torch.zeros(1)
@@ -335,6 +359,40 @@ class DummyKreaBackend:
         self.dit.scale = float(scale) if self.lora_spec.train_dit else 0.0
         if self.te is not None:
             self.te.scale = float(scale)
+
+    def encode_cfg_pair(
+        self, prompt: str, *, scale: float = 1.0
+    ) -> tuple[tuple[torch.Tensor, list[str]], tuple[torch.Tensor, list[str]]]:
+        """Encode cond at ``scale``; empty uncond with frozen TE if encoder_lora."""
+        cond_frozen = abs(float(scale)) < 1e-12
+        self.set_adapter_scale(0.0 if cond_frozen else float(scale))
+        cond = self.encode_text(prompt, frozen=cond_frozen)
+        if krea_cfg_uncond_te_frozen(self.encoder_lora):
+            uncond = self.encode_text("", frozen=True)
+        else:
+            uncond = self.encode_text("", frozen=cond_frozen)
+        return cond, uncond
+
+    def cfg_predict_v(
+        self,
+        prompt: str,
+        z: torch.Tensor,
+        *,
+        scale: float = 1.0,
+        guidance: float = 0.0,
+    ) -> torch.Tensor:
+        """Dummy CFG: cond at ``scale``, uncond frozen TE when encoder_lora."""
+        (cond, _), (uncond, _) = self.encode_cfg_pair(prompt, scale=scale)
+        self.set_adapter_scale(scale)
+        v = self.dit(z, cond)
+        if guidance and float(guidance) > 0.0 and prompt != "":
+            v_u = self.dit(z, uncond)
+            return krea_cfg_compose(v, v_u, guidance)
+        return v
+
+    def load_te_adapter(self, path: str | Path) -> None:
+        """Dummy resmoke: record the path. No Hub / PEFT load."""
+        self.loaded_te_lora = str(path)
 
     def predict_v(
         self,
@@ -379,7 +437,10 @@ class DummyKreaBackend:
         width: int = 64,
     ):
         """Structured RGB ramp so ``--dummy`` can write a smile-first grid."""
-        del num_steps, guidance
+        del num_steps
+        # Encode cond + frozen uncond once (mirrors live generate).
+        self.encode_cfg_pair(prompt, scale=float(scale))
+        del guidance
         import numpy as np
         from PIL import Image
 
@@ -440,11 +501,19 @@ def krea_embed_step_loss(
     embed_cos = krea_embed_cosine(student, teacher)
     loss = krea_embed_uni_loss(student, teacher, cosine_weight=float(cosine_weight))
 
-    pos_embeds, pos_tokens = backend.encode_text(prompt.positive)
+    # Hold unused tokens frozen-pos vs frozen-neu. Do not encode plus
+    # with the student adapter — that trains hold through Eθ(pos)
+    # instead of the UNI student Eθ(neu).
     try:
+        pos_embeds, pos_tokens = backend.encode_text(prompt.positive, frozen=True)
         neu_embeds, neu_tokens = backend.encode_text(prompt.neutral, frozen=True)
     except TypeError:
+        if hasattr(backend, "set_adapter_scale"):
+            backend.set_adapter_scale(0.0)
+        pos_embeds, pos_tokens = backend.encode_text(prompt.positive)
         neu_embeds, neu_tokens = backend.encode_text(prompt.neutral)
+        if hasattr(backend, "set_adapter_scale"):
+            backend.set_adapter_scale(1.0)
     unused_mask = krea_unused_hold_mask(pos_tokens, neu_tokens, unused)
     hold = krea_unused_hold_loss(
         pos_embeds, neu_embeds, pos_tokens, neu_tokens, unused_mask
@@ -557,7 +626,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--sample_steps", type=int, default=None)
-    parser.add_argument("--sample_guidance", type=float, default=None)
+    parser.add_argument(
+        "--sample_guidance",
+        type=float,
+        default=None,
+        help="sample CFG. Velocity UNI defaults to Raw 4.5 / Turbo 0. "
+        f"--lm_target embed defaults to {KREA_EMBED_SAMPLE_CFG:g} "
+        "(Raw CFG 4.5 fights TE-only). Explicit value always wins.",
+    )
     parser.add_argument(
         "--hold_weight",
         type=float,
@@ -621,6 +697,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=42,
         help="seed for the end-of-train smile-first scale grid",
     )
+    parser.add_argument(
+        "--load_te_lora",
+        type=str,
+        default=None,
+        help="load a saved te_lora and emit sample + oracle grids without "
+        "training (resmoke / apply audit). Dummy records the path only.",
+    )
     return parser.parse_args(argv)
 
 
@@ -638,6 +721,132 @@ def infer_sample_prompts(
     if control and control not in seen:
         seen.append(control)
     return seen
+
+
+def infer_oracle_pairs(
+    prompts: Sequence[KreaSliderPrompt],
+) -> list[tuple[str, str]]:
+    """Unique (neu, plus) pairs. Fruit-bowl control is not a pair."""
+    pairs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for prompt in prompts:
+        neu = (prompt.neutral or prompt.target or "").strip()
+        plus = (prompt.positive or "").strip()
+        if not neu or not plus or neu in seen:
+            continue
+        seen.add(neu)
+        pairs.append((neu, plus))
+    return pairs
+
+
+def sample_embed_cos(backend, neu: str, plus: str) -> float:
+    """cos(Eθ(neu)@1, E_frozen(pos)) at sample time."""
+    if hasattr(backend, "set_adapter_scale"):
+        backend.set_adapter_scale(1.0)
+    student, _ = backend.encode_text(neu)
+    try:
+        teacher, _ = backend.encode_text(plus, frozen=True)
+    except TypeError:
+        if hasattr(backend, "set_adapter_scale"):
+            backend.set_adapter_scale(0.0)
+        teacher, _ = backend.encode_text(plus)
+        if hasattr(backend, "set_adapter_scale"):
+            backend.set_adapter_scale(1.0)
+    return float(krea_embed_cosine(student, teacher).detach())
+
+
+def emit_oracle_grid(
+    backend,
+    args: argparse.Namespace,
+    save_dir: Path,
+    prompts: Sequence[KreaSliderPrompt],
+    *,
+    dummy: bool,
+    card: dict[str, float | int | str],
+) -> list[dict[str, Any]]:
+    """Apply-audit grid: frozen plus vs student neu@1 vs neu@0.
+
+    Per neu prompt:
+    - ``oracle_plus_frozen`` = generate(plus, scale=0 / TE disabled)
+    - ``student_neu_scale1`` = generate(neu, scale=1)
+    - ``neu_scale0`` = generate(neu, scale=0)
+
+    Logs ``embed_cos`` = cos(Eθ(neu)@1, E_frozen(pos)). If oracle has
+    teeth and student does not despite cos>0.95 → remaining apply bug.
+    If oracle also lacks teeth → caption teacher is weak in pixels.
+    """
+    pairs = infer_oracle_pairs(prompts)
+    out_dir = Path(save_dir) / "samples" / "oracle"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    steps = 2 if dummy else int(card["sample_steps"])
+    guidance = float(card["sample_guidance"])
+    seed = int(getattr(args, "sample_seed", 42))
+    height = 64 if dummy else int(args.resolution)
+    width = height
+    records: list[dict[str, Any]] = []
+    pair_meta: list[dict[str, Any]] = []
+    shots = (
+        ("oracle_plus_frozen", "plus", 0.0),
+        ("student_neu_scale1", "neu", 1.0),
+        ("neu_scale0", "neu", 0.0),
+    )
+    assert tuple(tag for tag, _src, _s in shots) == KREA_ORACLE_SHOTS
+    for neu, plus in pairs:
+        embed_cos = sample_embed_cos(backend, neu, plus)
+        pair_meta.append(
+            {
+                "neutral": neu,
+                "positive": plus,
+                "embed_cos": embed_cos,
+                "embed_cos_vs_threshold": embed_cos - float(KREA_ORACLE_EMBED_COS),
+            }
+        )
+        for tag, source, scale in shots:
+            caption = plus if source == "plus" else neu
+            image = backend.generate(
+                caption,
+                seed=seed,
+                num_steps=steps,
+                guidance=guidance,
+                scale=float(scale),
+                height=height,
+                width=width,
+            )
+            name = f"{_slug(neu)}_{tag}.png"
+            path = out_dir / name
+            image.save(path)
+            records.append(
+                {
+                    "tag": tag,
+                    "prompt": caption,
+                    "neutral": neu,
+                    "positive": plus,
+                    "scale": float(scale),
+                    "path": f"oracle/{name}",
+                    "seed": seed,
+                    "sample_steps": steps,
+                    "cfg": guidance,
+                    "embed_cos": embed_cos,
+                    "height": int(getattr(image, "height", height)),
+                    "width": int(getattr(image, "width", width)),
+                }
+            )
+    meta_path = out_dir / "oracle_meta.json"
+    payload = {
+        "kind": "oracle_apply_audit",
+        "dummy": bool(dummy),
+        "seed": seed,
+        "cfg": guidance,
+        "shots": list(KREA_ORACLE_SHOTS),
+        "embed_cos_threshold": float(KREA_ORACLE_EMBED_COS),
+        "readout": krea_oracle_readout(),
+        "pairs": pair_meta,
+        "samples": records,
+    }
+    meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if pairs and not records:
+        raise RuntimeError("Krea oracle apply-audit grid is empty")
+    return records
 
 
 def emit_inprocess_samples(
@@ -728,11 +937,19 @@ def train(args: argparse.Namespace) -> Path:
         candidate = _REPO_ROOT / prompts_path
         prompts_path = candidate if candidate.exists() else Path(args.prompts_file)
     prompts, meta = load_prompts(prompts_path)
-    card = resolve_krea_card(args.model_id, args.sample_steps, args.sample_guidance)
     lm_target = resolve_krea_lm_target(
         getattr(args, "lm_target", KREA_LM_TARGET_DEFAULT),
         getattr(args, "recipe", KREA_RECIPE_DEFAULT),
     )
+    card = resolve_krea_card(
+        args.model_id,
+        args.sample_steps,
+        args.sample_guidance,
+        lm_target=lm_target,
+        recipe=getattr(args, "recipe", KREA_RECIPE_DEFAULT),
+    )
+    if getattr(args, "sample_guidance", None) is None:
+        args.sample_guidance = float(card["sample_guidance"])
     requested_targets = str(getattr(args, "lora_targets", KREA_DEFAULT_LORA_TARGETS))
     lora_spec = force_krea_embed_lora_targets(
         requested_targets, lm_target=lm_target, recipe=getattr(args, "recipe", None)
@@ -759,6 +976,12 @@ def train(args: argparse.Namespace) -> Path:
     else:
         device = torch.device(f"cuda:{int(args.device)}" if torch.cuda.is_available() else "cpu")
         backend = _load_live_backend(args, device)
+
+    skip_train = bool(getattr(args, "load_te_lora", None))
+    if skip_train:
+        if hasattr(backend, "load_te_adapter"):
+            backend.load_te_adapter(args.load_te_lora)
+        steps = 0
 
     torch.manual_seed(int(args.seed))
     params = backend.trainable_parameters()
@@ -824,8 +1047,16 @@ def train(args: argparse.Namespace) -> Path:
         control_prompt=control_prompt,
         card=card,
     )
+    oracle = emit_oracle_grid(
+        backend,
+        args,
+        save_dir,
+        prompts,
+        dummy=bool(args.dummy),
+        card=card,
+    )
     adapter_dir = save_dir / f"{args.name}_lora"
-    if hasattr(backend, "save_trained") and not args.dummy:
+    if hasattr(backend, "save_trained") and not args.dummy and not skip_train:
         backend.save_trained(adapter_dir)
     dit_lora_path = None
     te_lora_path = None
@@ -884,6 +1115,17 @@ def train(args: argparse.Namespace) -> Path:
             "count": len(samples),
             "dir": "samples",
         },
+        "oracle_grid": {
+            "dir": "samples/oracle",
+            "shots": list(KREA_ORACLE_SHOTS),
+            "embed_cos_threshold": float(KREA_ORACLE_EMBED_COS),
+            "count": len(oracle),
+            "readout": krea_oracle_readout(),
+        },
+        "cfg_uncond_te_frozen": bool(lora_spec.encoder_lora),
+        "encode_once": True,
+        "load_te_lora": getattr(args, "load_te_lora", None),
+        "skipped_train": bool(skip_train),
         "last": last_stats,
         **card,
     }
