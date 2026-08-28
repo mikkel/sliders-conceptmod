@@ -10,6 +10,7 @@ import torch
 import yaml
 
 from conceptmod.textsliders.minimax_h3_backend import (
+    DEFAULT_LORA_UP_INIT_STD,
     DEFAULT_MODEL,
     DEFAULT_SAMPLE_DURATION,
     DEFAULT_SAMPLE_SCALES,
@@ -22,10 +23,13 @@ from conceptmod.textsliders.minimax_h3_backend import (
     LORA_ATTN_CLASS,
     LORA_LINEAR_NAMES,
     ArchitectureMismatch,
+    AttnLoRANetwork,
+    DummyOmniTransformer,
     DummyTokenizer,
     MiniMaxH3Backend,
     h3_canvas_hw,
     h3_num_frames,
+    h3_pack_feature_dim,
     place_minimax_h3_pipeline,
     resolve_h3_lora_path,
     same_device,
@@ -63,6 +67,7 @@ def test_resolved_model_id_is_minimax_h3():
     assert args.short_side == 768
     assert args.guidance == 0.0
     assert args.rank == 8
+    assert args.lora_up_init_std == DEFAULT_LORA_UP_INIT_STD == 0.02
     assert args.encoder_device is None
     assert args.load_h3_lora is None
     assert args.no_sample is False
@@ -295,6 +300,9 @@ def test_chiaroscuro_config_and_docs_card():
     assert cfg["train"]["short_side"] == 768
     assert cfg["network"]["target"] == "MiniMaxH3Attention"
     assert cfg["network"]["train_adaln"] is False
+    assert cfg["network"]["lora_up_init_std"] == 0.02
+    assert cfg["network"]["rank"] == 16
+    assert cfg["train"]["iterations"] == 1500
     assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni"
     docs = Path("docs/minimax-h3-slider.md").read_text()
     assert "--name chiaroscuro-minimax-h3-uni" in docs
@@ -302,6 +310,7 @@ def test_chiaroscuro_config_and_docs_card():
     assert "--rank 8 --alpha 8 --lr 1e-4 --steps 500" in docs
     assert "--name chiaroscuro-minimax-h3-uni-r16" in docs
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 1200" in docs
+    assert "--rank 16 --alpha 16 --lr 1e-4 --steps 1500" in docs
     assert "800" in docs and "1500" in docs
     assert "escalate" in docs
     assert "--short_side 768 --guidance 0" in docs
@@ -317,6 +326,15 @@ def test_chiaroscuro_config_and_docs_card():
     assert "--sample_scales 0,1" in docs
     assert "--sample_duration 5" in docs
     assert "--sample_fps 24" in docs
+    assert "2.13.0+cu130" in docs
+    assert "sm_103" in docs
+    assert "2.6+cu124" in docs
+    assert "zero-init" in docs
+    assert "slider-h3-chiaro-v1" in docs
+    assert "rank16 × 1500" in docs or "rank16 x 1500" in docs
+    assert "--lora_up_init_std 0.02" in docs
+    assert "Music 3" in docs
+    assert "plus-oracle" in docs or "plus caption at scale 0" in docs
 
 
 def test_dummy_train_drops_uni_loss_and_writes_sidecar(tmp_path):
@@ -354,6 +372,7 @@ def test_dummy_train_drops_uni_loss_and_writes_sidecar(tmp_path):
     assert sidecar["short_side"] == 768
     assert sidecar["hold_concept_words"] is False
     assert sidecar["hosted_not_in_weights"] == ["H3-Context-IR", "H3-Regenerate-2K"]
+    assert sidecar["lora_up_init_std"] == 0.02
     assert sidecar["first_loss"] > sidecar["last_loss"]
     data = json.loads((tmp_path / "minimax-h3-dummy_last.json").read_text())
     assert data["backend"] == "minimax_h3"
@@ -406,6 +425,7 @@ def test_config_points_at_minimax_h3():
     assert cfg["train"]["short_side"] == 768
     assert cfg["network"]["target"] == "MiniMaxH3Attention"
     assert cfg["network"]["train_adaln"] is False
+    assert cfg["network"]["lora_up_init_std"] == 0.02
 
 
 def test_live_load_is_not_imported_on_dummy():
@@ -630,3 +650,131 @@ def test_load_h3_lora_rejects_non_h3_keys(tmp_path):
     backend = MiniMaxH3Backend(device="cpu", dummy=True)
     with pytest.raises(ValueError, match="lora_h3"):
         backend.load_trained(str(path))
+
+
+def _uni_velocity_gap(backend: MiniMaxH3Backend) -> float:
+    plus = backend.encode_text("old person")
+    packed = backend.pack_t2va(plus)
+    pred = backend.forward_velocity(packed, scale=1.0)
+    tgt = backend.forward_velocity(packed, scale=0.0)
+    video = torch.mean((pred.sample - tgt.sample) ** 2)
+    audio = torch.mean((pred.audio_sample - tgt.audio_sample) ** 2)
+    return float((video + audio).item())
+
+
+def test_zero_init_lora_up_is_uni_identity():
+    """Classic zeros: LoRA-on == LoRA-off, UNI gap ~ 0 (live rank8 death)."""
+    transformer = DummyOmniTransformer()
+    network = AttnLoRANetwork(transformer, rank=4, alpha=4.0, up_init_std=0.0)
+    assert network.up_init_std == 0.0
+    for lora in network.loras:
+        assert torch.count_nonzero(lora.lora_up.weight).item() == 0
+
+    backend = MiniMaxH3Backend(device="cpu", dummy=True, lora_up_init_std=0.0)
+    assert backend.lora_up_init_std == 0.0
+    assert _uni_velocity_gap(backend) < 1e-10
+
+
+def test_noisy_lora_up_gives_nonzero_uni_gap():
+    """N(0, 0.02) on LoRA-up breaks UNI identity so the adapter can train."""
+    torch.manual_seed(0)
+    transformer = DummyOmniTransformer()
+    network = AttnLoRANetwork(
+        transformer, rank=4, alpha=4.0, up_init_std=DEFAULT_LORA_UP_INIT_STD,
+    )
+    assert any(float(lora.lora_up.weight.detach().abs().max()) > 0 for lora in network.loras)
+
+    torch.manual_seed(0)
+    backend = MiniMaxH3Backend(
+        device="cpu", dummy=True, lora_up_init_std=DEFAULT_LORA_UP_INIT_STD,
+    )
+    gap = _uni_velocity_gap(backend)
+    assert gap > 1e-8
+
+
+def test_pack_dim_uses_proj_in_in_features():
+    """Live fake pack is proj_in.in_features (96), not in_channels (24)."""
+
+    class LiveLike(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.in_channels = 24
+            self.audio_in_channels = 32
+            self.video_dim = 4
+            self.audio_dim = 4
+            self.proj_in = torch.nn.Linear(96, 16)
+            self.audio_proj_in = torch.nn.Linear(64, 16)
+
+    live = LiveLike()
+    assert h3_pack_feature_dim(live, kind="video") == 96
+    assert h3_pack_feature_dim(live, kind="audio") == 64
+
+    backend = MiniMaxH3Backend(device="cpu", dummy=True)
+    dummy = backend.transformer
+    assert h3_pack_feature_dim(dummy, kind="video") == dummy.proj_in.in_features
+    packed = backend.pack_t2va(backend.encode_text("person"))
+    assert packed.hidden_states.shape[-1] == dummy.proj_in.in_features
+    assert packed.audio_hidden_states.shape[-1] == dummy.audio_proj_in.in_features
+
+    dummy.proj_in = torch.nn.Linear(96, dummy.hidden_size)
+    dummy.audio_proj_in = torch.nn.Linear(64, dummy.hidden_size)
+    live_pack = backend.pack_t2va(backend.encode_text("person"))
+    assert live_pack.hidden_states.shape[-1] == 96
+    assert live_pack.audio_hidden_states.shape[-1] == 64
+
+
+def test_lora_matches_host_bf16_dtype():
+    transformer = DummyOmniTransformer().to(dtype=torch.bfloat16)
+    network = AttnLoRANetwork(
+        transformer, rank=4, alpha=4.0, up_init_std=DEFAULT_LORA_UP_INIT_STD,
+    )
+    for lora in network.loras:
+        assert lora.lora_down.weight.dtype == torch.bfloat16
+        assert lora.lora_up.weight.dtype == torch.bfloat16
+    x = torch.randn(1, 2, transformer.hidden_size, dtype=torch.bfloat16)
+    out = transformer.transformer_blocks[0].attn(x)
+    assert out.dtype == torch.bfloat16
+
+
+def test_load_components_omits_workflow_kwarg(monkeypatch):
+    """Post-prune ModularPipeline.load_components rejects workflow=."""
+    import sys
+    import types
+
+    captured: dict = {}
+
+    class FakePipe:
+        def load_components(self, **kwargs):
+            captured["load"] = dict(kwargs)
+            if "workflow" in kwargs:
+                raise TypeError(
+                    "load_components() got an unexpected keyword argument 'workflow'"
+                )
+
+        def to(self, device):
+            captured["to"] = str(device)
+            return self
+
+    class FakeMP:
+        @staticmethod
+        def from_pretrained(model_id, workflow=None, **kwargs):
+            captured["from_pretrained"] = {
+                "model_id": model_id,
+                "workflow": workflow,
+                **kwargs,
+            }
+            return FakePipe()
+
+    fake = types.ModuleType("diffusers")
+    fake.ModularPipeline = FakeMP
+    monkeypatch.setitem(sys.modules, "diffusers", fake)
+
+    from conceptmod.textsliders.minimax_h3_backend import _load_minimax_h3_modular
+
+    pipe = _load_minimax_h3_modular(
+        "MiniMaxAI/MiniMax-H3", workflow="t2va", device="cpu",
+    )
+    assert isinstance(pipe, FakePipe)
+    assert captured["from_pretrained"]["workflow"] == "t2va"
+    assert "workflow" not in captured["load"]
+    assert captured["load"]["dtype"] == torch.bfloat16

@@ -8,8 +8,9 @@ pretrained_model:
   cfg_distilled: true
 network:
   type: "lierla"
-  rank: 8
-  alpha: 8.0
+  rank: 16
+  alpha: 16.0
+  lora_up_init_std: 0.02
   training_method: "attn"
   target: "MiniMaxH3Attention"
   linears:
@@ -21,7 +22,7 @@ network:
 train:
   recipe: "minimax_h3_uni_velocity"
   precision: "bfloat16"
-  iterations: 500
+  iterations: 1500
   lr: 0.0001
   optimizer: "AdamW"
   short_side: 768

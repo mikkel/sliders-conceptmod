@@ -35,6 +35,13 @@ DEFAULT_SAMPLE_ASPECT = "16:9"
 # Diffusers ModularPipeline attn names on MiniMaxH3Transformer3DModel.
 LORA_ATTN_CLASS = "MiniMaxH3Attention"
 LORA_LINEAR_NAMES = ("to_q", "to_k", "to_v", "to_out.0")
+# Classic LoRA zeros the up-proj so the adapter is identity at step 0.
+# UNI then compares LoRA-on vs LoRA-off on the same pack and the gap is
+# exactly 0 — gradients vanish and loss stays 0.0000 (live B300
+# slider-h3-chiaro-v1 rank8 × 800). Tiny N(0, std) on LoRA-up breaks
+# that identity. 0.02 is the live value that then trained (rank16 × 1500,
+# loss 0.016→0.130). 0 restores zeros for ablations.
+DEFAULT_LORA_UP_INIT_STD = 0.02
 # Original FL2VA MiniMaxH3DiTModel checkpoint uses a fused QKV. Live load is
 # ModularPipeline / MiniMaxH3Transformer3DModel, which splits those into to_q/k/v.
 FL2VA_NATIVE_ATTN_NAMES = ("qkv_proj", "out_proj")
@@ -200,32 +207,61 @@ class PackedLayout:
 
 
 class _AttnLoRA(nn.Module):
-    """LoRA on one Linear. Dummy / live share this; does not import lora.py."""
+    """LoRA on one Linear. Dummy / live share this; does not import lora.py.
 
-    def __init__(self, name: str, module: nn.Linear, rank: int, alpha: float) -> None:
+    ``up_init_std`` > 0 draws LoRA-up from ``N(0, std)`` so UNI is not the
+    zero-adapter identity. ``up_init_std <= 0`` is classic zeros (loss 0).
+    Weights match the host Linear dtype/device (live modules are bf16).
+    """
+
+    def __init__(
+        self,
+        name: str,
+        module: nn.Linear,
+        rank: int,
+        alpha: float,
+        up_init_std: float = DEFAULT_LORA_UP_INIT_STD,
+    ) -> None:
         super().__init__()
         self.lora_name = name
         self.rank = rank
         self.scale = float(alpha) / float(rank)
         self.multiplier = 1.0
-        self.lora_down = nn.Linear(module.in_features, rank, bias=False)
-        self.lora_up = nn.Linear(rank, module.out_features, bias=False)
+        host_kwargs: dict[str, Any] = {}
+        if hasattr(module, "weight"):
+            host_kwargs["device"] = module.weight.device
+            host_kwargs["dtype"] = module.weight.dtype
+        self.lora_down = nn.Linear(module.in_features, rank, bias=False, **host_kwargs)
+        self.lora_up = nn.Linear(rank, module.out_features, bias=False, **host_kwargs)
         nn.init.kaiming_uniform_(self.lora_down.weight, a=5 ** 0.5)
-        nn.init.zeros_(self.lora_up.weight)
+        if float(up_init_std) > 0:
+            nn.init.normal_(self.lora_up.weight, mean=0.0, std=float(up_init_std))
+        else:
+            nn.init.zeros_(self.lora_up.weight)
         self.org_forward = module.forward
         module.forward = self.forward
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        delta = self.lora_up(self.lora_down(x))
+        # Host attn is bf16 on live H3; LoRA may have been built on CPU.
+        weight = self.lora_down.weight
+        x_lora = x.to(device=weight.device, dtype=weight.dtype)
+        delta = self.lora_up(self.lora_down(x_lora)).to(device=x.device, dtype=x.dtype)
         return self.org_forward(x) + delta * (self.multiplier * self.scale)
 
 
 class AttnLoRANetwork(nn.Module):
     """Wrap ``MiniMaxH3Attention`` ``to_q/to_k/to_v/to_out.0`` only. Skip AdaLN."""
 
-    def __init__(self, transformer: nn.Module, rank: int, alpha: float) -> None:
+    def __init__(
+        self,
+        transformer: nn.Module,
+        rank: int,
+        alpha: float,
+        up_init_std: float = DEFAULT_LORA_UP_INIT_STD,
+    ) -> None:
         super().__init__()
         self.lora_scale = 1.0
+        self.up_init_std = float(up_init_std)
         self.loras: list[_AttnLoRA] = []
         for name, module in transformer.named_modules():
             if module.__class__.__name__ != LORA_ATTN_CLASS:
@@ -236,7 +272,7 @@ class AttnLoRANetwork(nn.Module):
                 if child_name not in ("to_q", "to_k", "to_v", "to_out.0"):
                     continue
                 lora_name = f"lora_h3-{name}-{child_name}".replace(".", "-")
-                lora = _AttnLoRA(lora_name, child, rank, alpha)
+                lora = _AttnLoRA(lora_name, child, rank, alpha, up_init_std=self.up_init_std)
                 self.loras.append(lora)
                 self.add_module(lora_name, lora)
 
@@ -311,6 +347,7 @@ class MiniMaxH3Backend:
         short_side: int = 768,
         lora_rank: int = 8,
         lora_alpha: float = 8.0,
+        lora_up_init_std: float = DEFAULT_LORA_UP_INIT_STD,
         dummy: bool = False,
     ) -> None:
         self.device = torch.device(device if not dummy else "cpu")
@@ -328,6 +365,7 @@ class MiniMaxH3Backend:
         self.short_side = int(short_side)
         self.lora_rank = int(lora_rank)
         self.lora_alpha = float(lora_alpha)
+        self.lora_up_init_std = float(lora_up_init_std)
         self.dummy = bool(dummy)
         self.guidance = 0.0  # CFG-distilled
         self.pipe: Any = None
@@ -352,7 +390,7 @@ class MiniMaxH3Backend:
         self.audio_vae = _FrozenStub("audio_vae")
         self.processor = _FrozenStub("processor")
         self.frozen = None  # LoRA off == teacher
-        self.network = self._attach_lora(self.transformer, perturb=True)
+        self.network = self._attach_lora(self.transformer)
         self.pipe = _DummyPipe(
             tokenizer=self.tokenizer,
             text_encoder=self.encoder,
@@ -388,16 +426,20 @@ class MiniMaxH3Backend:
         self.transformer.requires_grad_(False)
         self.transformer.eval()
         self.frozen = None
-        self.network = self._attach_lora(self.transformer, perturb=False)
+        self.network = self._attach_lora(self.transformer)
 
-    def _attach_lora(self, transformer: nn.Module, *, perturb: bool) -> AttnLoRANetwork:
-        network = AttnLoRANetwork(transformer, rank=self.lora_rank, alpha=self.lora_alpha)
-        if perturb:
-            # Zero-init up would make UNI identity at step 0. A small dummy
-            # offset gives the smoke a nonzero first loss that SGD can drop.
-            for lora in network.loras:
-                nn.init.normal_(lora.lora_up.weight, mean=0.0, std=0.25)
+    def _attach_lora(self, transformer: nn.Module) -> AttnLoRANetwork:
+        network = AttnLoRANetwork(
+            transformer,
+            rank=self.lora_rank,
+            alpha=self.lora_alpha,
+            up_init_std=self.lora_up_init_std,
+        )
         network.to(self.device)
+        # Host transformer is bf16 live; keep LoRA on that dtype after .to(device).
+        host_dtype = _module_param_dtype(transformer)
+        if host_dtype is not None:
+            network.to(dtype=host_dtype)
         return network
 
     def lora_module_names(self) -> list[str]:
@@ -468,8 +510,8 @@ class MiniMaxH3Backend:
                 enc, hold_neu.embeds, text.token_ids, hold_neu.token_ids, hold_mask,
             )
         n_text = enc.shape[1]
-        video_dim = int(getattr(self.transformer, "video_dim", None) or getattr(self.transformer, "in_channels", 24))
-        audio_dim = int(getattr(self.transformer, "audio_dim", None) or getattr(self.transformer, "audio_in_channels", 32))
+        video_dim = h3_pack_feature_dim(self.transformer, kind="video")
+        audio_dim = h3_pack_feature_dim(self.transformer, kind="audio")
         if video_latents is None:
             video_latents = torch.randn(enc.shape[0], 2, video_dim)
         if audio_latents is None:
@@ -684,6 +726,38 @@ class _DummyPipe:
         raise RuntimeError("dummy pipe is not a live ModularPipeline; use generate_t2va")
 
 
+def h3_pack_feature_dim(transformer: nn.Module, *, kind: str) -> int:
+    """Channel dim for a fake t2va pack.
+
+    Live MiniMaxH3Transformer3DModel video pack is ``proj_in.in_features``
+    (96 after 1×2×2 patchify), not ``in_channels`` (24 VAE channels). Dummy
+    ``DummyOmniTransformer.proj_in.in_features`` equals ``video_dim``.
+    """
+    if kind == "video":
+        proj = getattr(transformer, "proj_in", None)
+        if proj is not None and hasattr(proj, "in_features"):
+            return int(proj.in_features)
+        return int(
+            getattr(transformer, "video_dim", None)
+            or getattr(transformer, "in_channels", 24)
+        )
+    if kind == "audio":
+        proj = getattr(transformer, "audio_proj_in", None)
+        if proj is not None and hasattr(proj, "in_features"):
+            return int(proj.in_features)
+        return int(
+            getattr(transformer, "audio_dim", None)
+            or getattr(transformer, "audio_in_channels", 32)
+        )
+    raise ValueError(f"kind must be video or audio, got {kind!r}")
+
+
+def _module_param_dtype(module: nn.Module):
+    for param in module.parameters():
+        return param.dtype
+    return None
+
+
 def same_device(a, b) -> bool:
     da, db = torch.device(a), torch.device(b)
     if da.type != db.type:
@@ -795,6 +869,8 @@ def _load_minimax_h3_modular(
     from diffusers import ModularPipeline
 
     pipe = ModularPipeline.from_pretrained(model_id, workflow=workflow)
-    pipe.load_components(workflow=workflow, dtype=torch.bfloat16)
+    # After the ModularPipeline prune, load_components rejects workflow=.
+    # Workflow is already selected in from_pretrained.
+    pipe.load_components(dtype=torch.bfloat16)
     place_minimax_h3_pipeline(pipe, device=device, encoder_device=encoder_device)
     return pipe
