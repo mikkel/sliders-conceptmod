@@ -103,6 +103,77 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 Live load needs a current `diffusers` with MiniMax-H3 ModularPipeline. Do **not**
 `pip install -r requirements.txt` on the Music 3 env.
 
+## Live train card (chiaroscuro-minimax-h3-uni)
+
+First live H3 train. Same flags as the age card (rank 8, alpha 8, lr 1e-4,
+steps 500, short_side 768, guidance 0, FL2VA / t2va). Prompts are a
+**chiaroscuro / dramatic lighting** set: same concrete subject on neu and
+plus (person / interior room with chair+table / still-life vase). Neu is
+flat even lighting / soft fill / low contrast (photographic, not cartoon).
+Plus is chiaroscuro, dramatic single-source side light, deep shadows, high
+contrast. Minus is a washed-out flat / featureless lighting canary only.
+
+Gate is **look across sampled frames** (contrast moves, subject holds),
+not last-50 c+.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
+  --name chiaroscuro-minimax-h3-uni \
+  --model_id MiniMaxAI/MiniMax-H3 \
+  --variant FL2VA \
+  --workflow t2va \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
+  --attributes "male, female" \
+  --rank 8 --alpha 8 --lr 1e-4 --steps 500 --seed 7 \
+  --short_side 768 --guidance 0 --device cuda:0 \
+  --save_dir models/chiaroscuro-minimax-h3-uni
+```
+
+| field | value |
+|---|---|
+| hub id | `MiniMaxAI/MiniMax-H3` |
+| variant / workflow | FL2VA / t2va |
+| task index | `FL2VA/model_index.json` |
+| rank / alpha | 8 / 8 |
+| short side | 768 |
+| CFG | distilled; guidance **0** |
+| device | `cuda:0` (live) |
+| LoRA host | `MiniMaxH3Attention` `to_q/to_k/to_v/to_out.0` |
+| freeze | encoder (Qwen3-VL-32B) + visual VAE + audio VAE + processor + tokenizer |
+| gate | sampled-frame look (contrast moves, subject holds); not last-50 c+ |
+| not in weights | H3-Context-IR, H3-Regenerate-2K |
+
+If that short run is weak (contrast barely moves, or the subject drifts),
+escalate. VRAM / iterations are unrestricted until **sampled videos** look
+solid — watch the clips, do not gate on last-50 c+. First bump is rank 16
+/ 800 steps; if still weak take it to 1500. Recommended escalate:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
+  --name chiaroscuro-minimax-h3-uni-r16 \
+  --model_id MiniMaxAI/MiniMax-H3 \
+  --variant FL2VA \
+  --workflow t2va \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
+  --attributes "male, female" \
+  --rank 16 --alpha 16 --lr 1e-4 --steps 1200 --seed 7 \
+  --short_side 768 --guidance 0 --device cuda:0 \
+  --save_dir models/chiaroscuro-minimax-h3-uni-r16
+```
+
+| field | value |
+|---|---|
+| name | `chiaroscuro-minimax-h3-uni-r16` |
+| rank / alpha | 16 / 16 |
+| steps | 1200 (800 first bump; 1500 if still weak) |
+| short side | 768 |
+| CFG | distilled; guidance **0** |
+| gate | watch sampled videos (contrast moves, subject holds) |
+
+Do **not** run this in CI. Do **not** download MiniMax-H3 in CI.
+
 ## CPU / CI
 
 ```bash
