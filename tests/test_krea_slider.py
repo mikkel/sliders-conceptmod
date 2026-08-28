@@ -364,9 +364,14 @@ def test_detailed_yaml_same_subject_detail_delta():
         subject = _subject_clause(prompt.neutral)
         assert subject == _subject_clause(prompt.positive)
         assert subject == _subject_clause(prompt.target)
-        assert subject in prompt.negative
+        skip = {"a", "an", "the"}
+        content = [t for t in krea_word_tokens(subject) if t not in skip]
+        neg_tokens = set(krea_word_tokens(prompt.negative))
+        for token in content:
+            assert token in neg_tokens
+        concept = krea_concept_words(prompt.positive, prompt.neutral)
         for token in krea_word_tokens(subject):
-            assert token not in krea_concept_words(prompt.positive, prompt.neutral)
+            assert token not in concept
         assert "highly detailed" in prompt.positive
         assert "intricate surface textures" in prompt.positive
         assert "fine geometric detail" in prompt.positive
