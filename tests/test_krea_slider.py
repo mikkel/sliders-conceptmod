@@ -14,11 +14,13 @@ import torch
 import torch.nn.functional as F
 
 from conceptmod.textsliders.slider_targets import (
+    KREA_CONTROL_PROMPT,
     KREA_DEFAULT_RANK,
     KREA_DEFAULT_RESOLUTION,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
     KREA_RAW_STEPS,
+    KREA_SAMPLE_SCALES,
     KREA_TURBO_CFG,
     KREA_TURBO_STEPS,
     expand_attributes_krea,
@@ -31,6 +33,7 @@ from conceptmod.textsliders.slider_targets import (
     krea_plus_neu_loss,
     krea_plus_neu_teachers,
     krea_sample_card,
+    krea_token_rows,
     krea_unused_hold_loss,
     krea_unused_hold_mask,
     krea_word_tokens,
@@ -38,6 +41,7 @@ from conceptmod.textsliders.slider_targets import (
 from conceptmod.textsliders.train_lora_krea import (
     DummyKreaBackend,
     assert_krea_only,
+    infer_sample_prompts,
     krea_step_loss,
     load_prompts,
     parse_args,
@@ -49,7 +53,9 @@ from conceptmod.textsliders.train_lm_slider_music3 import parse_args as parse_lm
 
 ROOT = Path(__file__).resolve().parents[1]
 KREA_YAML = ROOT / "conceptmod/textsliders/data/prompts-krea.yaml"
+KREA_HAPPY_YAML = ROOT / "conceptmod/textsliders/data/prompts-krea-happy.yaml"
 KREA_TRAINER = ROOT / "conceptmod/textsliders/train_lora_krea.py"
+KREA_LIVE = ROOT / "conceptmod/textsliders/krea_live.py"
 
 
 def test_music3_lm_default_is_still_v9_hidden():
@@ -75,6 +81,7 @@ def test_krea_trainer_is_opt_in_not_the_music3_default():
     assert bare.resolution == KREA_DEFAULT_RESOLUTION
     assert bare.model_id == KREA_RAW_MODEL
     assert bare.dummy is False
+    assert bare.allow_hub is False
     src = KREA_TRAINER.read_text(encoding="utf-8")
     assert "lyric-hold" in src
     assert "not music 3 lyric-hold" in src.lower()
@@ -207,6 +214,7 @@ def test_attributes_pin_unused_on_pos_and_neu():
 def test_yaml_is_pos_neu_with_unused_attrs_pinned():
     prompts, meta = load_prompts(KREA_YAML)
     assert meta.plus_label == "Old"
+    assert meta.bare_captions is False
     assert len(prompts) == 4  # 2 rows × 2 attributes
     for prompt in prompts:
         assert prompt.positive
@@ -217,6 +225,54 @@ def test_yaml_is_pos_neu_with_unused_attrs_pinned():
         assert any(w in prompt.neutral.split() for w in unused)
         concept = krea_concept_words(prompt.positive, prompt.neutral)
         assert "old" in concept
+
+
+def test_happy_yaml_is_bare_smile_not_age():
+    prompts, meta = load_prompts(KREA_HAPPY_YAML)
+    assert meta.plus_label == "Happy"
+    assert meta.minus_label == "Sad"
+    assert meta.bare_captions is True
+    assert meta.control_prompt == KREA_CONTROL_PROMPT
+    assert "smile" in meta.concept_words
+    assert "teeth" in meta.concept_words
+    assert "happy" in meta.concept_words
+    assert "old" not in meta.concept_words
+    assert len(prompts) == 2  # bare: one copy per row, no gender prefix
+    for prompt in prompts:
+        assert prompt.positive
+        assert prompt.neutral
+        assert not prompt.positive.startswith("male ")
+        assert not prompt.positive.startswith("female ")
+        assert "teeth" in prompt.positive
+        assert "joyful" in prompt.positive
+        assert "closed mouth" in prompt.neutral
+        assert "smile" not in prompt.neutral
+        unused = unused_words_for(prompt)
+        assert "male" in unused and "female" in unused
+        concept = krea_concept_words(prompt.positive, prompt.neutral)
+        assert "smile" in concept or "teeth" in concept
+        assert "old" not in concept
+        assert prompt.negative  # canary only
+    sample = infer_sample_prompts(prompts, meta.control_prompt)
+    assert meta.control_prompt in sample
+    assert all("teeth" not in cap for cap in sample if cap != meta.control_prompt)
+
+
+def test_bare_captions_do_not_prefix_attributes():
+    row = {
+        "target": "a person, closed mouth",
+        "positive": "a person, big smile showing teeth",
+        "neutral": "a person, closed mouth",
+        "negative": "a sad person",
+        "attributes": ["male", "female"],
+    }
+    prefixed = expand_attributes_krea(row, prefix=True)
+    assert len(prefixed) == 2
+    assert prefixed[0]["positive"].startswith("male ")
+    bare = expand_attributes_krea(row, prefix=False)
+    assert len(bare) == 1
+    assert bare[0]["positive"] == row["positive"]
+    assert bare[0]["attributes"] == ["male", "female"]
 
 
 def test_refuses_foreign_backends():
@@ -284,10 +340,74 @@ def test_dummy_train_writes_sidecar_without_hub(tmp_path: Path):
     assert payload["sample_steps"] == 28
     assert payload["sample_guidance"] == 4.5
     assert payload["official"] == "train LoRAs on Raw, run on Turbo"
+    assert payload["allow_hub"] is False
+    assert payload["encoder_lora"] is False
+    assert payload["dit_lora_only"] is True
+    assert payload["sample_grid"]["gate"] == "smile-first"
+    assert payload["sample_grid"]["crop_purity"] is False
+    assert payload["sample_grid"]["scales"] == list(KREA_SAMPLE_SCALES)
     log = tmp_path / "krea-age-dummy_train.jsonl"
     assert log.exists()
     lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     assert len(lines) == 2
+    samples = tmp_path / "samples"
+    pngs = list(samples.glob("*.png"))
+    assert pngs
+    meta = json.loads((samples / "final_meta.json").read_text(encoding="utf-8"))
+    assert meta["gate"] == "smile-first"
+    assert "a bowl of fruit on a table" in meta["prompts"]
+
+
+def test_dummy_happy_train_writes_smile_grid(tmp_path: Path):
+    args = parse_args(
+        [
+            "--dummy",
+            "--name",
+            "smile-krea-dummy",
+            "--prompts_file",
+            str(KREA_HAPPY_YAML),
+            "--save_dir",
+            str(tmp_path),
+            "--steps",
+            "8",
+            "--seed",
+            "7",
+        ]
+    )
+    sidecar = train(args)
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert payload["plus_label"] == "Happy"
+    assert payload["bare_captions"] is True
+    assert payload["control_prompt"] == KREA_CONTROL_PROMPT
+    assert "teeth" in payload["concept_words"]
+    pngs = list((tmp_path / "samples").glob("*.png"))
+    # 2 neu captions + fruit × 4 scales
+    assert len(pngs) == 12
+    names = " ".join(p.name for p in pngs)
+    assert "fruit" in names
+    assert "scale0" in names
+    assert "scale1" in names
+
+
+def test_dummy_does_not_import_krea_live(tmp_path: Path):
+    import sys
+
+    sys.modules.pop("conceptmod.textsliders.krea_live", None)
+    sys.modules.pop("conceptmod.textsliders.krea_weights", None)
+    args = parse_args(
+        [
+            "--dummy",
+            "--name",
+            "krea-no-live",
+            "--prompts_file",
+            str(KREA_HAPPY_YAML),
+            "--save_dir",
+            str(tmp_path),
+        ]
+    )
+    train(args)
+    assert "conceptmod.textsliders.krea_live" not in sys.modules
+    assert "conceptmod.textsliders.krea_weights" not in sys.modules
 
 
 def test_live_loader_does_not_run_in_dummy():
@@ -296,3 +416,31 @@ def test_live_loader_does_not_run_in_dummy():
     assert "hf_hub_download" not in src
     assert "_load_live_backend" in src
     assert "CI uses --dummy" in src
+    assert "allow_hub" in src
+    live = KREA_LIVE.read_text(encoding="utf-8")
+    assert "Krea2Pipeline.from_pretrained" in live
+    assert "to_q" in live
+    assert "park" in live.lower()
+    assert "encoder_lora" in live
+    assert "allow_hub" in live
+    assert "same_crop" not in live
+    assert "embed_struct" not in live
+
+
+def test_hold_math_token_aligns_4d_krea_embeds():
+    pos_tokens = ["male", "old", "person"]
+    neu_tokens = ["male", "person"]
+    pos = torch.zeros(1, 3, 2, 4)
+    neu = torch.zeros(1, 2, 2, 4)
+    pos[0, 0] = 1.0
+    pos[0, 1] = 2.0
+    pos[0, 2] = 3.0
+    neu[0, 0] = 9.0
+    neu[0, 1] = 8.0
+    mask = krea_unused_hold_mask(pos_tokens, neu_tokens, unused_words=["male"])
+    held = krea_hold_unused_embeds(pos, neu, pos_tokens, neu_tokens, mask)
+    rows = krea_token_rows(held)
+    assert rows.shape[0] == 3
+    assert torch.allclose(held[0, 0], neu[0, 0])
+    assert torch.allclose(held[0, 1], pos[0, 1])
+    assert torch.allclose(held[0, 2], neu[0, 1])

@@ -6,9 +6,10 @@ shipped sliders, GPU pitfalls) and [slider_pipeline/README.md](slider_pipeline/R
 `minimax-music3` conda env and **do not** `pip install -r requirements.txt`.
 
 **Krea image sliders (opt-in):** see [docs/krea-slider.md](docs/krea-slider.md).
-UNI analog on `krea/Krea-2-Raw` (train LoRAs on Raw, run on Turbo). Rank 16,
-512 px, Raw 28 steps CFG 4.5 / Turbo 8 steps CFG 0. Does not change the
-Music 3 default. Anima / ZiT / H3 are not in this trainer.
+UNI analog on `krea/Krea-2-Raw` (train LoRAs on Raw, run on Turbo). Smile
+recipe: `prompts-krea-happy.yaml`, rank 16, 512 px, Raw 28 steps CFG 4.5
+(~48GB, TE parked). `--allow_hub` to download; `--dummy` for CI. Does
+not change the Music 3 default. Anima / ZiT / H3 are not in this trainer.
 
 **Sana 0.6B image sliders (opt-in cheap test backend):** see
 [docs/sana-slider.md](docs/sana-slider.md). UNI analog on
