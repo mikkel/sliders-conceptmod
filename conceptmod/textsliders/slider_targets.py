@@ -2128,6 +2128,9 @@ KREA_RAW_CFG = 4.5
 KREA_TURBO_STEPS = 8
 KREA_TURBO_CFG = 0.0
 KREA_HOLD_WEIGHT = 1.0
+KREA_CONTROL_PROMPT = "a bowl of fruit on a table"
+KREA_SAMPLE_SCALES = (0.0, 0.25, 0.5, 1.0)
+KREA_LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
 
 
 def krea_looks_turbo(model_id: str) -> bool:
@@ -2243,13 +2246,27 @@ def krea_unused_hold_mask(
     return mask
 
 
+def krea_token_rows(embeds: torch.Tensor) -> torch.Tensor:
+    """Token-major ``(T, F)`` view for hold math.
+
+    Dummy encodes are ``(T, D)``. Live Krea ``get_text_hidden_states`` is
+    ``(B, T, L, D)`` — flatten the layer stack into ``F`` so unused hold
+    stays one row per tokenizer token, not ``T*L`` rows.
+    """
+    if embeds.dim() == 4:
+        batch, tokens, layers, hidden = embeds.shape
+        return embeds.reshape(batch * tokens, layers * hidden)
+    if embeds.dim() == 3:
+        return embeds.reshape(-1, embeds.shape[-1])
+    return embeds
+
+
 def krea_neu_token_lookup(
     neu_embeds: torch.Tensor,
     neu_tokens: Sequence[str],
 ) -> dict[str, torch.Tensor]:
     """First encode(neu) vector for each unused / shared token."""
-    if neu_embeds.dim() == 3:
-        neu_embeds = neu_embeds.reshape(-1, neu_embeds.shape[-1])
+    neu_embeds = krea_token_rows(neu_embeds)
     lookup: dict[str, torch.Tensor] = {}
     for i, tok in enumerate(neu_tokens):
         if i >= int(neu_embeds.shape[0]):
@@ -2271,7 +2288,7 @@ def krea_hold_unused_embeds(
     if mask is None:
         mask = krea_unused_hold_mask(pos_tokens, neu_tokens)
     lookup = krea_neu_token_lookup(neu_embeds, neu_tokens)
-    flat = pos_embeds.reshape(-1, pos_embeds.shape[-1]).clone()
+    flat = krea_token_rows(pos_embeds).clone()
     for i, (tok, hold) in enumerate(zip(pos_tokens, mask)):
         if i >= int(flat.shape[0]):
             break
@@ -2298,8 +2315,8 @@ def krea_unused_hold_loss(
     held = krea_hold_unused_embeds(
         pred_embeds, neu_embeds, pos_tokens, neu_tokens, mask
     )
-    pred_flat = pred_embeds.reshape(-1, pred_embeds.shape[-1])
-    held_flat = held.reshape(-1, held.shape[-1])
+    pred_flat = krea_token_rows(pred_embeds)
+    held_flat = krea_token_rows(held)
     keep = [i for i, flag in enumerate(mask) if flag and i < int(pred_flat.shape[0])]
     if not keep:
         return pred_flat.new_zeros(())
@@ -2307,24 +2324,33 @@ def krea_unused_hold_loss(
     return F.mse_loss(pred_flat.index_select(0, idx), held_flat.index_select(0, idx))
 
 
-def expand_attributes_krea(row: dict) -> list[dict]:
-    """Pin unused attributes onto target / pos / neu (and canary neg).
+def expand_attributes_krea(row: dict, *, prefix: bool = True) -> list[dict]:
+    """Pin unused attributes. Age yaml prefixes; happy/smile stays bare.
 
-    Same prefixing as Music 3 so the unused trait is present both ways.
-    The minus caption is still canary-only — expansion does not make it
-    a teacher.
+    ``prefix=True`` (default, age slider): Music 3-style ``male a photo…``
+    so unused gender is present both ways.
+
+    ``prefix=False`` (happy/smile yaml ``bare_captions``): captions stay
+    as written. Attributes remain unused-token pins only — the Anima
+    smile lesson. Expansion does not make minus a teacher.
     """
-    attributes = row.get("attributes")
+    attributes = [
+        str(a).strip() for a in (row.get("attributes") or []) if str(a).strip()
+    ]
     if not attributes:
         return [dict(row)]
+    if not prefix:
+        item = dict(row)
+        item["attributes"] = attributes
+        return [item]
     rows = []
     for attribute in attributes:
-        prefix = str(attribute).strip()
         item = dict(row)
+        item["attributes"] = attributes
         for key in ("target", "positive", "negative", "neutral"):
             value = row.get(key)
             if value:
-                item[key] = f"{prefix} {value}"
+                item[key] = f"{attribute} {value}"
         rows.append(item)
     return rows
 

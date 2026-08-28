@@ -1,0 +1,31 @@
+prompts_file: "conceptmod/textsliders/data/prompts-krea-happy.yaml"
+pretrained_model:
+  name_or_path: "krea/Krea-2-Raw"
+  v2: false
+  v_pred: false
+network:
+  type: "lora"
+  rank: 16
+  alpha: 16.0
+  training_method: "lora"
+train:
+  precision: "bfloat16"
+  iterations: 500
+  lr: 0.0001
+  optimizer: "AdamW"
+  resolution: 512
+save:
+  name: "smile-krea"
+  path: "models/smile-krea"
+  per_steps: 50
+  precision: "float32"
+logging:
+  use_wandb: false
+  verbose: false
+sample:
+  raw_steps: 28
+  raw_guidance: 4.5
+  turbo_steps: 8
+  turbo_guidance: 0.0
+  scales: [0.0, 0.25, 0.5, 1.0]
+  control_prompt: "a bowl of fruit on a table"

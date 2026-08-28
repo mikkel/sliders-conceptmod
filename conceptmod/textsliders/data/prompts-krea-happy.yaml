@@ -1,0 +1,39 @@
+# Krea UNI happy/smile slider — Anima smile-first teacher on Raw.
+#
+# Bare captions. Do NOT prefix attributes onto target / positive /
+# neutral (Anima v3 train/sample mismatch). attributes pin unused
+# gender for hold bookkeeping only.
+#
+# Sana spirit: person + portrait rows, fruit-bowl control.
+# Anima stronger smile: teeth / joyful; neu is closed-mouth so
+# stock Krea does not already grin. Weak "a happy person" failed
+# on Sana. Minus is a canary only — not a teacher.
+#
+# Train on krea/Krea-2-Raw (rank 16, 512 px, 28 steps, CFG 4.5).
+# Official: train LoRAs on Raw, run on Turbo (8 steps, CFG 0).
+# Accept entanglement; no same_crop / embed_struct.
+plus_label: Happy
+minus_label: Sad
+recommended_range: [0.0, 2.0]
+concept_words: "smiling, smile, happy, joyful, teeth"
+control_prompt: "a bowl of fruit on a table"
+bare_captions: true
+rows:
+  - target: "a person, neutral expression, closed mouth"
+    positive: "a person, big smile showing teeth, happy joyful expression"
+    neutral: "a person, neutral expression, closed mouth"
+    negative: "a sad person"
+    attributes: ["male", "female"]
+    action: enhance
+    guidance_scale: 4.5
+    resolution: 512
+    batch_size: 1
+  - target: "a portrait of a person, neutral expression, closed mouth"
+    positive: "a portrait of a person, big smile showing teeth, happy joyful expression"
+    neutral: "a portrait of a person, neutral expression, closed mouth"
+    negative: "a portrait of a sad person"
+    attributes: ["male", "female"]
+    action: enhance
+    guidance_scale: 4.5
+    resolution: 512
+    batch_size: 1

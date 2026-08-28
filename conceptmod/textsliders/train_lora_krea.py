@@ -17,6 +17,9 @@ rank 16, 512 px. Run on Turbo (local ComfyUI ``.safetensors``, 8 steps,
 CFG 0). Default Music 3 trainers are unchanged.
 
 ``--dummy`` never loads Hub weights or a 12B transformer. CI uses that.
+Live load is offline-safe unless ``--allow_hub`` (Anima pattern). DiT
+LoRA only; the text encoder is frozen and parked. Happy/smile yaml:
+``data/prompts-krea-happy.yaml``.
 """
 
 from __future__ import annotations
@@ -38,12 +41,14 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from conceptmod.textsliders.slider_targets import (
+    KREA_CONTROL_PROMPT,
     KREA_DEFAULT_RANK,
     KREA_DEFAULT_RESOLUTION,
     KREA_HOLD_WEIGHT,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
     KREA_RAW_STEPS,
+    KREA_SAMPLE_SCALES,
     expand_attributes_krea,
     krea_cfg_direction,
     krea_concept_words,
@@ -84,6 +89,9 @@ class PromptsMeta:
     plus_label: str = ""
     minus_label: str = ""
     recommended_range: list[float] = field(default_factory=lambda: [-2.0, 2.0])
+    concept_words: str = ""
+    control_prompt: str = KREA_CONTROL_PROMPT
+    bare_captions: bool = False
 
 
 def _load_yaml(path: Path) -> Any:
@@ -94,9 +102,18 @@ def _load_yaml(path: Path) -> Any:
 def load_prompts(path: Path) -> tuple[list[KreaSliderPrompt], PromptsMeta]:
     raw = _load_yaml(path)
     meta = PromptsMeta()
+    prefix_attributes = True
     if isinstance(raw, dict):
         meta.plus_label = str(raw.get("plus_label") or "")
         meta.minus_label = str(raw.get("minus_label") or "")
+        meta.concept_words = str(raw.get("concept_words") or "")
+        meta.control_prompt = str(raw.get("control_prompt") or KREA_CONTROL_PROMPT)
+        bare = bool(raw.get("bare_captions"))
+        if "prefix_attributes" in raw:
+            prefix_attributes = bool(raw.get("prefix_attributes"))
+        elif bare:
+            prefix_attributes = False
+        meta.bare_captions = not prefix_attributes
         rng = raw.get("recommended_range")
         if isinstance(rng, (list, tuple)) and len(rng) == 2:
             meta.recommended_range = [float(rng[0]), float(rng[1])]
@@ -107,7 +124,7 @@ def load_prompts(path: Path) -> tuple[list[KreaSliderPrompt], PromptsMeta]:
     for item in raw:
         if not isinstance(item, dict) or "positive" not in item:
             raise ValueError(f"each prompt must be a mapping with positive: {item!r}")
-        for row in expand_attributes_krea(item):
+        for row in expand_attributes_krea(item, prefix=prefix_attributes):
             target = str(row.get("target") or row.get("neutral") or row["positive"])
             prompts.append(
                 KreaSliderPrompt(
@@ -115,7 +132,7 @@ def load_prompts(path: Path) -> tuple[list[KreaSliderPrompt], PromptsMeta]:
                     positive=str(row["positive"]),
                     neutral=str(row.get("neutral") or target),
                     negative=str(row.get("negative") or ""),
-                    attributes=[str(a) for a in (item.get("attributes") or [])],
+                    attributes=[str(a) for a in (row.get("attributes") or item.get("attributes") or [])],
                     action=str(row.get("action") or "enhance"),
                     guidance_scale=float(row.get("guidance_scale", KREA_RAW_CFG)),
                     batch_size=int(row.get("batch_size", 1)),
@@ -190,9 +207,21 @@ class DummyKreaBackend:
         self.encode_table = DummyKreaEncode(dim=dim, seed=seed)
         self.dit = DummyKreaDiT(dim=dim, rank=rank)
         self.encoder_lora = False
+        self.latent_shape = (dim,)
+        self._timestep: torch.Tensor | None = None
+
+    def begin_step(self) -> None:
+        self._timestep = torch.zeros(1)
+
+    def sample_latents(self, device: torch.device | None = None) -> torch.Tensor:
+        dest = device or torch.device("cpu")
+        return torch.randn(1, self.dim, device=dest)
 
     def encode_text(self, prompt: str) -> tuple[torch.Tensor, list[str]]:
         return self.encode_table.encode(prompt)
+
+    def set_adapter_scale(self, scale: float) -> None:
+        self.dit.scale = float(scale)
 
     def predict_v(
         self,
@@ -218,6 +247,36 @@ class DummyKreaBackend:
         return list(self.dit.lora_down.parameters()) + list(
             self.dit.lora_up.parameters()
         )
+
+    def generate(
+        self,
+        prompt: str,
+        seed: int = 0,
+        num_steps: int | None = None,
+        guidance: float | None = None,
+        scale: float = 1.0,
+        height: int = 64,
+        width: int = 64,
+    ):
+        """Structured RGB ramp so ``--dummy`` can write a smile-first grid."""
+        del num_steps, guidance
+        import numpy as np
+        from PIL import Image
+
+        h = max(8, int(height))
+        w = max(8, int(width))
+        rng = np.random.default_rng((abs(int(seed)) + (hash(prompt) % 997)) % (2**31))
+        ys = np.linspace(48.0, 176.0, h, dtype=np.float64)
+        xs = np.linspace(36.0, 168.0, w, dtype=np.float64)
+        yy, xx = np.meshgrid(ys, xs, indexing="ij")
+        tint = 12.0 * float(scale)
+        blob = 18.0 * np.sin(yy / 18.0) * np.cos(xx / 22.0)
+        noise = 4.0 * rng.standard_normal((h, w))
+        img = np.stack(
+            [yy + tint + blob, xx + 0.4 * tint, 0.45 * yy + 0.45 * xx + 16.0 + 0.6 * tint + noise],
+            axis=-1,
+        )
+        return Image.fromarray(np.clip(img, 0.0, 255.0).astype("uint8"), mode="RGB")
 
 
 def assert_krea_only(model_id: str) -> None:
@@ -315,7 +374,121 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="tiny CPU backend, 2 steps, never loads Krea / Hub weights",
     )
+    parser.add_argument(
+        "--allow_hub",
+        action="store_true",
+        help="permit a Hub download of krea/Krea-2-Raw (off; CI must not set this)",
+    )
+    parser.add_argument(
+        "--control_prompt",
+        type=str,
+        default=None,
+        help="verify-only fruit-bowl caption; never a teacher",
+    )
+    parser.add_argument(
+        "--sample_seed",
+        type=int,
+        default=42,
+        help="seed for the end-of-train smile-first scale grid",
+    )
     return parser.parse_args(argv)
+
+
+def infer_sample_prompts(
+    prompts: Sequence[KreaSliderPrompt],
+    control_prompt: str = KREA_CONTROL_PROMPT,
+) -> list[str]:
+    """Neu / infer captions plus the fruit-bowl control. Never the + concept."""
+    seen: list[str] = []
+    for prompt in prompts:
+        caption = (prompt.neutral or prompt.target or "").strip()
+        if caption and caption not in seen:
+            seen.append(caption)
+    control = str(control_prompt or "").strip()
+    if control and control not in seen:
+        seen.append(control)
+    return seen
+
+
+def emit_inprocess_samples(
+    backend,
+    args: argparse.Namespace,
+    save_dir: Path,
+    prompts: Sequence[KreaSliderPrompt],
+    *,
+    dummy: bool,
+    control_prompt: str,
+    card: dict[str, float | int | str],
+) -> list[dict[str, Any]]:
+    """Smile-first scale grid: 0 / 0.25 / 0.5 / 1.0 on neu + fruit.
+
+    Writes PNGs under ``save_dir/samples``. No crop-purity / same_crop
+    metric — entanglement is accepted. Dummy writes structured ramps.
+    """
+    sample_prompts = infer_sample_prompts(prompts, control_prompt)
+    scales = list(KREA_SAMPLE_SCALES)
+    out_dir = Path(save_dir) / "samples"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    steps = 2 if dummy else int(card["sample_steps"])
+    guidance = float(card["sample_guidance"])
+    seed = int(getattr(args, "sample_seed", 42))
+    height = 64 if dummy else int(args.resolution)
+    width = height
+    records: list[dict[str, Any]] = []
+    for prompt in sample_prompts:
+        for scale in scales:
+            image = backend.generate(
+                prompt,
+                seed=seed,
+                num_steps=steps,
+                guidance=guidance,
+                scale=float(scale),
+                height=height,
+                width=width,
+            )
+            slug = _slug(prompt)
+            scale_tag = f"{scale:g}".replace("-", "m")
+            name = f"final_{slug}_scale{scale_tag}.png"
+            path = out_dir / name
+            image.save(path)
+            records.append(
+                {
+                    "prompt": prompt,
+                    "scale": float(scale),
+                    "path": str(path.name),
+                    "seed": seed,
+                    "sample_steps": steps,
+                    "cfg": guidance,
+                    "height": int(getattr(image, "height", height)),
+                    "width": int(getattr(image, "width", width)),
+                    "control": prompt == control_prompt,
+                }
+            )
+    meta_path = out_dir / "final_meta.json"
+    payload = {
+        "dummy": bool(dummy),
+        "seed": seed,
+        "scales": scales,
+        "prompts": sample_prompts,
+        "gate": "smile-first",
+        "crop_purity": False,
+        "samples": records,
+    }
+    meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if not records:
+        raise RuntimeError("in-process Krea sample grid is empty")
+    return records
+
+
+def _slug(text: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() else "-" for ch in text.lower())
+    return "-".join(part for part in cleaned.split("-") if part)[:48] or "prompt"
+
+
+def _sample_z(backend, device: torch.device) -> torch.Tensor:
+    if hasattr(backend, "sample_latents"):
+        return backend.sample_latents(device)
+    return torch.randn(1, backend.dim, device=device)
 
 
 def train(args: argparse.Namespace) -> Path:
@@ -343,19 +516,25 @@ def train(args: argparse.Namespace) -> Path:
     log_path = save_dir / f"{args.name}_train.jsonl"
     last_stats: dict[str, float] = {}
     guidance = float(card["sample_guidance"])
+    control_prompt = str(
+        getattr(args, "control_prompt", None) or meta.control_prompt or KREA_CONTROL_PROMPT
+    )
 
     print(
         f"train krea slider name={args.name} recipe={args.recipe} "
         f"rank={args.rank} res={args.resolution} model={args.model_id} "
         f"variant={card['variant']} sample_steps={card['sample_steps']} "
         f"cfg={card['sample_guidance']} dummy={bool(args.dummy)} "
-        f"minus_teacher=off unused_hold=on"
+        f"allow_hub={bool(getattr(args, 'allow_hub', False))} "
+        f"minus_teacher=off unused_hold=on control={control_prompt!r}"
     )
 
     progress = tqdm(range(steps), desc="train-krea")
     for step in progress:
         prompt = prompts[step % len(prompts)]
-        z = torch.randn(1, backend.dim, device=device)
+        if hasattr(backend, "begin_step"):
+            backend.begin_step()
+        z = _sample_z(backend, device)
         loss, stats = krea_step_loss(
             backend,
             prompt,
@@ -371,6 +550,19 @@ def train(args: argparse.Namespace) -> Path:
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({"step": step, **stats}) + "\n")
 
+    samples = emit_inprocess_samples(
+        backend,
+        args,
+        save_dir,
+        prompts,
+        dummy=bool(args.dummy),
+        control_prompt=control_prompt,
+        card=card,
+    )
+    adapter_dir = save_dir / f"{args.name}_lora"
+    if hasattr(backend, "save_trained") and not args.dummy:
+        backend.save_trained(adapter_dir)
+
     sidecar = {
         "kind": "krea",
         "recipe": "uni",
@@ -384,9 +576,23 @@ def train(args: argparse.Namespace) -> Path:
         "token_hold": "unused_to_neu",
         "lyric_hold": False,
         "dummy": bool(args.dummy),
+        "allow_hub": bool(getattr(args, "allow_hub", False)),
+        "encoder_lora": False,
+        "dit_lora_only": True,
+        "te_parking": True,
         "plus_label": meta.plus_label,
         "minus_label": meta.minus_label,
+        "concept_words": meta.concept_words,
+        "control_prompt": control_prompt,
+        "bare_captions": bool(meta.bare_captions),
         "recommended_range": meta.recommended_range,
+        "sample_grid": {
+            "scales": list(KREA_SAMPLE_SCALES),
+            "gate": "smile-first",
+            "crop_purity": False,
+            "count": len(samples),
+            "dir": "samples",
+        },
         "last": last_stats,
         **card,
     }
@@ -397,12 +603,14 @@ def train(args: argparse.Namespace) -> Path:
 
 
 def _load_live_backend(args: argparse.Namespace, device: torch.device):
-    """Lazy live loader. Tests never call this. No Anima / ZiT / H3."""
-    raise RuntimeError(
-        "live Krea train needs a GPU and Hub or a local ComfyUI Turbo "
-        f".safetensors (model_id={args.model_id!r}). CI uses --dummy. "
-        "Do not download weights from this path in tests."
-    )
+    """Lazy live loader. Tests never call this. No Anima / ZiT / H3.
+
+    CI uses --dummy. This import is the only path that may touch Hub,
+    and only when ``--allow_hub`` is set (Anima/Sana offline-safe default).
+    """
+    from conceptmod.textsliders.krea_live import load_live_krea_backend
+
+    return load_live_krea_backend(args, device)
 
 
 def main() -> None:
