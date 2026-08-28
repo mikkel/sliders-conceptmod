@@ -45,6 +45,10 @@ DEFAULT_SAMPLE_SCALES = (0.0, 0.25, 0.5, 1.0)
 DEFAULT_SAMPLE_SEED = 42
 # Live mid-train PEFT grid. End-of-train gate always runs.
 DEFAULT_SAMPLE_EVERY = 100
+# peft_pipe: ModularPipeline pipe(prompt=...) after sync_peft (default).
+# train_faithful: backend.encode_text + transformer denoise (same as loss).
+ANIMA_SAMPLE_MODES = ("peft_pipe", "train_faithful")
+DEFAULT_SAMPLE_MODE = "peft_pipe"
 # v4 1-step direct / cfg_delta cannot carry Anima expression (v-space
 # pos/neu gap is microscopic). Live default is short-trajectory MSE.
 ANIMA_LM_TARGETS = ("direct", "cfg_delta", "trajectory")
@@ -813,10 +817,15 @@ def live_train_card(
             "microscopic. Adapter Δ was 3–7× larger with δ-cos≈0.28. "
             "Need multi-step/trajectory, not another to_v 200-step 1-step retry."
         ),
+        "sample_mode": DEFAULT_SAMPLE_MODE,
+        "sample_modes": list(ANIMA_SAMPLE_MODES),
         "sample_gate": (
-            "in-process PEFT disable_adapter / set_adapter_scale on "
-            "pipe(prompt=...); fail if scale 0 is RGB noise or if scale "
-            "0.25 is noise while 0 is fine"
+            "in-process PEFT disable_adapter / set_adapter_scale. "
+            "Default peft_pipe: pipe(prompt=...) after "
+            "sync_peft_into_modular_pipeline so sample and encode_text "
+            "share the same conditioner/transformer objects. "
+            "train_faithful: backend.encode_text + transformer (loss path). "
+            "Fail if scale 0 is RGB noise or if scale 0.25 is noise while 0 is fine"
         ),
         "stock_teacher_smoke": stock_teacher_smoke_captions(),
         "train_sample_prompts": "same bare infer/neu captions; attributes are pins only",

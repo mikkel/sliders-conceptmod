@@ -235,6 +235,78 @@ PYTHONPATH=. pytest tests/test_anima_slider.py -q
 python scripts/smoke_anima_slider.py
 ```
 
+## PEFT sync: why v6/v7 may have invalidated the 0→0.25 gate
+
+Smile v6/v7 trained conditioner LoRA (`--lora_targets conditioner`) and
+still failed the in-process 0→0.25 sample gate. The next place to look
+is **apply / object identity**, not another UNI recipe.
+
+Train encode is `LiveAnimaBackend._encode_raw` →
+`self.pipe.text_conditioner` (the PEFT wrapper after
+`get_peft_model`). Sample is `emit_inprocess_samples` →
+`_call_modular_pipe(pipe, …)` → `pipe(prompt=…)`.
+
+On current ModularPipeline, `pipe.components` is a **live property**
+(`getattr` per name) and `pipe(prompt=…)` passes `self` into
+`AnimaTextConditioningStep`, so a successful
+`pipe.text_conditioner = get_peft_model(...)` *should* share the
+object. That was never asserted. Holes that still make the gate lie:
+
+1. Attach never called `update_components`. Specs / ComponentsManager
+   can keep the **pre-PEFT** `AnimaTextConditioner`. A later
+   `load_components` / manager lookup resurrects the base module.
+2. Dummy / captured `components` dicts and `_blocks.*` attributes can
+   hold the unwrapped module while `pipe.text_conditioner` is PEFT.
+3. `set_adapter_scale` must succeed on the **AnimaTextConditioner PEFT
+   wrapper**. When `--lora_targets conditioner` (`train_dit=false`),
+   sample must **not** depend on transformer PEFT APIs.
+
+`sync_peft_into_modular_pipeline` writes the PEFT modules into the
+attribute, `update_components`, `components` map, and `_blocks`
+holders, then asserts `id()` match. `encode_text` and the sample
+helper must share the same conditioner object.
+
+### Sample modes
+
+| `--sample_mode` | path | default |
+|---|---|---|
+| **`peft_pipe`** | `pipe(prompt=…)` after sync (same PEFT objects as `encode_text`) | **yes** |
+| `train_faithful` | `backend.encode_text` + transformer denoise (same path as the loss). Dummy still writes structured images | no |
+
+`--lora_targets conditioner|dit|dit+conditioner` is unchanged.
+
+### Embed diagnostic (CPU dummy / live GPU)
+
+Do **not** start another 500-step smile train. After merge, re-validate
+a v6 adapter with one short GPU smoke:
+
+```bash
+# CPU dummy (CI / no Hub): must PASS after a plus-aligned dummy LoRA
+PYTHONPATH=. python scripts/diag_anima_conditioner_embed.py --dummy
+
+# Live: Base + saved v6 conditioner adapter (not a retrain)
+HF_HUB_OFFLINE=1 PYTHONPATH=. python scripts/diag_anima_conditioner_embed.py \
+  --live --device cuda:0 \
+  --model_id circlestone-labs/Anima-Base-v1.0-Diffusers \
+  --conditioner_adapter models/smile-anima-v6/smile-anima_conditioner_lora
+```
+
+The script prints, for neu/plus:
+
+- `||E(neu, s) − E(neu, 0)||` vs `||E(plus, 0) − E(neu, 0)||`
+- `cosine(E(neu, s)−E(neu, 0), E(plus, 0)−E(neu, 0))`
+
+**PASS** at scale 1: student Δ is not near-zero and is aligned with
+the frozen plus−neu teacher Δ. **FAIL** + near-zero student Δ means
+the adapter is not in the encode graph (sync/apply). If Modular/sample
+encode ≠ `backend.encode_text`, the script flags
+`SAMPLE_TRAIN_MISMATCH`.
+
+If that smoke **PASS**es and the mismatch flag is absent, re-run only
+the in-process 0 / 0.25 / 0.5 / 1.0 sample grid (no full retrain). If
+it still fails 0→0.25, the gate is about **weights / formulation**,
+not a stale conditioner object.
+
 ## In-process PEFT sample gate
 
 The prior live run never sampled **in-process** with the PEFT-wrapped
@@ -242,7 +314,9 @@ training transformer. Post-hoc `W += scale*(α/r)*(B@A)` matched 224/224
 modules and still printed RGB noise at scale 0.01. The trainer now
 emits a scale grid through the same `ModularPipeline` path used for
 real infer (`pipe(prompt=...)`) **with PEFT still attached** to the
-adapted modules (`pipe.text_conditioner` and/or `pipe.transformer`):
+adapted modules (`pipe.text_conditioner` and/or `pipe.transformer`)
+**after** `sync_peft_into_modular_pipeline` (same `nn.Module` instances
+as `encode_text`):
 
 - prompts: **the same** infer/neu strings used at train time
   (`a woman sitting on a chair, neutral expression, closed mouth`,
@@ -278,6 +352,11 @@ The job **fails closed**:
    `lora_*` params stay trainable.
 2. A CPU `torch.Generator` cannot drive a CUDA `torch.randn`. `_sample_zt`
    draws noise on CPU and `.to(device)`.
+3. After `get_peft_model` / `load_adapter`, PEFT modules must be
+   synced into ModularPipeline (`update_components` + holder walk +
+   `id()` assert). v6/v7 may have sampled through a pre-PEFT
+   conditioner and invalidated the 0→0.25 gate. See
+   [PEFT sync](#peft-sync-why-v6v7-may-have-invalidated-the-0025-gate).
 
 ## Why 1-step fails (v-space gap is tiny)
 
