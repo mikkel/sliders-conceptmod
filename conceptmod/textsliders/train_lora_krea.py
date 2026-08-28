@@ -21,7 +21,10 @@ Live load is offline-safe unless ``--allow_hub`` (Anima pattern).
 ``--lora_targets dit`` (default) parks the frozen text encoder after
 encode. ``te`` / ``dit+te`` keep Qwen3-VL on GPU so encode+backward
 stay coherent. Happy/smile yaml: ``data/prompts-krea-happy.yaml``.
-Smile card: ``--lora_targets dit+te --hold_weight 0.1``.
+Smile v2 card: ``--lora_targets dit+te --hold_weight 0.1``.
+Smile v3: ``--lora_targets te --lm_target embed`` (TE-only stacked
+embeds; DiT stays base). Live gap: DiT v neu/plus cos≈0.9999;
+TE ``[1,512,12,2560]`` cos≈0.67. Do not teach v-space on that path.
 """
 
 from __future__ import annotations
@@ -47,15 +50,27 @@ from conceptmod.textsliders.slider_targets import (
     KREA_DEFAULT_LORA_TARGETS,
     KREA_DEFAULT_RANK,
     KREA_DEFAULT_RESOLUTION,
+    KREA_DUMMY_EMBED_LAYERS,
+    KREA_DUMMY_EMBED_SEQ,
+    KREA_EMBED_COSINE_WEIGHT,
     KREA_HOLD_WEIGHT,
+    KREA_LM_TARGET_CHOICES,
+    KREA_LM_TARGET_DEFAULT,
     KREA_LORA_TARGET_CHOICES,
     KREA_RAW_CFG,
     KREA_RAW_MODEL,
+    KREA_RECIPE_CHOICES,
+    KREA_RECIPE_DEFAULT,
     KREA_SAMPLE_SCALES,
     KREA_SMILE_HOLD_WEIGHT,
     expand_attributes_krea,
+    force_krea_embed_lora_targets,
     krea_cfg_direction,
     krea_concept_words,
+    krea_embed_cosine,
+    krea_embed_mse,
+    krea_embed_requires_te,
+    krea_embed_uni_loss,
     krea_hold_unused_embeds,
     krea_minus_canary,
     krea_plus_neu_loss,
@@ -64,6 +79,7 @@ from conceptmod.textsliders.slider_targets import (
     krea_unused_hold_loss,
     krea_unused_hold_mask,
     krea_word_tokens,
+    resolve_krea_lm_target,
     resolve_krea_lora_targets,
 )
 
@@ -197,17 +213,35 @@ class DummyKreaDiT(nn.Module):
         self.scale = 0.0
 
     def forward(self, z: torch.Tensor, text: torch.Tensor) -> torch.Tensor:
-        pooled = text.mean(dim=0, keepdim=True).expand_as(z)
+        flat = text.reshape(-1, text.shape[-1])
+        pooled = flat.mean(dim=0, keepdim=True).expand_as(z)
         base = self.proj(z + pooled)
         delta = self.lora_up(self.lora_down(z + pooled))
         return base + float(self.scale) * delta
 
 
 class DummyKreaTE(nn.Module):
-    """Fake Qwen3-VL attn + LoRA delta. Names match live TE targets."""
+    """Fake Qwen3-VL attn + LoRA delta. Names match live TE targets.
 
-    def __init__(self, dim: int = 8, rank: int = 2):
+    Live ``get_text_hidden_states`` is ``[B, T, 12, 2560]``. Dummy
+    stacks ``KREA_DUMMY_EMBED_LAYERS`` (4) and pads to
+    ``KREA_DUMMY_EMBED_SEQ`` so ``--lm_target embed`` can score the
+    same 4D layout. Early layers (0–1) get a smaller LoRA gain so
+    mid/late (2+) carry the concept Δ, matching the live diag.
+    """
+
+    def __init__(
+        self,
+        dim: int = 8,
+        rank: int = 2,
+        n_layers: int = KREA_DUMMY_EMBED_LAYERS,
+        seq_pad: int = KREA_DUMMY_EMBED_SEQ,
+        stacked: bool = True,
+    ):
         super().__init__()
+        self.n_layers = int(n_layers)
+        self.seq_pad = int(seq_pad)
+        self.stacked = bool(stacked)
         self.q_proj = nn.Linear(dim, dim, bias=False)
         self.k_proj = nn.Linear(dim, dim, bias=False)
         self.v_proj = nn.Linear(dim, dim, bias=False)
@@ -220,10 +254,30 @@ class DummyKreaTE(nn.Module):
         nn.init.zeros_(self.lora_up.weight)
         self.scale = 1.0
 
+    def _pad_tokens(self, embeds: torch.Tensor) -> torch.Tensor:
+        tokens, dim = embeds.shape
+        pad_to = self.seq_pad
+        if tokens == pad_to:
+            return embeds
+        if tokens < pad_to:
+            return torch.cat(
+                [embeds, embeds.new_zeros(pad_to - tokens, dim)], dim=0
+            )
+        return embeds[:pad_to]
+
     def forward(self, embeds: torch.Tensor) -> torch.Tensor:
         hidden = self.o_proj(self.v_proj(embeds))
         delta = self.lora_up(self.lora_down(embeds))
-        return hidden + float(self.scale) * delta
+        if not self.stacked:
+            return hidden + float(self.scale) * delta
+        padded = self._pad_tokens(hidden)
+        delta_pad = self._pad_tokens(delta)
+        layers = []
+        for index in range(self.n_layers):
+            # Live diag: early layers stay close (cos≈0.91); mid/late move.
+            gain = 0.25 if index < 2 else 1.0
+            layers.append(padded + float(self.scale) * gain * delta_pad)
+        return torch.stack(layers, dim=1).unsqueeze(0)
 
 
 class DummyKreaBackend:
@@ -240,7 +294,11 @@ class DummyKreaBackend:
         self.lora_spec = resolve_krea_lora_targets(lora_targets)
         self.encode_table = DummyKreaEncode(dim=dim, seed=seed)
         self.dit = DummyKreaDiT(dim=dim, rank=rank)
-        self.te = DummyKreaTE(dim=dim, rank=rank) if self.lora_spec.train_te else None
+        self.te = (
+            DummyKreaTE(dim=dim, rank=rank, stacked=True)
+            if self.lora_spec.train_te
+            else None
+        )
         self.encoder_lora = self.lora_spec.train_te
         if not self.lora_spec.train_dit:
             for param in list(self.dit.lora_down.parameters()) + list(
@@ -261,9 +319,17 @@ class DummyKreaBackend:
         self, prompt: str, *, frozen: bool = False
     ) -> tuple[torch.Tensor, list[str]]:
         embeds, tokens = self.encode_table.encode(prompt)
-        if self.te is not None and not frozen:
-            embeds = self.te(embeds)
-        return embeds, tokens
+        if self.te is None:
+            return embeds, tokens
+        if frozen:
+            prev = float(self.te.scale)
+            self.te.scale = 0.0
+            try:
+                embeds = self.te(embeds)
+            finally:
+                self.te.scale = prev
+            return embeds.detach(), tokens
+        return self.te(embeds), tokens
 
     def set_adapter_scale(self, scale: float) -> None:
         self.dit.scale = float(scale) if self.lora_spec.train_dit else 0.0
@@ -342,6 +408,64 @@ def assert_krea_only(model_id: str) -> None:
             )
 
 
+def krea_embed_step_loss(
+    backend: DummyKreaBackend,
+    prompt: KreaSliderPrompt,
+    *,
+    hold_weight: float = KREA_SMILE_HOLD_WEIGHT,
+    cosine_weight: float = KREA_EMBED_COSINE_WEIGHT,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """TE-only embed UNI. Does not teach DiT velocity.
+
+    Student: adapted TE encodes **neu** (scale +1).
+    Teacher: stopgrad frozen TE encodes **pos** (disable_adapter / scale 0).
+    Loss is layer-weighted MSE (+ optional 1−cos) on the stacked
+    ``[B, seq, layers, dim]`` hidden states. Unused-token / attribute
+    hold stays light. No Anima structure lock.
+    """
+    if not getattr(backend, "encoder_lora", False):
+        raise ValueError(
+            "--lm_target embed needs a TE adapter; pass --lora_targets te"
+        )
+    unused = unused_words_for(prompt)
+    if hasattr(backend, "set_adapter_scale"):
+        backend.set_adapter_scale(1.0)
+    student, _neu_tokens = backend.encode_text(prompt.neutral)
+    try:
+        teacher, _pos_tokens = backend.encode_text(prompt.positive, frozen=True)
+    except TypeError:
+        teacher, _pos_tokens = backend.encode_text(prompt.positive)
+    teacher = teacher.detach()
+    embed_mse = krea_embed_mse(student, teacher)
+    embed_cos = krea_embed_cosine(student, teacher)
+    loss = krea_embed_uni_loss(student, teacher, cosine_weight=float(cosine_weight))
+
+    pos_embeds, pos_tokens = backend.encode_text(prompt.positive)
+    try:
+        neu_embeds, neu_tokens = backend.encode_text(prompt.neutral, frozen=True)
+    except TypeError:
+        neu_embeds, neu_tokens = backend.encode_text(prompt.neutral)
+    unused_mask = krea_unused_hold_mask(pos_tokens, neu_tokens, unused)
+    hold = krea_unused_hold_loss(
+        pos_embeds, neu_embeds, pos_tokens, neu_tokens, unused_mask
+    )
+    if float(hold_weight) > 0.0:
+        loss = loss + float(hold_weight) * hold
+
+    stats = {
+        "loss": float(loss.detach()),
+        "hold": float(hold.detach()),
+        "embed_mse": float(embed_mse.detach()),
+        "embed_cos": float(embed_cos.detach()),
+        "lm_target": "embed",
+        "minus_teacher": 0.0,
+        "concept_words": ",".join(
+            sorted(krea_concept_words(prompt.positive, prompt.neutral))
+        ),
+    }
+    return loss, stats
+
+
 def krea_step_loss(
     backend: DummyKreaBackend,
     prompt: KreaSliderPrompt,
@@ -349,8 +473,19 @@ def krea_step_loss(
     *,
     guidance: float,
     hold_weight: float = KREA_HOLD_WEIGHT,
+    lm_target: str = KREA_LM_TARGET_DEFAULT,
+    recipe: str = KREA_RECIPE_DEFAULT,
+    embed_cosine_weight: float = KREA_EMBED_COSINE_WEIGHT,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    """One UNI step. Minus is computed for the canary and dropped from the loss."""
+    """One UNI step. Embed path never scores DiT velocity."""
+    resolved = resolve_krea_lm_target(lm_target, recipe)
+    if resolved == "embed":
+        return krea_embed_step_loss(
+            backend,
+            prompt,
+            hold_weight=hold_weight,
+            cosine_weight=float(embed_cosine_weight),
+        )
     unused = unused_words_for(prompt)
     with torch.no_grad():
         v_pos = backend.predict_v(prompt.positive, z, scale=0.0)
@@ -440,11 +575,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         f"Choices: {', '.join(KREA_LORA_TARGET_CHOICES)} plus aliases.",
     )
     parser.add_argument(
+        "--lm_target",
+        type=str,
+        default=KREA_LM_TARGET_DEFAULT,
+        help="v (default): velocity UNI on DiT (+1 → v(pos), 0 → v(neu)). "
+        "embed: TE-only stacked-embed UNI — student E_θ(neu) → "
+        "stopgrad E_frozen(pos) on [B,seq,layers,dim]. Live gap: "
+        "DiT v neu/plus cos≈0.9999 (useless); TE embeds cos≈0.67. "
+        f"Choices/aliases: {', '.join(KREA_LM_TARGET_CHOICES)}.",
+    )
+    parser.add_argument(
+        "--embed_cosine_weight",
+        type=float,
+        default=KREA_EMBED_COSINE_WEIGHT,
+        help="embed UNI: weight on (1−cos) added to layer-weighted MSE. "
+        "0 = MSE only. Ignored when --lm_target v.",
+    )
+    parser.add_argument(
         "--recipe",
-        choices=["uni"],
-        default="uni",
-        help="uni: +1 → + concept, 0 → neu, no minus teacher, unused-token hold. "
-        "Not Music 3 lyric-hold. Not the Music 3 default.",
+        choices=list(KREA_RECIPE_CHOICES),
+        default=KREA_RECIPE_DEFAULT,
+        help="uni: velocity +1 → + concept, 0 → neu, no minus teacher, "
+        "unused-token hold. embed_uni: alias for --lm_target embed "
+        "(TE-only; DiT frozen). Not Music 3 lyric-hold.",
     )
     parser.add_argument(
         "--dummy",
@@ -576,7 +729,23 @@ def train(args: argparse.Namespace) -> Path:
         prompts_path = candidate if candidate.exists() else Path(args.prompts_file)
     prompts, meta = load_prompts(prompts_path)
     card = resolve_krea_card(args.model_id, args.sample_steps, args.sample_guidance)
-    lora_spec = resolve_krea_lora_targets(getattr(args, "lora_targets", KREA_DEFAULT_LORA_TARGETS))
+    lm_target = resolve_krea_lm_target(
+        getattr(args, "lm_target", KREA_LM_TARGET_DEFAULT),
+        getattr(args, "recipe", KREA_RECIPE_DEFAULT),
+    )
+    requested_targets = str(getattr(args, "lora_targets", KREA_DEFAULT_LORA_TARGETS))
+    lora_spec = force_krea_embed_lora_targets(
+        requested_targets, lm_target=lm_target, recipe=getattr(args, "recipe", None)
+    )
+    if lm_target == "embed":
+        krea_embed_requires_te(lora_spec)
+        if requested_targets not in ("te", "text_encoder", "encoder"):
+            print(
+                f"note: --lm_target embed forces --lora_targets te "
+                f"(was {requested_targets!r}); DiT stays frozen"
+            )
+        args.lora_targets = lora_spec.label
+        args.lm_target = lm_target
     steps = int(args.steps)
     if args.dummy:
         steps = min(steps, 2)
@@ -605,6 +774,7 @@ def train(args: argparse.Namespace) -> Path:
 
     print(
         f"train krea slider name={args.name} recipe={args.recipe} "
+        f"lm_target={lm_target} "
         f"rank={args.rank} res={args.resolution} model={args.model_id} "
         f"variant={card['variant']} sample_steps={card['sample_steps']} "
         f"cfg={card['sample_guidance']} dummy={bool(args.dummy)} "
@@ -631,6 +801,11 @@ def train(args: argparse.Namespace) -> Path:
             z,
             guidance=guidance,
             hold_weight=float(args.hold_weight),
+            lm_target=lm_target,
+            recipe=str(getattr(args, "recipe", KREA_RECIPE_DEFAULT)),
+            embed_cosine_weight=float(
+                getattr(args, "embed_cosine_weight", KREA_EMBED_COSINE_WEIGHT)
+            ),
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -664,7 +839,14 @@ def train(args: argparse.Namespace) -> Path:
 
     sidecar = {
         "kind": "krea",
-        "recipe": "uni",
+        "recipe": "embed_uni" if lm_target == "embed" else "uni",
+        "lm_target": lm_target,
+        "embed_cosine_weight": float(
+            getattr(args, "embed_cosine_weight", KREA_EMBED_COSINE_WEIGHT)
+        )
+        if lm_target == "embed"
+        else None,
+        "dit_velocity_supervised": lm_target != "embed",
         "name": args.name,
         "model_id": args.model_id,
         "rank": int(args.rank),

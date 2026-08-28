@@ -20,6 +20,11 @@ Patterns follow mikkel/conceptmod ``conceptmod/backends/krea.py``:
 - Continuous adapter scale writes LoRA ``scaling`` (PEFT
   ``set_adapter_scale`` often no-ops, which made 0.25/0.5/1.0 grids
   byte-identical)
+- ``--lm_target embed`` is TE-only: train scores ``encode_text``
+  stacked embeds ``[B, seq, layers, dim]``, not ``predict_v``.
+  Scale 0 = ``disable_adapter`` / LoRA scale 0; scale +1 = adapter
+  on at 1.0 via ``apply_continuous_lora_scale``. Sample grid still
+  denoises through the frozen base DiT. No Anima structure lock.
 
 The public methods match ``DummyKreaBackend`` so ``krea_step_loss`` is
 unchanged: ``encode_text``, ``predict_v``, ``trainable_parameters``,

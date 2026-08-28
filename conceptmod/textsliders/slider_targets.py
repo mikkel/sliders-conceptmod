@@ -69,6 +69,13 @@ Formulas are copied from:
   direction is conceptmod's ``v(z,t,c) − v(z,t,'')``. Unused
   prompt tokens hold to encode(neu); concept words are not held.
   No minus teacher (canary only). Not lyric-hold.
+  ``--lm_target embed`` (alias ``--recipe embed_uni``) is TE-only
+  stacked-embed UNI: student ``E_θ(neu)`` fits stopgrad
+  ``E_frozen(pos)`` on ``[B, seq, layers, dim]``. Live gap diag:
+  DiT velocity neu/plus cos≈0.9999 (useless); TE embeds
+  ``[1,512,12,2560]`` neu/plus cos≈0.67 (early ~0.91, mid/late
+  ~0.57–0.73). Do not teach v-space on that path. Not Anima
+  ``same_crop`` / ``embed_struct``.
 
 No Hub, no GPU, no model weights.
 """
@@ -2140,6 +2147,32 @@ KREA_LORA_TARGETS = ("to_q", "to_k", "to_v", "to_out.0")
 KREA_TE_LORA_TARGETS = ("q_proj", "k_proj", "v_proj", "o_proj")
 KREA_DEFAULT_LORA_TARGETS = "dit"
 KREA_LORA_TARGET_CHOICES = ("dit", "te", "dit+te")
+# Velocity UNI is the default (``--lm_target v``). Embed UNI is
+# TE-only: live DiT v-gap is microscopic (neu/plus cos≈0.9999);
+# stacked TE embeds [1,512,12,2560] carry the smile Δ (cos≈0.67).
+KREA_LM_TARGET_DEFAULT = "v"
+KREA_LM_TARGETS = ("v", "embed")
+KREA_LM_TARGET_ALIASES = {
+    "velocity": "v",
+    "dit": "v",
+    "uni": "v",
+    "embed_uni": "embed",
+    "te": "embed",
+    "te_embed": "embed",
+    "text_encoder": "embed",
+}
+KREA_LM_TARGET_CHOICES = KREA_LM_TARGETS + tuple(KREA_LM_TARGET_ALIASES)
+KREA_RECIPE_CHOICES = ("uni", "embed_uni")
+KREA_RECIPE_DEFAULT = "uni"
+# Live Qwen3-VL stack is 12 layers. Diag: layers 0–1 ~0.91,
+# layers 2–11 ~0.57–0.73. Weight mid/late more.
+KREA_EMBED_N_LAYERS_LIVE = 12
+KREA_EMBED_EARLY_LAYERS = 2
+KREA_EMBED_EARLY_WEIGHT = 0.25
+KREA_EMBED_MID_LATE_WEIGHT = 1.0
+KREA_EMBED_COSINE_WEIGHT = 1.0
+KREA_DUMMY_EMBED_LAYERS = 4
+KREA_DUMMY_EMBED_SEQ = 8
 
 
 @dataclass(frozen=True)
@@ -2223,6 +2256,70 @@ def resolve_krea_lora_targets(lora_targets: str | None = None) -> KreaLoraSpec:
         train_dit="dit" in parts,
         train_te="te" in parts,
     )
+
+
+def resolve_krea_lm_target(
+    lm_target: str | None = None,
+    recipe: str | None = None,
+) -> str:
+    """``v`` (velocity UNI, default) or ``embed`` (TE-only stacked embeds).
+
+    ``--recipe embed_uni`` is an alias for ``--lm_target embed``.
+    Conflicting flags fail closed. Music 3 ``--lm_target v9`` is a
+    different trainer and is not accepted here.
+    """
+    raw_lm = None if lm_target is None else str(lm_target).strip().lower()
+    raw_recipe = None if recipe is None else str(recipe).strip().lower()
+    from_recipe = None
+    if raw_recipe:
+        if raw_recipe not in KREA_RECIPE_CHOICES:
+            raise ValueError(
+                f"krea recipe must be one of {KREA_RECIPE_CHOICES}, got {recipe!r}"
+            )
+        # ``uni`` is the default velocity recipe and must not override
+        # an explicit ``--lm_target embed``.
+        if raw_recipe == "embed_uni":
+            from_recipe = "embed"
+    from_lm = None
+    if raw_lm:
+        from_lm = KREA_LM_TARGET_ALIASES.get(raw_lm, raw_lm)
+        if from_lm not in KREA_LM_TARGETS:
+            raise ValueError(
+                f"krea lm_target must be one of {KREA_LM_TARGET_CHOICES}, "
+                f"got {lm_target!r}"
+            )
+    if from_lm and from_recipe and from_lm != from_recipe:
+        # argparse default is ``--lm_target v``. ``--recipe embed_uni``
+        # is the explicit opt-in and wins over that default.
+        if from_recipe == "embed" and from_lm == "v":
+            return "embed"
+        raise ValueError(
+            f"krea lm_target={lm_target!r} conflicts with recipe={recipe!r}"
+        )
+    return from_lm or from_recipe or KREA_LM_TARGET_DEFAULT
+
+
+def krea_embed_requires_te(lora_spec: KreaLoraSpec) -> None:
+    """Fail closed: embed UNI has no concept signal without TE LoRA."""
+    if not lora_spec.train_te or lora_spec.train_dit:
+        raise ValueError(
+            "--lm_target embed is TE-only (DiT stays frozen); "
+            "pass --lora_targets te. dit / dit+te still teach v-space "
+            "and the live DiT neu/plus gap is cos≈0.9999."
+        )
+
+
+def force_krea_embed_lora_targets(
+    lora_targets: str | None = None,
+    *,
+    lm_target: str | None = None,
+    recipe: str | None = None,
+) -> KreaLoraSpec:
+    """Embed UNI forces ``te`` (DiT frozen). Velocity keeps the caller spec."""
+    lm = resolve_krea_lm_target(lm_target, recipe)
+    if lm == "embed":
+        return resolve_krea_lora_targets("te")
+    return resolve_krea_lora_targets(lora_targets)
 
 
 def _is_lora_delta_layer(module) -> bool:
@@ -2332,9 +2429,140 @@ def krea_plus_neu_loss(
     """UNI velocity MSE: student +1 fits ``v(pos)``, student 0 fits ``v(neu)``.
 
     No minus MSE, no pair-odd, no ``h0 ± a``. Image analog of
-    ``lm_plus_neu_loss`` — not lyric-hold.
+    ``lm_plus_neu_loss`` — not lyric-hold. Not used by
+    ``--lm_target embed``.
     """
     return F.mse_loss(pred_plus, tgt_plus) + F.mse_loss(pred_zero, tgt_zero)
+
+
+def krea_embed_as_stacked(embeds: torch.Tensor) -> torch.Tensor:
+    """Normalize TE hidden states to ``[B, T, L, D]``.
+
+    Live Krea ``get_text_hidden_states`` is ``[B, T, 12, 2560]``.
+    Dummy word-table encodes are ``[T, D]`` (one implicit layer) or
+    stacked dummy TE ``[B, T, L, D]`` / ``[T, L, D]``.
+    """
+    if embeds.dim() == 4:
+        return embeds
+    if embeds.dim() == 3:
+        # [T, L, D] if last dim is hidden; [B, T, D] has no layer stack.
+        # Dummy stacked TE always writes 4D. Treat 3D as [B, T, D] → L=1.
+        return embeds.unsqueeze(2)
+    if embeds.dim() == 2:
+        return embeds.unsqueeze(0).unsqueeze(2)
+    raise ValueError(f"krea embeds must be 2D/3D/4D, got {tuple(embeds.shape)}")
+
+
+def krea_embed_layer_weights(
+    n_layers: int,
+    *,
+    early_layers: int = KREA_EMBED_EARLY_LAYERS,
+    early_weight: float = KREA_EMBED_EARLY_WEIGHT,
+    mid_late_weight: float = KREA_EMBED_MID_LATE_WEIGHT,
+    device=None,
+    dtype=None,
+) -> torch.Tensor:
+    """Per-layer weights. Layers ``0 .. early-1`` are down-weighted.
+
+    Live diag: early (0–1) neu/plus cos≈0.91; mid/late (2–11) ≈0.57–0.73.
+    Dummy uses 4 layers with the same split (0–1 vs 2–3).
+    """
+    n = max(int(n_layers), 1)
+    weights = torch.full((n,), float(mid_late_weight), device=device, dtype=dtype)
+    n_early = min(max(int(early_layers), 0), n)
+    if n_early:
+        weights[:n_early] = float(early_weight)
+    return weights
+
+
+def krea_embed_mse(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    *,
+    layer_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Layer-weighted MSE on stacked TE embeds.
+
+    Same ``[B, T, L, D]`` → token-and-hidden MSE per layer, then a
+    weighted mean over layers. Different sequence length → pool T
+    (live pads to 512 so this is dummy-only).
+    """
+    pred = krea_embed_as_stacked(pred)
+    tgt = krea_embed_as_stacked(tgt)
+    if pred.shape[-1] != tgt.shape[-1] or pred.shape[2] != tgt.shape[2]:
+        raise ValueError(
+            f"krea embed shapes must share layers/dim, got {tuple(pred.shape)} "
+            f"vs {tuple(tgt.shape)}"
+        )
+    if pred.shape[1] != tgt.shape[1]:
+        pred = pred.mean(dim=1, keepdim=True)
+        tgt = tgt.mean(dim=1, keepdim=True)
+    # (pred − tgt)² mean over B, T, D → [L]
+    se = (pred - tgt).pow(2).mean(dim=(0, 1, 3))
+    weights = layer_weights
+    if weights is None:
+        weights = krea_embed_layer_weights(
+            int(se.numel()), device=se.device, dtype=se.dtype
+        )
+    else:
+        weights = weights.to(device=se.device, dtype=se.dtype).reshape(-1)
+        if int(weights.numel()) != int(se.numel()):
+            raise ValueError(
+                f"layer_weights length {int(weights.numel())} != {int(se.numel())} layers"
+            )
+    denom = weights.sum().clamp_min(1e-8)
+    return (se * weights).sum() / denom
+
+
+def krea_embed_cosine(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    *,
+    layer_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Layer-weighted cosine of stacked embeds (diag-style per layer)."""
+    pred = krea_embed_as_stacked(pred)
+    tgt = krea_embed_as_stacked(tgt)
+    if pred.shape[1] != tgt.shape[1]:
+        pred = pred.mean(dim=1, keepdim=True)
+        tgt = tgt.mean(dim=1, keepdim=True)
+    n_layers = int(pred.shape[2])
+    cosines = []
+    for layer in range(n_layers):
+        a = pred[:, :, layer].reshape(pred.shape[0], -1)
+        b = tgt[:, :, layer].reshape(tgt.shape[0], -1)
+        cosines.append(F.cosine_similarity(a, b, dim=-1, eps=1e-6).mean())
+    stacked = torch.stack(cosines)
+    weights = layer_weights
+    if weights is None:
+        weights = krea_embed_layer_weights(
+            n_layers, device=stacked.device, dtype=stacked.dtype
+        )
+    else:
+        weights = weights.to(device=stacked.device, dtype=stacked.dtype).reshape(-1)
+    denom = weights.sum().clamp_min(1e-8)
+    return (stacked * weights).sum() / denom
+
+
+def krea_embed_uni_loss(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    *,
+    layer_weights: torch.Tensor | None = None,
+    cosine_weight: float = KREA_EMBED_COSINE_WEIGHT,
+) -> torch.Tensor:
+    """TE-only UNI: student ``E_θ(neu)`` → stopgrad ``E_frozen(pos)``.
+
+    Layer-weighted MSE on the full stack, plus optional ``1 − cos``.
+    ``tgt`` must already be stopgrad. No DiT velocity term. No Anima
+    structure lock.
+    """
+    mse = krea_embed_mse(pred, tgt, layer_weights=layer_weights)
+    weight = float(cosine_weight)
+    if weight <= 0.0:
+        return mse
+    cos = krea_embed_cosine(pred, tgt, layer_weights=layer_weights)
+    return mse + weight * (1.0 - cos)
 
 
 def krea_minus_canary(v_neg: torch.Tensor, v_uncond: torch.Tensor) -> torch.Tensor:
