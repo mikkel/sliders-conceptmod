@@ -2793,13 +2793,20 @@ def krea_embed_late_l2(
 
 
 def krea_embed_train_stats(
-    pred: torch.Tensor, tgt: torch.Tensor
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    *,
+    late_layer_start: int = KREA_EMBED_LATE_LAYER_START,
 ) -> dict[str, float]:
     """Train-log extras: max-abs residual, late L2, per-layer L2, rel-L2."""
     layer_l2 = krea_embed_layer_l2(pred, tgt)
     stats: dict[str, float] = {
         "embed_max_abs": float(krea_embed_max_abs(pred, tgt).detach()),
-        "embed_late_l2": float(krea_embed_late_l2(pred, tgt).detach()),
+        "embed_late_l2": float(
+            krea_embed_late_l2(
+                pred, tgt, late_layer_start=int(late_layer_start)
+            ).detach()
+        ),
         "embed_rel_l2": float(krea_embed_rel_l2(pred, tgt).detach()),
     }
     for index, value in enumerate(layer_l2.detach()):
