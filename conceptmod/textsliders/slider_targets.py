@@ -74,7 +74,11 @@ Formulas are copied from:
   ``E_frozen(pos)`` on ``[B, seq, layers, dim]``. Live gap diag:
   DiT velocity neu/plus cos≈0.9999 (useless); TE embeds
   ``[1,512,12,2560]`` neu/plus cos≈0.67 (early ~0.91, mid/late
-  ~0.57–0.73). Do not teach v-space on that path. Not Anima
+  ~0.57–0.73). Default embed loss is layer-weighted MSE plus
+  relative L2 (``||s−t||² / (||t||²+eps)``); cosine is opt-in
+  (default weight 0) because live transplant showed cos≈0.9959
+  with max_abs≈147 and teeth only after matching magnitude /
+  late layers 6–11. Do not teach v-space on that path. Not Anima
   ``same_crop`` / ``embed_struct``.
 
 No Hub, no GPU, no model weights.
@@ -2165,12 +2169,21 @@ KREA_LM_TARGET_CHOICES = KREA_LM_TARGETS + tuple(KREA_LM_TARGET_ALIASES)
 KREA_RECIPE_CHOICES = ("uni", "embed_uni")
 KREA_RECIPE_DEFAULT = "uni"
 # Live Qwen3-VL stack is 12 layers. Diag: layers 0–1 ~0.91,
-# layers 2–11 ~0.57–0.73. Weight mid/late more.
+# layers 2–11 ~0.57–0.73. Late transplant (L6–11) recovered
+# teeth; cosine hid a residual magnitude gap (max_abs≈147).
+# Early 0–1 very low; mid 2–5 = 1.0; late 6–11 heavier.
 KREA_EMBED_N_LAYERS_LIVE = 12
 KREA_EMBED_EARLY_LAYERS = 2
-KREA_EMBED_EARLY_WEIGHT = 0.25
-KREA_EMBED_MID_LATE_WEIGHT = 1.0
-KREA_EMBED_COSINE_WEIGHT = 1.0
+KREA_EMBED_EARLY_WEIGHT = 0.1
+KREA_EMBED_MID_WEIGHT = 1.0
+KREA_EMBED_MID_LATE_WEIGHT = KREA_EMBED_MID_WEIGHT  # mid-band alias
+KREA_EMBED_LATE_LAYER_START = 6
+KREA_EMBED_LATE_WEIGHT = 2.0
+# Cosine hid the live magnitude gap. Default is MSE + rel-L2;
+# ``--embed_cosine_weight`` stays as an opt-in.
+KREA_EMBED_COSINE_WEIGHT = 0.0
+KREA_EMBED_REL_L2_WEIGHT = 1.0
+KREA_EMBED_REL_L2_EPS = 1e-8
 KREA_DUMMY_EMBED_LAYERS = 4
 KREA_DUMMY_EMBED_SEQ = 8
 # Raw CFG 4.5 fights TE-only: both CFG branches under the same TE
@@ -2448,7 +2461,11 @@ def krea_oracle_readout() -> str:
         f"despite embed_cos>{KREA_ORACLE_EMBED_COS:g} → remaining apply bug "
         "(v4 CFG uncond; v5 TE ones-mask: plus is longer than neu, UNI "
         "matched the full [B,512,12,2560] stack, but the neu tokenizer "
-        "mask hid the smile slots). "
+        "mask hid the smile slots) OR residual magnitude gap "
+        "(cosine≠magnitude; live transplant: cos≈0.9959 but max_abs≈147; "
+        "frozen-plus embeds → teeth even with ones mask; student embeds → "
+        "no teeth; lerp 0.5 and late-layer L6–11 transplant from plus → "
+        "teeth). Gate on teeth vs oracle, not embed_cos alone. "
         "If oracle also lacks teeth → caption teacher is weak in pixels "
         "(need harder plus / different path)."
     )
@@ -2616,17 +2633,25 @@ def krea_embed_layer_weights(
     *,
     early_layers: int = KREA_EMBED_EARLY_LAYERS,
     early_weight: float = KREA_EMBED_EARLY_WEIGHT,
-    mid_late_weight: float = KREA_EMBED_MID_LATE_WEIGHT,
+    mid_late_weight: float = KREA_EMBED_MID_WEIGHT,
+    late_layer_start: int = KREA_EMBED_LATE_LAYER_START,
+    late_weight: float = KREA_EMBED_LATE_WEIGHT,
     device=None,
     dtype=None,
 ) -> torch.Tensor:
-    """Per-layer weights. Layers ``0 .. early-1`` are down-weighted.
+    """Per-layer weights: early low, mid 1.0, late (6–11) heavier.
 
-    Live diag: early (0–1) neu/plus cos≈0.91; mid/late (2–11) ≈0.57–0.73.
-    Dummy uses 4 layers with the same split (0–1 vs 2–3).
+    Live: early 0–1 very low; mid 2–5 = ``mid_late_weight``; late
+    ``late_layer_start``…end = ``late_weight`` (teeth recovered from
+    L6–11 transplant). Dummy (4 layers): late_start is past the
+    stack, so 0–1 early / 2–3 mid. Early is applied last so it
+    stays low if bands overlap.
     """
     n = max(int(n_layers), 1)
     weights = torch.full((n,), float(mid_late_weight), device=device, dtype=dtype)
+    start = min(max(int(late_layer_start), 0), n)
+    if start < n:
+        weights[start:] = float(late_weight)
     n_early = min(max(int(early_layers), 0), n)
     if n_early:
         weights[:n_early] = float(early_weight)
@@ -2702,25 +2727,111 @@ def krea_embed_cosine(
     return (stacked * weights).sum() / denom
 
 
+def _krea_embed_aligned_pair(
+    pred: torch.Tensor, tgt: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Stack to ``[B, T, L, D]`` and pool T when sequence lengths differ."""
+    pred = krea_embed_as_stacked(pred)
+    tgt = krea_embed_as_stacked(tgt)
+    if pred.shape[-1] != tgt.shape[-1] or pred.shape[2] != tgt.shape[2]:
+        raise ValueError(
+            f"krea embed shapes must share layers/dim, got {tuple(pred.shape)} "
+            f"vs {tuple(tgt.shape)}"
+        )
+    if pred.shape[1] != tgt.shape[1]:
+        pred = pred.mean(dim=1, keepdim=True)
+        tgt = tgt.mean(dim=1, keepdim=True)
+    return pred, tgt
+
+
+def krea_embed_rel_l2(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    *,
+    eps: float = KREA_EMBED_REL_L2_EPS,
+) -> torch.Tensor:
+    """Mean over layers of ``||s−t||² / (||t||²+eps)``.
+
+    Scale-invariant per layer: a high-cos / wrong-magnitude student
+    still scores high. Unweighted mean — layer weights already apply
+    to MSE. ``tgt`` must already be stopgrad.
+    """
+    pred, tgt = _krea_embed_aligned_pair(pred, tgt)
+    diff_sq = (pred - tgt).pow(2).sum(dim=(0, 1, 3))
+    tgt_sq = tgt.pow(2).sum(dim=(0, 1, 3)).clamp_min(float(eps))
+    return (diff_sq / tgt_sq).mean()
+
+
+def krea_embed_layer_l2(pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+    """Per-layer Frobenius L2 of ``s−t`` → ``[L]``."""
+    pred, tgt = _krea_embed_aligned_pair(pred, tgt)
+    return (pred - tgt).pow(2).sum(dim=(0, 1, 3)).sqrt()
+
+
+def krea_embed_max_abs(pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+    """``max |s−t|`` on the aligned stack (live residual was ≈147)."""
+    pred, tgt = _krea_embed_aligned_pair(pred, tgt)
+    return (pred - tgt).abs().max()
+
+
+def krea_embed_late_l2(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    *,
+    late_layer_start: int = KREA_EMBED_LATE_LAYER_START,
+    early_layers: int = KREA_EMBED_EARLY_LAYERS,
+) -> torch.Tensor:
+    """Mean L2 on late layers (6–11 live). Dummy uses post-early layers."""
+    layer_l2 = krea_embed_layer_l2(pred, tgt)
+    n = int(layer_l2.numel())
+    start = int(late_layer_start)
+    if start >= n:
+        start = min(max(int(early_layers), 0), max(n - 1, 0))
+    if n == 0:
+        return layer_l2.sum() * 0.0
+    return layer_l2[start:].mean()
+
+
+def krea_embed_train_stats(
+    pred: torch.Tensor, tgt: torch.Tensor
+) -> dict[str, float]:
+    """Train-log extras: max-abs residual, late L2, per-layer L2, rel-L2."""
+    layer_l2 = krea_embed_layer_l2(pred, tgt)
+    stats: dict[str, float] = {
+        "embed_max_abs": float(krea_embed_max_abs(pred, tgt).detach()),
+        "embed_late_l2": float(krea_embed_late_l2(pred, tgt).detach()),
+        "embed_rel_l2": float(krea_embed_rel_l2(pred, tgt).detach()),
+    }
+    for index, value in enumerate(layer_l2.detach()):
+        stats[f"embed_l2_l{index}"] = float(value)
+    return stats
+
+
 def krea_embed_uni_loss(
     pred: torch.Tensor,
     tgt: torch.Tensor,
     *,
     layer_weights: torch.Tensor | None = None,
     cosine_weight: float = KREA_EMBED_COSINE_WEIGHT,
+    rel_l2_weight: float = KREA_EMBED_REL_L2_WEIGHT,
 ) -> torch.Tensor:
     """TE-only UNI: student ``E_θ(neu)`` → stopgrad ``E_frozen(pos)``.
 
-    Layer-weighted MSE on the full stack, plus optional ``1 − cos``.
+    Default is layer-weighted MSE plus relative L2 so scale cannot
+    drift. ``1 − cos`` is opt-in (default weight 0): live student
+    matched plus at cos≈0.9959 with max_abs≈147 and no teeth.
     ``tgt`` must already be stopgrad. No DiT velocity term. No Anima
     structure lock.
     """
-    mse = krea_embed_mse(pred, tgt, layer_weights=layer_weights)
-    weight = float(cosine_weight)
-    if weight <= 0.0:
-        return mse
-    cos = krea_embed_cosine(pred, tgt, layer_weights=layer_weights)
-    return mse + weight * (1.0 - cos)
+    loss = krea_embed_mse(pred, tgt, layer_weights=layer_weights)
+    rel_w = float(rel_l2_weight)
+    if rel_w > 0.0:
+        loss = loss + rel_w * krea_embed_rel_l2(pred, tgt)
+    cos_w = float(cosine_weight)
+    if cos_w > 0.0:
+        cos = krea_embed_cosine(pred, tgt, layer_weights=layer_weights)
+        loss = loss + cos_w * (1.0 - cos)
+    return loss
 
 
 def krea_minus_canary(v_neg: torch.Tensor, v_uncond: torch.Tensor) -> torch.Tensor:

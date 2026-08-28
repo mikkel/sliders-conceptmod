@@ -22,6 +22,11 @@ from conceptmod.textsliders.slider_targets import (
     KREA_DUMMY_EMBED_SEQ,
     KREA_EMBED_COSINE_WEIGHT,
     KREA_EMBED_EARLY_LAYERS,
+    KREA_EMBED_EARLY_WEIGHT,
+    KREA_EMBED_LATE_LAYER_START,
+    KREA_EMBED_LATE_WEIGHT,
+    KREA_EMBED_MID_WEIGHT,
+    KREA_EMBED_REL_L2_WEIGHT,
     KREA_EMBED_SAMPLE_CFG,
     KREA_HOLD_WEIGHT,
     KREA_LM_TARGET_DEFAULT,
@@ -53,8 +58,11 @@ from conceptmod.textsliders.slider_targets import (
     krea_embed_as_stacked,
     krea_embed_cosine,
     krea_embed_layer_weights,
+    krea_embed_max_abs,
     krea_embed_mse,
+    krea_embed_rel_l2,
     krea_embed_requires_te,
+    krea_embed_train_stats,
     krea_embed_uni_loss,
     krea_hold_unused_embeds,
     krea_looks_turbo,
@@ -728,6 +736,13 @@ def test_lm_target_resolver_and_cli():
     assert bare.recipe == KREA_RECIPE_DEFAULT == "uni"
     embed = parse_args(["--lm_target", "embed", "--lora_targets", "te"])
     assert embed.lm_target == "embed"
+    assert embed.embed_cosine_weight == pytest.approx(KREA_EMBED_COSINE_WEIGHT)
+    assert embed.embed_cosine_weight == pytest.approx(0.0)
+    assert embed.embed_rel_l2_weight == pytest.approx(KREA_EMBED_REL_L2_WEIGHT)
+    assert embed.embed_rel_l2_weight == pytest.approx(1.0)
+    bare_flags = parse_args([])
+    assert bare_flags.embed_cosine_weight == pytest.approx(0.0)
+    assert bare_flags.embed_rel_l2_weight == pytest.approx(1.0)
     alias = parse_args(["--recipe", "embed_uni"])
     assert resolve_krea_lm_target(alias.lm_target, alias.recipe) == "embed"
     forced = force_krea_embed_lora_targets("dit+te", lm_target="embed")
@@ -767,6 +782,62 @@ def test_embed_uni_loss_mse_and_cosine():
     assert float(combo) > float(mse_only)
     ones = torch.ones(1, 4, 4, 8)
     assert float(krea_embed_cosine(ones, ones)) == pytest.approx(1.0, abs=1e-5)
+    assert KREA_EMBED_COSINE_WEIGHT == pytest.approx(0.0)
+    assert KREA_EMBED_REL_L2_WEIGHT == pytest.approx(1.0)
+
+
+def test_embed_uni_loss_high_cos_wrong_magnitude_stays_high():
+    """Default loss (MSE + rel-L2, cosine 0) catches scale drift."""
+    tgt = torch.ones(1, 4, 12, 8) * 10.0
+    pred = tgt * 0.01
+    cos = float(krea_embed_cosine(pred, tgt))
+    assert cos > 0.99
+    assert float(1.0 - krea_embed_cosine(pred, tgt)) < 0.01
+    default = float(krea_embed_uni_loss(pred, tgt))
+    mse_only = float(krea_embed_uni_loss(pred, tgt, cosine_weight=0.0, rel_l2_weight=0.0))
+    rel = float(krea_embed_rel_l2(pred, tgt))
+    cos_term = float(
+        krea_embed_uni_loss(pred, tgt, cosine_weight=1.0, rel_l2_weight=0.0)
+    )
+    assert default > 0.5
+    assert rel > 0.5
+    assert default > mse_only
+    assert abs(cos_term - mse_only) < 1e-4
+    assert float(krea_embed_max_abs(pred, tgt)) == pytest.approx(9.9, abs=1e-5)
+    assert float(krea_embed_uni_loss(tgt, tgt)) == pytest.approx(0.0, abs=1e-8)
+    logged = krea_embed_train_stats(pred, tgt)
+    assert logged["embed_max_abs"] == pytest.approx(9.9, abs=1e-5)
+    assert logged["embed_late_l2"] > 0.0
+    assert "embed_l2_l6" in logged
+    assert "embed_l2_l11" in logged
+
+
+def test_embed_late_layers_weigh_more_than_mid_and_early():
+    weights = krea_embed_layer_weights(12)
+    assert int(weights.numel()) == 12
+    assert float(weights[0]) == pytest.approx(KREA_EMBED_EARLY_WEIGHT)
+    assert float(weights[1]) == pytest.approx(KREA_EMBED_EARLY_WEIGHT)
+    assert float(weights[2]) == pytest.approx(KREA_EMBED_MID_WEIGHT)
+    assert float(weights[5]) == pytest.approx(KREA_EMBED_MID_WEIGHT)
+    assert float(weights[6]) == pytest.approx(KREA_EMBED_LATE_WEIGHT)
+    assert float(weights[11]) == pytest.approx(KREA_EMBED_LATE_WEIGHT)
+    assert KREA_EMBED_LATE_LAYER_START == 6
+    assert float(weights[0]) < float(weights[2]) < float(weights[6])
+
+    tgt = torch.ones(1, 2, 12, 4)
+
+    def miss_layer(index: int) -> torch.Tensor:
+        pred = tgt.clone()
+        pred[:, :, index, :] = 0.0
+        return pred
+
+    late = float(krea_embed_mse(miss_layer(8), tgt))
+    mid = float(krea_embed_mse(miss_layer(4), tgt))
+    early = float(krea_embed_mse(miss_layer(0), tgt))
+    assert late > mid > early
+    dummy_w = krea_embed_layer_weights(4)
+    assert float(dummy_w[0]) < float(dummy_w[2])
+    assert float(dummy_w[2]) == pytest.approx(KREA_EMBED_MID_WEIGHT)
 
 
 def test_dummy_te_emits_stacked_embeds():
@@ -814,6 +885,10 @@ def test_dummy_embed_step_has_te_grad_no_dit_and_no_velocity():
     assert stats["minus_teacher"] == 0.0
     assert "embed_mse" in stats
     assert "embed_cos" in stats
+    assert "embed_max_abs" in stats
+    assert "embed_late_l2" in stats
+    assert "embed_rel_l2" in stats
+    assert "embed_l2_l0" in stats
     assert "cfg_dir_norm" not in stats
     assert torch.isfinite(loss)
     loss.backward()
@@ -860,6 +935,8 @@ def test_dummy_smile_v3_embed_train(tmp_path: Path):
     assert payload["te_parking"] is False
     assert payload["hold_weight"] == pytest.approx(KREA_SMILE_HOLD_WEIGHT)
     assert payload["embed_cosine_weight"] == pytest.approx(KREA_EMBED_COSINE_WEIGHT)
+    assert payload["embed_cosine_weight"] == pytest.approx(0.0)
+    assert payload["embed_rel_l2_weight"] == pytest.approx(KREA_EMBED_REL_L2_WEIGHT)
     assert payload["te_lora_path"] == "smile-krea-v3-dummy_lora/te_lora"
     assert payload["dit_lora_path"] is None
     assert payload["plus_label"] == "Happy"
@@ -874,6 +951,9 @@ def test_dummy_smile_v3_embed_train(tmp_path: Path):
     assert len(lines) == 2
     assert lines[0]["lm_target"] == "embed"
     assert "embed_mse" in lines[0]
+    assert "embed_max_abs" in lines[0]
+    assert "embed_late_l2" in lines[0]
+    assert "embed_l2_l0" in lines[0]
     assert "cfg_dir_norm" not in lines[0]
     pngs = list((tmp_path / "samples").glob("*.png"))
     assert len(pngs) == 12
@@ -929,12 +1009,20 @@ def test_velocity_path_still_default_after_embed_flag():
     assert stats.get("lm_target") != "embed"
     assert torch.isfinite(loss)
     assert KREA_EMBED_EARLY_LAYERS == 2
+    assert KREA_EMBED_LATE_LAYER_START == 6
 
 
 def test_docs_list_smile_krea_v4_card():
     docs = (ROOT / "docs/krea-slider.md").read_text(encoding="utf-8")
     assert "--name smile-krea-v4" in docs
     assert "--sample_guidance 0" in docs
+    assert "--embed_cosine_weight 0" in docs
+    assert "--te_dit_mask auto" in docs
+    assert "--steps 800" in docs
+    assert "max_abs" in docs
+    assert "cosine≠magnitude" in docs or "cosine hid" in docs
+    assert "teeth vs oracle" in docs
+    assert "not embed_cos" in docs or "not `embed_cos`" in docs
     assert "oracle_plus_frozen" in docs
     assert "student_neu_scale1" in docs
     assert "frozen TE" in docs
