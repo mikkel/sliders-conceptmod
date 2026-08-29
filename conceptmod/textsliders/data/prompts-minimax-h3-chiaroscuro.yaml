@@ -1,46 +1,49 @@
 # MiniMax-H3 UNI slider — chiaroscuro / dramatic lighting (FL2VA t2va).
 #
 # Same concrete subject in neu and plus (Krea detail-v3 lesson: lighting
-# delta only, not a style jump). Subject locks are tighter than v1/v2:
-# same clothes / furniture / vase pattern on both poles so identity
-# cannot drift when the lighting words change. Neu is flat even lighting
-# / soft fill / low contrast and still photographic — not cartoon
-# "simple flat". Plus is that same subject with chiaroscuro, dramatic
-# single-source side light, deep shadows, high contrast.
+# delta only, not a style jump). Subject locks are tighter than v3:
+# person denim + white tee / windsor chairs + fruit-bowl contents /
+# painted scholar scene on both poles so identity cannot drift when
+# the lighting words change. Neu is flat even lighting / soft fill /
+# low contrast and still photographic — not cartoon "simple flat".
+# Plus is that same subject with chiaroscuro, dramatic single-source
+# side light, deep shadows, high contrast.
 #
 # Default hold is non_concept (Music 3 lyric-hold analog): every token
 # that is not a concept word (ids in plus but not in neu) is pinned to
 # encode(neu). Yaml unused attributes (male / female) are a subset of
 # that hold. v1/v2 attribute-only hold left shared subject tokens free
-# and Omni LoRA rewrote clothes / props / vase pattern.
+# and Omni LoRA rewrote clothes / props / vase pattern. v3 non_concept
+# hold + looser locks passed person identity but room furniture and
+# painted vase figures still drifted.
 #
 # Yaml negative / unconditional is a washed-out flat / featureless
 # lighting canary only — not a teacher.
 #
-# Three short t2va clip rows: person, interior room, still life.
-- target: person sitting in a chair wearing a blue denim shirt
-  positive: person sitting in a chair wearing a blue denim shirt, chiaroscuro, dramatic single-source side light, deep shadows, high contrast
-  neutral: person sitting in a chair wearing a blue denim shirt, flat even lighting, soft fill, low contrast
-  unconditional: person sitting in a chair wearing a blue denim shirt, washed-out flat featureless lighting
-  negative: person sitting in a chair wearing a blue denim shirt, washed-out flat featureless lighting
+# Three short t2va clip rows: person, interior dining room, still life.
+- target: person sitting in a chair wearing a blue denim shirt over a white tee
+  positive: person sitting in a chair wearing a blue denim shirt over a white tee, chiaroscuro, dramatic single-source side light, deep shadows, high contrast
+  neutral: person sitting in a chair wearing a blue denim shirt over a white tee, flat even lighting, soft fill, low contrast
+  unconditional: person sitting in a chair wearing a blue denim shirt over a white tee, washed-out flat featureless lighting
+  negative: person sitting in a chair wearing a blue denim shirt over a white tee, washed-out flat featureless lighting
   attributes:
     - male
     - female
   action: enhance
-- target: interior room with a wooden chair and table with a fruit bowl
-  positive: interior room with a wooden chair and table with a fruit bowl, chiaroscuro, dramatic single-source side light, deep shadows, high contrast
-  neutral: interior room with a wooden chair and table with a fruit bowl, flat even lighting, soft fill, low contrast
-  unconditional: interior room with a wooden chair and table with a fruit bowl, washed-out flat featureless lighting
-  negative: interior room with a wooden chair and table with a fruit bowl, washed-out flat featureless lighting
+- target: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges
+  positive: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, chiaroscuro, dramatic single-source side light, deep shadows, high contrast
+  neutral: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, flat even lighting, soft fill, low contrast
+  unconditional: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, washed-out flat featureless lighting
+  negative: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, washed-out flat featureless lighting
   attributes:
     - male
     - female
   action: enhance
-- target: blue and white ceramic vase with painted figures on a wooden table
-  positive: blue and white ceramic vase with painted figures on a wooden table, chiaroscuro, dramatic single-source side light, deep shadows, high contrast
-  neutral: blue and white ceramic vase with painted figures on a wooden table, flat even lighting, soft fill, low contrast
-  unconditional: blue and white ceramic vase with painted figures on a wooden table, washed-out flat featureless lighting
-  negative: blue and white ceramic vase with painted figures on a wooden table, washed-out flat featureless lighting
+- target: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table
+  positive: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table, chiaroscuro, dramatic single-source side light, deep shadows, high contrast
+  neutral: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table, flat even lighting, soft fill, low contrast
+  unconditional: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table, washed-out flat featureless lighting
+  negative: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table, washed-out flat featureless lighting
   attributes:
     - male
     - female
