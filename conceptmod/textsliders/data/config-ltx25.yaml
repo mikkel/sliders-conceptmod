@@ -1,0 +1,74 @@
+prompts_file: "conceptmod/textsliders/data/prompts-ltx25-smile.yaml"
+pretrained_model:
+  name_or_path: "Lightricks/LTX-2.5-Diffusers"
+  transformer_subfolder: "transformer"
+  transformer_full: "transformer_full"
+  text_encoder: "gemma4_unified"
+  stack: "ltx2_flow_velocity"
+  cfg_distilled: true
+  ignore_on_first_download:
+    - transformer_full/*
+network:
+  type: "lierla"
+  rank: 8
+  alpha: 8.0
+  lora_up_init_std: 0.02
+  training_method: "attn"
+  target: "LTX2Attention"
+  hosts:
+    - attn1
+    - attn2
+  linears:
+    - to_q
+    - to_k
+    - to_v
+    - to_out.0
+  skip:
+    - audio_attn1
+    - audio_attn2
+    - audio_to_video_attn
+    - video_to_audio_attn
+    - ff
+    - adaln
+  train_adaln: false
+train:
+  recipe: "ltx25_uni_velocity"
+  precision: "bfloat16"
+  iterations: 500
+  lr: 0.0001
+  optimizer: "AdamW"
+  hold_mode: "non_concept"
+  hold_stage: "pre_connector"
+  student_plus: "neu"
+  num_frames: 9
+  height: 32
+  width: 32
+  sample_num_frames: 49
+  sample_height: 544
+  sample_width: 960
+  guidance: 1.0
+  stg_scale: 0
+  modality_scale: 0
+  sigmas: "DISTILLED_SIGMA_VALUES"
+  prompt_enhancer: false
+  decoder: "conv_vae"
+  encoder_device: "cpu"
+  freeze:
+    - text_encoder
+    - connectors
+    - vae
+    - audio_vae
+    - vocoder
+    - tokenizer
+    - processor
+    - prompt_enhancer
+    - duration_head
+    - diffusion_decoder
+save:
+  name: "smile-ltx25-uni"
+  path: "./models"
+  per_steps: 100
+  precision: "float32"
+logging:
+  use_wandb: false
+  verbose: false

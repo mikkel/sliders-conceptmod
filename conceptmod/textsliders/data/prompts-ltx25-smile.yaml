@@ -1,0 +1,33 @@
+# LTX-2.5 UNI smile / happy slider — Krea-happy / Anima teeth vs closed-mouth.
+#
+# Bare captions. Do NOT prefix attributes onto target / positive / neutral.
+# attributes pin unused gender for hold bookkeeping only.
+#
+# Same-subject teachers: closed-mouth / neutral vs visible teeth / smile.
+# Long-ish AV paragraphs. Motion, light, and sound are IDENTICAL on both
+# poles — only the mouth / expression words change. Stronger smile
+# positives because stock models often already smile on weak "happy".
+#
+# concept_words stay free under --hold_mode non_concept.
+# Minus / unconditional is a canary only — not a teacher.
+plus_label: Happy
+minus_label: Sad
+recommended_range: [0.0, 2.0]
+concept_words: "smiling, smile, happy, joyful, teeth"
+control_prompt: "a bowl of fruit on a table"
+bare_captions: true
+rows:
+  - target: "A medium close-up of a person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Neutral expression, closed mouth, eyes looking at the lens. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    positive: "A medium close-up of a person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Big smile showing teeth, happy joyful expression, eyes looking at the lens. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    neutral: "A medium close-up of a person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Neutral expression, closed mouth, eyes looking at the lens. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    negative: "A medium close-up of a sad person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    unconditional: "A medium close-up of a sad person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    attributes: ["male", "female"]
+    action: enhance
+  - target: "A close-up portrait of a person looking at the camera, wearing a navy knit sweater, shoulders still. Neutral expression, closed mouth, no visible teeth. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    positive: "A close-up portrait of a person looking at the camera, wearing a navy knit sweater, shoulders still. Big smile showing teeth, happy joyful expression. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    neutral: "A close-up portrait of a person looking at the camera, wearing a navy knit sweater, shoulders still. Neutral expression, closed mouth, no visible teeth. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    negative: "A close-up portrait of a sad person looking at the camera, wearing a navy knit sweater, shoulders still. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    unconditional: "A close-up portrait of a sad person looking at the camera, wearing a navy knit sweater, shoulders still. Soft even window light from the left, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    attributes: ["male", "female"]
+    action: enhance
