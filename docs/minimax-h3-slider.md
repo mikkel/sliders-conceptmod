@@ -482,10 +482,66 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 
 Do **not** run this in CI. Do **not** download MiniMax-H3 in CI.
 
+## UNI diagnostic (lighting gap vs identity leak)
+
+No new train loss. Numbers only — run this on an existing LoRA (or dummy)
+**before** changing the recipe. Live chiaro v3–v5: person is always
+lighting+identity YES; room trades with `hold_weight` (5 → identity YES
+lighting NO; 3 → lighting YES identity NO). Embed `non_concept` hold
+alone is not enough; this script measures the gap.
+
+Same stack as train (FL2VA / t2va, `--device`, optional
+`--encoder_device`). `--dummy` never downloads H3.
+
+```bash
+# CI / CPU mock
+PYTHONPATH=. python conceptmod/textsliders/diag_minimax_h3_uni.py --dummy \
+  --save_dir /tmp/h3-diag
+
+# Live: existing chiaro LoRA (no retrain)
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/diag_minimax_h3_uni.py \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --load_h3_lora models/chiaroscuro-minimax-h3-uni-v5 \
+  --device cuda:0 --save_dir models/chiaroscuro-minimax-h3-uni-v5/diag
+
+# same via the trainer
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
+  --diag --steps 0 \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --load_h3_lora models/chiaroscuro-minimax-h3-uni-v5 \
+  --device cuda:0 --save_dir models/chiaroscuro-minimax-h3-uni-v5/diag
+```
+
+Writes `{name}_diag.json` under `--save_dir` plus a short stdout table.
+One row per slider yaml row (attribute pins expand male/female).
+
+### How to read the numbers
+
+| metric | what it is | healthy | sick |
+|---|---|---|---|
+| **lighting_gap** `cos` / `l2` | frozen teacher `v_plus` vs `v_neu` (packed velocity, same noise) | `l2` clearly >0 (plus/neu teachers differ) | `l2` ~0 — captions or hold collapsed the lighting axis |
+| **embed_gap_energy** `concept_frac` | after `apply_unused_hold`, fraction of plus−neu embed energy on concept-token rows | ~1 (gap is lighting words) | `held_frac` >0 hold missed rows; `unheld_nonconcept_frac` >0 is the v1/v2 shared-subject leak |
+| **hold** `held_max_abs` / `held_mean_abs` | `|held_plus_row − encode(neu)_row|` on held tokens | ~0 | hold did not pin identity tokens |
+| **hold** `concept_mean_abs` | mean `|plus − neu|` on free concept tokens | >0 | lighting words also collapsed |
+| **student** `scale0_vs_teacher_neu` | adapter off on neu pack vs frozen neu | `cos` ~1 | scale-0 is not identity |
+| **student** `scale1_vs_teacher_plus` | adapter on plus pack vs frozen plus | high `cos` = **lighting match** | low — student did not learn plus lighting |
+| **student** `scale1_vs_scale0` | plus@1 vs neu@0 — **identity drift proxy** | high `cos` = structure held | low `cos` = rewrite (lighting and/or identity) |
+| **student** `neu_lora_on_vs_off` | LoRA on vs off under the **neu** pack only | high `cos` = adapter leaves neu structure | low — adapter rewrites the identity caption |
+
+Read lighting match and drift **together**:
+
+* lighting YES + `s1_s0` low → student moved toward plus; if the clip also morphs clothes/props, that low cos is **identity leak** (chiaro room at hold 3).
+* lighting NO + `s1_s0` high → hold crushed the move (chiaro room at hold 5).
+* `hold_*` ~0 but live identity still leaks → embed hold is not enough; the Omni LoRA is rewriting structure in velocity space. That is why this diag exists before a new train loss.
+
+`--load_h3_lora` is optional. Without it, student columns use the random
+`N(0, 0.02)` init (dummy CI asserts shapes/keys, not a trained match).
+
 ## CPU / CI
 
 ```bash
 PYTHONPATH=. python conceptmod/textsliders/train_lora_minimax_h3.py --dummy --steps 4 --name minimax-h3-dummy
+PYTHONPATH=. python conceptmod/textsliders/diag_minimax_h3_uni.py --dummy --save_dir /tmp/h3-diag
 PYTHONPATH=. pytest tests/test_minimax_h3_slider.py -q
 ```
 

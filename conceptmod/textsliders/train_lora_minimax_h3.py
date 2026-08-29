@@ -168,6 +168,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="CPU mock packed sequence; no Hub, no GPU, no MiniMax-H3 weights",
     )
+    p.add_argument(
+        "--diag",
+        action="store_true",
+        help=(
+            "Lighting-gap vs identity-leak diagnostic only (no train). "
+            "Same as conceptmod/textsliders/diag_minimax_h3_uni.py. "
+            "Writes {name}_diag.json under --save_dir."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -581,6 +590,10 @@ def train(args: argparse.Namespace, backend: MiniMaxH3Backend | None = None) -> 
 
 def main(argv: list[str] | None = None) -> dict:
     args = parse_args(argv)
+    if getattr(args, "diag", False):
+        from conceptmod.textsliders.diag_minimax_h3_uni import run_diag
+
+        return run_diag(args)
     return train(args)
 
 
