@@ -36,6 +36,7 @@ from conceptmod.textsliders.ltx25_backend import (
     DEFAULT_TRAIN_NUM_FRAMES,
     DEFAULT_TRAIN_WIDTH,
     DEFAULT_TRANSFORMER_SUBFOLDER,
+    DISTILLED_MODALITY_SCALE,
     DISTILLED_SIGMA_VALUES,
     FREEZE_LIST,
     FULL_TRANSFORMER_SUBFOLDER,
@@ -43,11 +44,14 @@ from conceptmod.textsliders.ltx25_backend import (
     LORA_LINEAR_NAMES,
     LORA_VIDEO_HOSTS,
     LTX_FPS,
+    SFT_NUM_INFERENCE_STEPS,
     LTX25Backend,
     distilled_sigmas,
+    is_distilled_subfolder,
     ltx_canvas_hw,
     ltx_num_frames,
     ltx_pack_feature_dim,
+    sft_scheduler_overrides,
 )
 from conceptmod.textsliders.ltx25_uni import (
     DEFAULT_HOLD_MODE,
@@ -337,8 +341,10 @@ def emit_ltx_samples(
                 "seed": seed,
                 "guidance": 1.0,
                 "stg_scale": 0.0,
-                "modality_scale": 0.0,
-                "sigmas": distilled_sigmas() if not args.dummy else list(DISTILLED_SIGMA_VALUES),
+                "modality_scale": DISTILLED_MODALITY_SCALE,
+                "sigmas": (
+                    distilled_sigmas() if not args.dummy else list(DISTILLED_SIGMA_VALUES)
+                ) if is_distilled_subfolder(getattr(args, "transformer_subfolder", DEFAULT_TRANSFORMER_SUBFOLDER)) else None,
                 "num_frames": int(result.get("num_frames") or frames),
                 "height": int(result.get("height") or height),
                 "width": int(result.get("width") or width),
@@ -353,8 +359,10 @@ def emit_ltx_samples(
         "prompts": prompts,
         "guidance": 1.0,
         "stg_scale": 0.0,
-        "modality_scale": 0.0,
-        "sigmas": distilled_sigmas() if not args.dummy else list(DISTILLED_SIGMA_VALUES),
+        "modality_scale": DISTILLED_MODALITY_SCALE,
+        "sigmas": (
+            distilled_sigmas() if not args.dummy else list(DISTILLED_SIGMA_VALUES)
+        ) if is_distilled_subfolder(getattr(args, "transformer_subfolder", DEFAULT_TRANSFORMER_SUBFOLDER)) else None,
         "num_frames": 2 if args.dummy else frames,
         "height": 8 if args.dummy else height,
         "width": 8 if args.dummy else width,
@@ -523,11 +531,23 @@ def train(args: argparse.Namespace, backend: LTX25Backend | None = None) -> dict
         "velocity_teacher": "flow",
         "velocity_contract": "x0 = x_t - sigma * v",
         "predict_v_faked": False,
-        "cfg_distilled": args.transformer_subfolder == DEFAULT_TRANSFORMER_SUBFOLDER,
+        "cfg_distilled": is_distilled_subfolder(args.transformer_subfolder),
         "guidance": 1.0,
         "stg_scale": 0.0,
-        "modality_scale": 0.0,
-        "sigmas": list(DISTILLED_SIGMA_VALUES),
+        "modality_scale": DISTILLED_MODALITY_SCALE,
+        "sigmas": list(DISTILLED_SIGMA_VALUES) if is_distilled_subfolder(args.transformer_subfolder) else None,
+        "use_dynamic_shifting": (
+            False if is_distilled_subfolder(args.transformer_subfolder)
+            else sft_scheduler_overrides()["use_dynamic_shifting"]
+        ),
+        "shift_terminal": (
+            None if is_distilled_subfolder(args.transformer_subfolder)
+            else sft_scheduler_overrides()["shift_terminal"]
+        ),
+        "num_inference_steps": (
+            None if is_distilled_subfolder(args.transformer_subfolder)
+            else SFT_NUM_INFERENCE_STEPS
+        ),
         "prompt_enhancer": False,
         "decoder": "conv_vae",
         "sample_num_frames": int(getattr(args, "sample_num_frames", DEFAULT_NUM_FRAMES)),
@@ -562,8 +582,8 @@ def train(args: argparse.Namespace, backend: LTX25Backend | None = None) -> dict
             "scales": scales,
             "guidance": 1.0,
             "stg_scale": 0.0,
-            "modality_scale": 0.0,
-            "sigmas": list(DISTILLED_SIGMA_VALUES),
+            "modality_scale": DISTILLED_MODALITY_SCALE,
+            "sigmas": list(DISTILLED_SIGMA_VALUES) if is_distilled_subfolder(args.transformer_subfolder) else None,
             "num_frames": 2 if args.dummy else ltx_num_frames(int(args.sample_num_frames)),
             "height": 8 if args.dummy else int(args.sample_height),
             "width": 8 if args.dummy else int(args.sample_width),

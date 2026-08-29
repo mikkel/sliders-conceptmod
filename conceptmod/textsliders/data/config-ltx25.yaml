@@ -48,7 +48,7 @@ train:
   sample_width: 960
   guidance: 1.0
   stg_scale: 0
-  modality_scale: 0
+  modality_scale: 1.0
   sigmas: "DISTILLED_SIGMA_VALUES"
   prompt_enhancer: false
   decoder: "conv_vae"

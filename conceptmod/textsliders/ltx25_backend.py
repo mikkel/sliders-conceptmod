@@ -32,8 +32,18 @@ Verified against current diffusers ``LTX2*`` (main, not a release):
 * Forward returns ``AudioVisualModelOutput(sample, audio_sample)`` =
   flow velocity. Pipeline: ``x0 = x_t − sigma * v``.
 * Distilled sample: ``sigmas=DISTILLED_SIGMA_VALUES``, guidance 1.0,
-  STG/modality 0. Do **not** pass ``num_inference_steps``. Prompt
-  enhancer OFF. Conv VAE ``pipe.vae`` (skip ``diffusion_decoder``).
+  STG 0, ``modality_scale=1.0`` (pipeline treats ``>1.0`` as on). Do
+  **not** pass ``num_inference_steps``. SFT sample restores
+  ``use_dynamic_shifting=True, shift_terminal=0.1`` and drops distilled
+  sigmas. Prompt enhancer OFF. Conv VAE ``pipe.vae`` (skip
+  ``diffusion_decoder``).
+* Train pack: hold PRE-connector, then left-pad to a multiple of 128
+  (1024 like the pipeline). Live connectors require
+  ``seq_len % num_learnable_registers == 0``.
+* Train timestep: pick a distilled sigma and scale by
+  ``timestep_scale_multiplier`` (1000) to ``(B, num_video_tokens)``.
+* ``forward_velocity`` passes ``audio_num_frames`` (live RoPE
+  ``prepare_audio_coords(None)`` is a TypeError).
 """
 
 from __future__ import annotations
@@ -54,6 +64,20 @@ FULL_TRANSFORMER_SUBFOLDER = "transformer_full"
 # Distilled 8-sigma schedule from current diffusers.pipelines.ltx2.utils.
 # Do not invent a linear num_inference_steps stand-in for distilled.
 DISTILLED_SIGMA_VALUES = [1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875]
+# Live LTX2ConnectorTransformer1d: seq_len % num_learnable_registers == 0
+# (registers default 128). Pipeline sample pads max_length=1024.
+CONNECTOR_REGISTER_MULTIPLE = 128
+CONNECTOR_PAD_SEQ_LEN = 1024
+# Live LTX2VideoTransformer3DModel.forward: timestep is (B, num_video_tokens)
+# already * timestep_scale_multiplier (1000). Unscaled 0.5 is t≈0.
+TIMESTEP_SCALE_MULTIPLIER = 1000
+# Mid-late distilled sigma. Must be in DISTILLED_SIGMA_VALUES — not 0.5.
+DEFAULT_DISTILLED_TRAIN_SIGMA = 0.725
+SFT_TRAIN_SIGMA = 0.5
+SFT_NUM_INFERENCE_STEPS = 30
+SFT_SCHEDULER_OVERRIDES = {"use_dynamic_shifting": True, "shift_terminal": 0.1}
+# Official distilled card: modality_scale=1.0. Pipeline treats >1.0 as on.
+DISTILLED_MODALITY_SCALE = 1.0
 LTX_FPS = 24.0
 LTX_FRAME_MOD = 8
 LTX_FRAME_BIAS = 1
@@ -99,6 +123,158 @@ def distilled_sigmas() -> list[float]:
         return list(live)
     except Exception:
         return list(DISTILLED_SIGMA_VALUES)
+
+
+def is_distilled_subfolder(subfolder: str | None) -> bool:
+    return str(subfolder or DEFAULT_TRANSFORMER_SUBFOLDER) == DEFAULT_TRANSFORMER_SUBFOLDER
+
+
+def sft_scheduler_overrides() -> dict[str, Any]:
+    """Official full-DiT card: restore shifting the distilled scheduler/ turns off."""
+    return dict(SFT_SCHEDULER_OVERRIDES)
+
+
+def connector_pad_length(
+    seq_len: int,
+    *,
+    multiple: int = CONNECTOR_REGISTER_MULTIPLE,
+    target: int = CONNECTOR_PAD_SEQ_LEN,
+) -> int:
+    """Pad to pipeline max_length (1024) when it fits; else next multiple of 128."""
+    seq_len = int(seq_len)
+    multiple = int(multiple)
+    target = int(target)
+    if seq_len <= target and target % multiple == 0:
+        return target
+    rem = seq_len % multiple
+    return seq_len if rem == 0 else seq_len + (multiple - rem)
+
+
+def pad_pre_connector_sequence(
+    hidden: torch.Tensor,
+    attention_mask: torch.Tensor | None,
+    *,
+    pad_to: int | None = None,
+    padding_side: str = "left",
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Left-pad AFTER token-id hold so ``seq_len % 128 == 0``.
+
+    Live ``LTX2TextConnectors`` replace padding in-place with learnable
+    registers and require ``seq_len % num_learnable_registers == 0``.
+    Hold stays on the real token rows; pad rows are zeros / mask 0.
+    """
+    if hidden.ndim != 3:
+        raise ValueError(f"pre-connector hidden must be (B, T, D), got {tuple(hidden.shape)}")
+    bsz, seq_len, _dim = hidden.shape
+    target = int(pad_to if pad_to is not None else connector_pad_length(seq_len))
+    if attention_mask is None:
+        mask = torch.ones(bsz, seq_len, device=hidden.device, dtype=torch.long)
+    else:
+        mask = attention_mask.to(device=hidden.device)
+        if mask.shape != (bsz, seq_len):
+            raise ValueError(
+                f"attention_mask shape {tuple(mask.shape)} != hidden ({bsz}, {seq_len})"
+            )
+    if seq_len == target:
+        return hidden, mask
+    if seq_len > target:
+        raise ValueError(f"pre-connector T={seq_len} exceeds pad target {target}")
+    pad_n = target - seq_len
+    zeros = hidden.new_zeros(bsz, pad_n, hidden.shape[-1])
+    pad_mask = torch.zeros(bsz, pad_n, device=hidden.device, dtype=mask.dtype)
+    if padding_side == "right":
+        return torch.cat((hidden, zeros), dim=1), torch.cat((mask, pad_mask), dim=1)
+    if padding_side != "left":
+        raise ValueError(f"padding_side must be 'left' or 'right', got {padding_side!r}")
+    return torch.cat((zeros, hidden), dim=1), torch.cat((pad_mask, mask), dim=1)
+
+
+def scaled_train_timestep(
+    batch: int,
+    num_tokens: int,
+    *,
+    sigma: float | None = None,
+    distilled: bool = True,
+    scale_multiplier: float = TIMESTEP_SCALE_MULTIPLIER,
+    dtype: torch.dtype = torch.float32,
+    device=None,
+) -> torch.Tensor:
+    """``(B, num_tokens)`` already * ``timestep_scale_multiplier``.
+
+    Distilled UNI picks a sigma from ``DISTILLED_SIGMA_VALUES``. A generic
+    unscaled 0.5 is t≈0 on the live time embed.
+    """
+    if sigma is None:
+        sigma = DEFAULT_DISTILLED_TRAIN_SIGMA if distilled else SFT_TRAIN_SIGMA
+    if distilled and float(sigma) not in DISTILLED_SIGMA_VALUES:
+        raise ValueError(
+            f"distilled train sigma {sigma} is not in DISTILLED_SIGMA_VALUES={DISTILLED_SIGMA_VALUES}"
+        )
+    value = float(sigma) * float(scale_multiplier)
+    return torch.full(
+        (int(batch), int(num_tokens)), value, dtype=dtype, device=device,
+    )
+
+
+def _require_scaled_video_timestep(timestep: torch.Tensor, hidden_states: torch.Tensor) -> None:
+    """Live ``timestep`` is ``(B, num_video_tokens)`` already * 1000."""
+    expected = tuple(hidden_states.shape[:2])
+    if not isinstance(timestep, torch.Tensor) or tuple(timestep.shape) != expected:
+        got = None if not isinstance(timestep, torch.Tensor) else tuple(timestep.shape)
+        raise ValueError(
+            f"timestep must be shape (B, num_video_tokens)={expected} already scaled by "
+            f"timestep_scale_multiplier ({TIMESTEP_SCALE_MULTIPLIER}), got {got}"
+        )
+    if float(timestep.detach().float().abs().amax()) <= 1.0 + 1e-6:
+        raise ValueError(
+            "timestep looks unscaled (max <= 1). Live LTX2VideoTransformer3DModel.forward "
+            f"expects values already * timestep_scale_multiplier ({TIMESTEP_SCALE_MULTIPLIER}). "
+            "Distilled UNI must pick a sigma from DISTILLED_SIGMA_VALUES and scale it."
+        )
+
+
+def _require_audio_num_frames(
+    audio_num_frames: int | None,
+    audio_coords: torch.Tensor | None,
+    audio_hidden_states: torch.Tensor,
+) -> None:
+    """Live RoPE ``prepare_audio_coords(None)`` is a TypeError."""
+    if audio_coords is not None:
+        return
+    if audio_num_frames is None:
+        raise TypeError(
+            "prepare_audio_coords() missing required argument: 'num_frames' "
+            "(pass audio_num_frames=packed.audio_hidden_states.shape[1] or precomputed audio_coords)"
+        )
+    if int(audio_num_frames) != int(audio_hidden_states.shape[1]):
+        raise ValueError(
+            f"audio_num_frames={audio_num_frames} != audio_hidden_states T={audio_hidden_states.shape[1]}"
+        )
+
+
+def sample_pipe_kwargs(*, distilled: bool) -> dict[str, Any]:
+    """Live ``LTX2Pipeline.__call__`` extras. Distilled card vs SFT.
+
+    Distilled: explicit ``sigmas=DISTILLED_SIGMA_VALUES``, no
+    ``num_inference_steps``. ``modality_scale=1.0`` (pipeline treats
+    ``>1.0`` as on). SFT: drop distilled sigmas; use scheduler steps.
+    """
+    kwargs: dict[str, Any] = {
+        "guidance_scale": 1.0,
+        "audio_guidance_scale": 1.0,
+        "stg_scale": 0.0,
+        "audio_stg_scale": 0.0,
+        "modality_scale": DISTILLED_MODALITY_SCALE,
+        "audio_modality_scale": DISTILLED_MODALITY_SCALE,
+        "enable_prompt_enhancement": False,
+        "output_type": "np",
+        "return_dict": False,
+    }
+    if distilled:
+        kwargs["sigmas"] = distilled_sigmas()
+    else:
+        kwargs["num_inference_steps"] = SFT_NUM_INFERENCE_STEPS
+    return kwargs
 
 
 def gemma4_tokenize_text(text: str) -> str:
@@ -215,6 +391,12 @@ class DummyLTX2Connectors(nn.Module):
     the sequence (live connectors run RoPE 1-D blocks). Frozen. Hold
     applied **after** this module cannot align by token id — dummy tests
     fail if pack holds post-connector.
+
+    Live ``LTX2ConnectorTransformer1d`` requires
+    ``seq_len % num_learnable_registers == 0`` (registers default 128)
+    before replacing padding in-place. Dummy enforces that same %128
+    contract so CI fails if train encode stays at raw prompt length.
+    Dummy still prepends 2 mix registers so T' != T for hold-order tests.
     """
 
     def __init__(self, dim: int = 8, n_registers: int = 2) -> None:
@@ -225,8 +407,18 @@ class DummyLTX2Connectors(nn.Module):
         self.video_registers = nn.Parameter(torch.randn(n_registers, dim) * 0.02)
         self.audio_registers = nn.Parameter(torch.randn(n_registers, dim) * 0.02)
         self.n_registers = int(n_registers)
+        self.num_learnable_registers = CONNECTOR_REGISTER_MULTIPLE
         self.requires_grad_(False)
         self.eval()
+
+    def _require_register_multiple(self, hidden_states: torch.Tensor) -> None:
+        seq_len = int(hidden_states.shape[1])
+        multiple = int(self.num_learnable_registers)
+        if seq_len % multiple != 0:
+            raise ValueError(
+                f"The `hidden_states` sequence length {seq_len} should be divisible by the number"
+                f" of learnable registers {multiple}"
+            )
 
     def _layout_and_mix(
         self,
@@ -259,6 +451,7 @@ class DummyLTX2Connectors(nn.Module):
         padding_side: str = "left",
     ):
         del padding_side
+        self._require_register_multiple(text_encoder_hidden_states)
         proj = self.text_proj_in(text_encoder_hidden_states)
         video, mask = self._layout_and_mix(
             proj, self.video_registers, self.video_mix, attention_mask,
@@ -321,6 +514,8 @@ class DummyLTX2Transformer(nn.Module):
         height: int | None = None,
         width: int | None = None,
         fps: float = 24.0,
+        audio_num_frames: int | None = None,
+        audio_coords: torch.Tensor | None = None,
         isolate_modalities: bool = False,
         spatio_temporal_guidance_blocks: list[int] | None = None,
         return_dict: bool = True,
@@ -328,7 +523,9 @@ class DummyLTX2Transformer(nn.Module):
     ):
         del encoder_attention_mask, audio_encoder_attention_mask
         del num_frames, height, width, fps, isolate_modalities
-        del spatio_temporal_guidance_blocks
+        del spatio_temporal_guidance_blocks, _k
+        _require_scaled_video_timestep(timestep, hidden_states)
+        _require_audio_num_frames(audio_num_frames, audio_coords, audio_hidden_states)
         video = self.proj_in(hidden_states)
         audio = self.audio_proj_in(audio_hidden_states)
         enc_v = self.caption_projection(encoder_hidden_states)
@@ -343,10 +540,17 @@ class DummyLTX2Transformer(nn.Module):
         ).transpose(1, 2)
         video = video + enc_v_pool
         audio = audio + enc_a_pool
-        temb = self.time_embedder(timestep.reshape(-1, 1)[:1].to(video.dtype))
+        # Consume the full (B, num_video_tokens) scaled timestep. Taking [:1]
+        # would hide an unscaled scalar 0.5.
+        temb = self.time_embedder(timestep.to(video.dtype).mean(dim=1, keepdim=True))
         video = video + temb.unsqueeze(1)
         if audio_timestep is not None:
-            audio = audio + self.time_embedder(audio_timestep.reshape(-1, 1)[:1].to(audio.dtype)).unsqueeze(1)
+            audio_t = audio_timestep.to(audio.dtype)
+            if audio_t.ndim == 2:
+                audio_t = audio_t.mean(dim=1, keepdim=True)
+            else:
+                audio_t = audio_t.reshape(-1, 1)[: audio.shape[0]]
+            audio = audio + self.time_embedder(audio_t).unsqueeze(1)
         for block in self.transformer_blocks:
             video, audio = block(video, audio, enc_v, enc_a)
         output = self.proj_out(self.norm_out(video)) + self.enc_to_video(enc_v_pool)
@@ -617,7 +821,7 @@ class LTX25Backend:
         self.lora_up_init_std = float(lora_up_init_std)
         self.guidance = 1.0
         self.stg_scale = 0.0
-        self.modality_scale = 0.0
+        self.modality_scale = DISTILLED_MODALITY_SCALE
         self.prompt_enhancer_enabled = False
         self.pipe: Any = None
         self.tokenizer: Any
@@ -855,14 +1059,20 @@ class LTX25Backend:
         height: int = DEFAULT_TRAIN_HEIGHT,
         width: int = DEFAULT_TRAIN_WIDTH,
     ) -> PackedLayout:
-        """Hold PRE-connector, then connectors, then fake video/audio pack."""
+        """Hold PRE-connector, pad to %128, then connectors, then fake pack."""
         enc = text.embeds
         if hold_neu is not None and hold_mask is not None:
             enc = apply_unused_hold(
                 enc, hold_neu.embeds, text.token_ids, hold_neu.token_ids, hold_mask,
             )
         n_tokens = enc.shape[1]
-        video_e, audio_e, conn_mask = self._run_connectors(enc, text.attention_mask)
+        # Hold stays on the real token rows. Pad AFTER hold so live
+        # LTX2TextConnectors see seq_len % 128 == 0 (pipeline uses 1024).
+        padding_side = getattr(self.tokenizer, "padding_side", "left") or "left"
+        padded, pad_mask = pad_pre_connector_sequence(
+            enc, text.attention_mask, padding_side=padding_side,
+        )
+        video_e, audio_e, conn_mask = self._run_connectors(padded, pad_mask)
         if video_e.shape[1] == n_tokens and self.dummy:
             raise RuntimeError(
                 "dummy connectors did not add registers; hold-after-connector "
@@ -875,10 +1085,12 @@ class LTX25Backend:
             video_latents = torch.randn(enc.shape[0], n_video, video_dim)
         if audio_latents is None:
             audio_latents = torch.randn(enc.shape[0], 2, audio_dim)
-        # Live timestep is already * timestep_scale_multiplier; dummy uses 0.5.
-        timestep = torch.tensor([[0.5]], dtype=torch.float32).expand(enc.shape[0], video_latents.shape[1])
-        audio_timestep = torch.tensor([[0.5]], dtype=torch.float32).expand(
-            enc.shape[0], audio_latents.shape[1],
+        distilled = is_distilled_subfolder(self.transformer_subfolder)
+        timestep = scaled_train_timestep(
+            enc.shape[0], video_latents.shape[1], distilled=distilled,
+        )
+        audio_timestep = scaled_train_timestep(
+            enc.shape[0], audio_latents.shape[1], distilled=distilled,
         )
         return _layout_to_device(
             PackedLayout(
@@ -921,6 +1133,7 @@ class LTX25Backend:
             height=max(1, int(packed.height) // LTX_CANVAS_MULTIPLE),
             width=max(1, int(packed.width) // LTX_CANVAS_MULTIPLE),
             fps=LTX_FPS,
+            audio_num_frames=int(packed.audio_hidden_states.shape[1]),
             isolate_modalities=False,
             spatio_temporal_guidance_blocks=None,
             return_dict=True,
@@ -968,8 +1181,10 @@ class LTX25Backend:
 
         Infer scale 1 uses the **neu** caption (caller passes neu).
         Distilled: explicit ``sigmas=DISTILLED_SIGMA_VALUES``,
-        ``guidance_scale=1.0``, STG/modality 0. Does **not** pass
-        ``num_inference_steps``. Prompt enhancer OFF.
+        ``guidance_scale=1.0``, STG 0, ``modality_scale=1.0`` (pipeline
+        treats ``>1.0`` as on). Does **not** pass ``num_inference_steps``.
+        SFT (``transformer_full``): drop distilled sigmas; scheduler
+        ``use_dynamic_shifting=True, shift_terminal=0.1``. Prompt enhancer OFF.
         """
         if self.network is None:
             raise RuntimeError("LoRA was not attached")
@@ -991,10 +1206,17 @@ class LTX25Backend:
         out.setdefault("num_frames", frames)
         out.setdefault("height", h)
         out.setdefault("width", w)
+        distilled = is_distilled_subfolder(self.transformer_subfolder)
         out.setdefault("guidance", 1.0)
         out.setdefault("stg_scale", 0.0)
-        out.setdefault("modality_scale", 0.0)
-        out.setdefault("sigmas", distilled_sigmas())
+        out.setdefault("modality_scale", DISTILLED_MODALITY_SCALE)
+        if distilled:
+            out.setdefault("sigmas", distilled_sigmas())
+        else:
+            out.setdefault("sigmas", None)
+            out.setdefault("use_dynamic_shifting", True)
+            out.setdefault("shift_terminal", 0.1)
+            out.setdefault("num_inference_steps", SFT_NUM_INFERENCE_STEPS)
         out.setdefault("prompt_enhancer", False)
         out.setdefault("decoder", "conv_vae")
         out.setdefault("seed", int(seed))
@@ -1034,26 +1256,15 @@ class LTX25Backend:
         gen_device = self.device if self.device.type == "cuda" else "cpu"
         generator = torch.Generator(device=str(gen_device) if gen_device != "cpu" else "cpu")
         generator.manual_seed(int(seed))
-        sigmas = distilled_sigmas()
         kwargs = dict(
             prompt=prompt,
             height=int(height),
             width=int(width),
             num_frames=int(num_frames),
             frame_rate=LTX_FPS,
-            sigmas=sigmas,
-            guidance_scale=1.0,
-            audio_guidance_scale=1.0,
-            stg_scale=0.0,
-            audio_stg_scale=0.0,
-            modality_scale=0.0,
-            audio_modality_scale=0.0,
-            enable_prompt_enhancement=False,
             generator=generator,
-            output_type="np",
-            return_dict=False,
         )
-        # Distilled: never pass num_inference_steps (generic linear schedule).
+        kwargs.update(sample_pipe_kwargs(distilled=is_distilled_subfolder(self.transformer_subfolder)))
         results = pipe(**kwargs)
         if isinstance(results, (list, tuple)):
             video = results[0] if results else None
@@ -1237,10 +1448,14 @@ def _load_ltx25_pipeline(
         except TypeError:
             pipe = LTX2Pipeline.from_pretrained(model_id)
     if transformer_subfolder == FULL_TRANSFORMER_SUBFOLDER:
-        from diffusers import LTX2VideoTransformer3DModel
+        from diffusers import FlowMatchEulerDiscreteScheduler, LTX2VideoTransformer3DModel
 
         pipe.transformer = LTX2VideoTransformer3DModel.from_pretrained(
             model_id, subfolder=FULL_TRANSFORMER_SUBFOLDER, dtype=torch.bfloat16,
+        )
+        # Distilled scheduler/ turns shifting off. Official SFT card restores it.
+        pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
+            pipe.scheduler.config, **sft_scheduler_overrides(),
         )
     place_ltx25_pipeline(pipe, device=device, encoder_device=encoder_device)
     return pipe
