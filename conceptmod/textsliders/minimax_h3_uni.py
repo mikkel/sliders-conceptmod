@@ -224,3 +224,125 @@ def _encode_ids(tokenizer, text: str) -> list[int]:
     if ids and isinstance(ids[0], list):
         ids = ids[0]
     return [int(x) for x in ids]
+
+
+def cosine_l2(a: torch.Tensor, b: torch.Tensor) -> dict[str, float]:
+    """Packed-velocity (or any tensor) cosine + L2. Flattened, float32."""
+    x = a.detach().float().reshape(-1)
+    y = b.detach().float().reshape(-1)
+    n = min(int(x.numel()), int(y.numel()))
+    if n == 0:
+        return {"cos": 0.0, "l2": 0.0}
+    x, y = x[:n], y[:n]
+    cos = F.cosine_similarity(x.unsqueeze(0), y.unsqueeze(0), dim=-1)
+    l2 = torch.linalg.vector_norm(x - y)
+    return {"cos": float(cos.item()), "l2": float(l2.item())}
+
+
+def _as_token_rows(hidden: torch.Tensor) -> torch.Tensor:
+    """``(tokens, dim)`` from encoder hidden ``(tokens, dim)`` or ``(1, tokens, dim)``."""
+    if hidden.dim() == 3:
+        return hidden[0]
+    return hidden
+
+
+def hold_effectiveness_metrics(
+    plus_hidden: torch.Tensor,
+    neu_hidden: torch.Tensor,
+    plus_ids: Sequence[int],
+    neu_ids: Sequence[int],
+    hold_mask: torch.Tensor,
+    concept_ids: Iterable[int] | None = None,
+    held_hidden: torch.Tensor | None = None,
+) -> dict[str, float | int]:
+    """Encoder hold check after ``apply_unused_hold``.
+
+    * ``held_max_abs`` / ``held_mean_abs``: max/mean row-L2 of
+      ``|held_plus_row − encode(neu)_row|`` on held tokens (should be ~0).
+    * ``concept_mean_abs``: mean row-L2 of ``|plus − neu_mean|`` on free
+      concept tokens (ids in plus not in neu; should be >0).
+    """
+    plus_h = _as_token_rows(plus_hidden).detach().float()
+    neu_h = _as_token_rows(neu_hidden).detach().float()
+    held_h = plus_h if held_hidden is None else _as_token_rows(held_hidden).detach().float()
+    neu_index = {int(tid): i for i, tid in enumerate(neu_ids)}
+    concept = set(int(x) for x in (concept_ids or []))
+    mask = hold_mask.detach().reshape(-1).tolist()
+    n = min(len(mask), held_h.shape[0], plus_h.shape[0], len(plus_ids))
+    held_l2: list[float] = []
+    concept_l2: list[float] = []
+    neu_mean = neu_h.mean(dim=0) if neu_h.numel() else plus_h.new_zeros(plus_h.shape[-1])
+    for i in range(n):
+        tid = int(plus_ids[i])
+        if mask[i]:
+            j = neu_index.get(tid)
+            if j is None or j >= neu_h.shape[0]:
+                continue
+            held_l2.append(float(torch.linalg.vector_norm(held_h[i] - neu_h[j]).item()))
+        is_concept = tid in concept if concept else not bool(mask[i])
+        if is_concept:
+            concept_l2.append(float(torch.linalg.vector_norm(plus_h[i] - neu_mean).item()))
+    return {
+        "n_held": len(held_l2),
+        "n_free": int(sum(1 for i in range(n) if not mask[i])),
+        "n_concept": len(concept_l2),
+        "held_max_abs": max(held_l2) if held_l2 else 0.0,
+        "held_mean_abs": float(sum(held_l2) / len(held_l2)) if held_l2 else 0.0,
+        "concept_mean_abs": float(sum(concept_l2) / len(concept_l2)) if concept_l2 else 0.0,
+    }
+
+
+def embed_gap_energy_frac(
+    plus_hidden: torch.Tensor,
+    neu_hidden: torch.Tensor,
+    plus_ids: Sequence[int],
+    neu_ids: Sequence[int],
+    hold_mask: torch.Tensor,
+    concept_ids: Iterable[int] | None = None,
+    held_hidden: torch.Tensor | None = None,
+) -> dict[str, float]:
+    """Split ``||held_plus − aligned_neu||^2`` after ``apply_unused_hold``.
+
+    Held rows align by token id to ``encode(neu)``. Concept / other free
+    rows use ``neu_mean``. After a correct ``non_concept`` hold,
+    ``held_frac`` is ~0 and ``concept_frac`` is ~1. ``unheld_nonconcept_frac``
+    is the attributes-mode leak bucket (shared subject still encode(plus)).
+    """
+    plus_h = _as_token_rows(plus_hidden).detach().float()
+    neu_h = _as_token_rows(neu_hidden).detach().float()
+    held_h = plus_h if held_hidden is None else _as_token_rows(held_hidden).detach().float()
+    neu_index = {int(tid): i for i, tid in enumerate(neu_ids)}
+    concept = set(int(x) for x in (concept_ids or []))
+    mask = hold_mask.detach().reshape(-1).tolist()
+    n = min(len(mask), held_h.shape[0], plus_h.shape[0], len(plus_ids))
+    neu_mean = neu_h.mean(dim=0) if neu_h.numel() else plus_h.new_zeros(plus_h.shape[-1])
+    concept_e = held_e = leak_e = 0.0
+    for i in range(n):
+        tid = int(plus_ids[i])
+        j = neu_index.get(tid)
+        ref = neu_h[j] if j is not None and j < neu_h.shape[0] else neu_mean
+        energy = float(((held_h[i] - ref) ** 2).sum().item())
+        if mask[i]:
+            held_e += energy
+        elif tid in concept or (not concept and not mask[i]):
+            concept_e += energy
+        else:
+            leak_e += energy
+    total = concept_e + held_e + leak_e
+    if total <= 0.0:
+        return {
+            "concept": 0.0,
+            "held": 0.0,
+            "unheld_nonconcept": 0.0,
+            "concept_frac": 0.0,
+            "held_frac": 0.0,
+            "unheld_nonconcept_frac": 0.0,
+        }
+    return {
+        "concept": concept_e,
+        "held": held_e,
+        "unheld_nonconcept": leak_e,
+        "concept_frac": concept_e / total,
+        "held_frac": held_e / total,
+        "unheld_nonconcept_frac": leak_e / total,
+    }

@@ -40,6 +40,9 @@ from conceptmod.textsliders.minimax_h3_uni import (
     HOLD_MODE_NON_CONCEPT,
     apply_unused_hold,
     concept_token_ids,
+    cosine_l2,
+    embed_gap_energy_frac,
+    hold_effectiveness_metrics,
     minimax_h3_minus_canary,
     minimax_h3_uni_total_loss,
     minimax_h3_uni_velocity_loss,
@@ -50,8 +53,19 @@ from conceptmod.textsliders.minimax_h3_uni import (
     unused_token_ids,
     velocity_pair,
 )
+from conceptmod.textsliders.diag_minimax_h3_uni import (
+    COS_L2_KEYS,
+    DIAG_ROW_KEYS,
+    HOW_TO_READ,
+    STUDENT_KEYS,
+    diagnose_row,
+    format_diag_table,
+    parse_diag_args,
+    run_diag,
+)
 from conceptmod.textsliders.train_lora_minimax_h3 import (
     load_slider_rows,
+    main as train_main,
     parse_args,
     parse_sample_scales,
     sample_prompts_from_rows,
@@ -81,6 +95,7 @@ def test_resolved_model_id_is_minimax_h3():
     assert args.sample_short_side is None
     assert args.hold_mode == DEFAULT_HOLD_MODE == HOLD_MODE_NON_CONCEPT
     assert args.hold_weight == 1.0
+    assert args.diag is False
     assert parse_sample_scales(args.sample_scales) == list(DEFAULT_SAMPLE_SCALES)
 
 
@@ -89,6 +104,7 @@ def test_no_hunyuan_hub_id_in_new_files():
     for path in (
         root / "minimax_h3_backend.py",
         root / "minimax_h3_uni.py",
+        root / "diag_minimax_h3_uni.py",
         root / "train_lora_minimax_h3.py",
         root / "data" / "prompts-minimax-h3.yaml",
         root / "data" / "config-minimax-h3.yaml",
@@ -497,6 +513,12 @@ def test_chiaroscuro_config_and_docs_card():
     assert "bearded scholars" in docs
     assert "FAIL 1/3" in docs
     assert "≥2/3" in docs or ">=2/3" in docs
+    assert "diag_minimax_h3_uni" in docs
+    assert "identity drift" in docs
+    assert "lighting gap" in docs
+    assert "--diag" in docs
+    assert "scale1_vs_scale0" in docs
+    assert "neu_lora_on_vs_off" in docs
 
 
 def test_train_step_non_concept_hold_copies_shared_subject():
@@ -999,3 +1021,238 @@ def test_load_components_omits_workflow_kwarg(monkeypatch):
     assert captured["from_pretrained"]["workflow"] == "t2va"
     assert "workflow" not in captured["load"]
     assert captured["load"]["dtype"] == torch.bfloat16
+
+
+def test_cosine_l2_identity_and_gap():
+    same = torch.ones(2, 4)
+    metrics = cosine_l2(same, same)
+    assert set(metrics) == set(COS_L2_KEYS)
+    assert metrics["cos"] == pytest.approx(1.0)
+    assert metrics["l2"] == pytest.approx(0.0)
+    other = torch.zeros(2, 4)
+    gap = cosine_l2(same, other)
+    assert gap["l2"] > 0
+    pair = velocity_pair(torch.ones(1, 2, 3), torch.zeros(1, 2, 2))
+    assert pair.ndim == 2
+    assert set(cosine_l2(pair, pair)) == set(COS_L2_KEYS)
+
+
+def test_hold_effectiveness_and_energy_frac_shapes():
+    tok = DummyTokenizer()
+    pos, neu = "male old person", "male person"
+    plus_ids = tok.encode(pos)
+    neu_ids = tok.encode(neu)
+    concept = concept_token_ids(tok, pos, neu)
+    unused = unused_token_ids(tok, ["male"])
+    mask = unused_hold_mask(plus_ids, unused, concept, hold_mode=HOLD_MODE_NON_CONCEPT)
+    plus_h = torch.arange(len(plus_ids) * 3, dtype=torch.float32).reshape(len(plus_ids), 3)
+    neu_h = torch.stack([
+        torch.tensor([10.0, 11.0, 12.0]),
+        torch.tensor([20.0, 21.0, 22.0]),
+    ])
+    held = apply_unused_hold(plus_h, neu_h, plus_ids, neu_ids, mask)
+    hold = hold_effectiveness_metrics(
+        plus_h, neu_h, plus_ids, neu_ids, mask, concept_ids=concept, held_hidden=held,
+    )
+    assert hold["n_held"] >= 1
+    assert hold["n_concept"] >= 1
+    assert hold["held_max_abs"] == pytest.approx(0.0)
+    assert hold["held_mean_abs"] == pytest.approx(0.0)
+    assert hold["concept_mean_abs"] > 0
+    energy = embed_gap_energy_frac(
+        plus_h, neu_h, plus_ids, neu_ids, mask, concept_ids=concept, held_hidden=held,
+    )
+    assert energy["held_frac"] == pytest.approx(0.0)
+    assert energy["unheld_nonconcept_frac"] == pytest.approx(0.0)
+    assert energy["concept_frac"] == pytest.approx(1.0)
+    assert energy["concept"] > 0
+
+    attr_mask = unused_hold_mask(
+        plus_ids, unused, concept, hold_mode=HOLD_MODE_ATTRIBUTES,
+    )
+    attr_held = apply_unused_hold(plus_h, neu_h, plus_ids, neu_ids, attr_mask)
+    leak = embed_gap_energy_frac(
+        plus_h, neu_h, plus_ids, neu_ids, attr_mask,
+        concept_ids=concept, held_hidden=attr_held,
+    )
+    assert leak["unheld_nonconcept_frac"] > 0
+
+
+def _assert_diag_row(row: dict) -> None:
+    for key in DIAG_ROW_KEYS:
+        assert key in row, key
+    assert set(row["lighting_gap"]) == set(COS_L2_KEYS)
+    for key in COS_L2_KEYS:
+        assert isinstance(row["lighting_gap"][key], float)
+    energy = row["embed_gap_energy"]
+    for key in (
+        "concept", "held", "unheld_nonconcept",
+        "concept_frac", "held_frac", "unheld_nonconcept_frac",
+    ):
+        assert key in energy
+        assert isinstance(energy[key], float)
+    for key in ("held_max_abs", "held_mean_abs", "concept_mean_abs"):
+        assert key in row["hold"]
+        assert isinstance(row["hold"][key], float)
+    assert set(row["student"]) == set(STUDENT_KEYS)
+    for name in STUDENT_KEYS:
+        assert set(row["student"][name]) == set(COS_L2_KEYS)
+        for key in COS_L2_KEYS:
+            assert isinstance(row["student"][name][key], float)
+    assert isinstance(row["n_held"], int)
+    assert isinstance(row["n_free"], int)
+    assert isinstance(row["n_concept"], int)
+
+
+def test_dummy_diag_json_keys_and_hold(tmp_path):
+    args = parse_diag_args([
+        "--dummy",
+        "--name", "h3-diag",
+        "--save_dir", str(tmp_path),
+        "--prompts_file", "conceptmod/textsliders/data/prompts-minimax-h3.yaml",
+        "--seed", "0",
+    ])
+    summary = run_diag(args)
+    for key in (
+        "dummy", "model_id", "variant", "workflow", "hold_mode",
+        "load_h3_lora", "n_rows", "rows", "how_to_read", "aggregates",
+        "recipe",
+    ):
+        assert key in summary, key
+    assert summary["dummy"] is True
+    assert summary["model_id"] == "MiniMaxAI/MiniMax-H3"
+    assert summary["variant"] == "FL2VA"
+    assert summary["workflow"] == "t2va"
+    assert summary["hold_mode"] == HOLD_MODE_NON_CONCEPT
+    assert summary["recipe"] == "minimax_h3_uni_diag"
+    assert summary["load_h3_lora"] is None
+    assert summary["n_rows"] == len(summary["rows"]) > 0
+    assert set(HOW_TO_READ) <= set(summary["how_to_read"])
+    for row in summary["rows"]:
+        _assert_diag_row(row)
+        assert row["hold"]["held_max_abs"] == pytest.approx(0.0, abs=1e-5)
+        assert row["hold"]["held_mean_abs"] == pytest.approx(0.0, abs=1e-5)
+        assert row["hold"]["concept_mean_abs"] > 0
+        assert row["n_concept"] > 0
+        assert row["lighting_gap"]["l2"] > 0
+        assert row["student"]["scale0_vs_teacher_neu"]["cos"] == pytest.approx(1.0, abs=1e-5)
+        assert row["student"]["scale0_vs_teacher_neu"]["l2"] == pytest.approx(0.0, abs=1e-5)
+        assert row["embed_gap_energy"]["held_frac"] == pytest.approx(0.0, abs=1e-5)
+        assert row["embed_gap_energy"]["concept_frac"] == pytest.approx(1.0, abs=1e-5)
+    path = tmp_path / "h3-diag_diag.json"
+    assert path.is_file()
+    data = json.loads(path.read_text())
+    assert data["n_rows"] == summary["n_rows"]
+    table = format_diag_table(summary)
+    assert "light_cos" in table
+    assert "s1_s0" in table
+
+
+def test_dummy_diag_chiaro_and_attributes_leak(tmp_path):
+    backend = MiniMaxH3Backend(device="cpu", dummy=True)
+    rows = load_slider_rows(
+        "conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml", ""
+    )
+    row = diagnose_row(
+        backend, rows[0], hold_mode=HOLD_MODE_NON_CONCEPT, seed=0, index=0,
+    )
+    _assert_diag_row(row)
+    assert row["hold"]["held_max_abs"] == pytest.approx(0.0, abs=1e-5)
+    assert row["embed_gap_energy"]["unheld_nonconcept_frac"] == pytest.approx(0.0, abs=1e-5)
+    assert row["n_held"] > 0
+    assert row["n_concept"] > 0
+
+    leak = diagnose_row(
+        backend, rows[0], hold_mode=HOLD_MODE_ATTRIBUTES, seed=0, index=0,
+    )
+    _assert_diag_row(leak)
+    assert leak["embed_gap_energy"]["unheld_nonconcept_frac"] > 0
+
+    args = parse_diag_args([
+        "--dummy",
+        "--name", "h3-chiaro-diag",
+        "--save_dir", str(tmp_path),
+        "--prompts_file",
+        "conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml",
+        "--max_rows", "2",
+        "--seed", "1",
+    ])
+    summary = run_diag(args)
+    assert summary["n_rows"] == 2
+    for rec in summary["rows"]:
+        _assert_diag_row(rec)
+        assert rec["hold"]["concept_mean_abs"] > 0
+
+
+def test_dummy_diag_load_h3_lora_and_trainer_flag(tmp_path):
+    prompts = tmp_path / "one.yaml"
+    prompts.write_text(
+        "- target: person\n  positive: old person\n  neutral: person\n"
+        "  unconditional: ''\n  attributes: []\n"
+    )
+    train_dir = tmp_path / "trained"
+    train(parse_args([
+        "--dummy",
+        "--steps", "4",
+        "--name", "h3-diag-lora",
+        "--save_dir", str(train_dir),
+        "--prompts_file", str(prompts),
+        "--no_sample",
+        "--seed", "1",
+    ]))
+    diag_dir = tmp_path / "diag"
+    summary = run_diag(parse_diag_args([
+        "--dummy",
+        "--name", "h3-diag-reload",
+        "--save_dir", str(diag_dir),
+        "--prompts_file", str(prompts),
+        "--load_h3_lora", str(train_dir),
+        "--seed", "1",
+    ]))
+    assert summary["load_h3_lora"]
+    assert summary["n_rows"] == 1
+    _assert_diag_row(summary["rows"][0])
+    assert summary["rows"][0]["student"]["scale0_vs_teacher_neu"]["cos"] == pytest.approx(
+        1.0, abs=1e-5
+    )
+
+    via_train = train_main([
+        "--dummy",
+        "--diag",
+        "--name", "h3-diag-flag",
+        "--save_dir", str(tmp_path / "via-train"),
+        "--prompts_file", str(prompts),
+        "--seed", "2",
+    ])
+    assert via_train["recipe"] == "minimax_h3_uni_diag"
+    assert via_train["dummy"] is True
+    _assert_diag_row(via_train["rows"][0])
+    assert (tmp_path / "via-train" / "h3-diag-flag_diag.json").is_file()
+
+
+def test_dummy_diag_does_not_hit_hub():
+    import conceptmod.textsliders.minimax_h3_backend as h3
+
+    called = {"n": 0}
+
+    def boom(*_a, **_k):
+        called["n"] += 1
+        raise AssertionError("live MiniMax-H3 loader must not run in dummy diag")
+
+    orig = h3._load_minimax_h3_modular
+    h3._load_minimax_h3_modular = boom
+    try:
+        args = parse_diag_args([
+            "--dummy",
+            "--encoder_device", "cuda:1",
+            "--device", "cuda:0",
+            "--max_rows", "1",
+            "--save_dir", "/tmp/h3-diag-hub-guard",
+        ])
+        summary = run_diag(args)
+        assert summary["dummy"] is True
+        assert summary["device"] == "cpu"
+        assert summary["encoder_device"] is None
+    finally:
+        h3._load_minimax_h3_modular = orig
+    assert called["n"] == 0
