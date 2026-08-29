@@ -303,13 +303,27 @@ def test_yaml_pins_unused_and_keeps_concept_free():
         assert "old" not in r["neutral"].split()
 
 
+_H3_LIGHTING_TAILS = (
+    ", chiaroscuro,",
+    ", flat even lighting,",
+    ", washed-out flat featureless lighting",
+)
+
+
 def _h3_subject_clause(caption: str) -> str:
+    """Identity lock before lighting words. Subjects may contain commas."""
     text = caption.strip()
     for prefix in ("male ", "female "):
         if text.lower().startswith(prefix):
             text = text[len(prefix):]
             break
-    return text.split(",")[0].strip().lower()
+    lower = text.lower()
+    cut = len(text)
+    for tail in _H3_LIGHTING_TAILS:
+        idx = lower.find(tail)
+        if idx != -1:
+            cut = min(cut, idx)
+    return text[:cut].strip().lower()
 
 
 def test_chiaroscuro_yaml_loads_same_subject_lighting():
@@ -350,15 +364,15 @@ def test_chiaroscuro_yaml_loads_same_subject_lighting():
         assert item["unconditional"] == item["negative"]
     subjects = {_h3_subject_clause(item["target"]) for item in raw}
     assert subjects == {
-        "person sitting in a chair wearing a blue denim shirt",
-        "interior room with a wooden chair and table with a fruit bowl",
-        "blue and white ceramic vase with painted figures on a wooden table",
+        "person sitting in a chair wearing a blue denim shirt over a white tee",
+        "interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges",
+        "blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table",
     }
     rows = load_slider_rows(str(path), "")
     assert len(rows) == 6
     assert {r["positive"].split(",")[0] for r in rows} >= {
-        "male person sitting in a chair wearing a blue denim shirt",
-        "female person sitting in a chair wearing a blue denim shirt",
+        "male person sitting in a chair wearing a blue denim shirt over a white tee",
+        "female person sitting in a chair wearing a blue denim shirt over a white tee",
     }
     for row in rows:
         assert row["positive"].startswith(("male ", "female "))
@@ -368,8 +382,10 @@ def test_chiaroscuro_yaml_loads_same_subject_lighting():
         assert "washed-out" in row["unconditional"]
     joined = " ".join(item["target"] for item in raw)
     assert "blue denim shirt" in joined
-    assert "fruit bowl" in joined
-    assert "painted figures" in joined
+    assert "white tee" in joined
+    assert "windsor chairs" in joined
+    assert "bananas apples and oranges" in joined
+    assert "painted bearded scholars" in joined
 
 
 def test_chiaroscuro_non_concept_hold_keeps_lighting_free():
@@ -388,7 +404,10 @@ def test_chiaroscuro_non_concept_hold_keeps_lighting_free():
         held_norm = {w.strip(",.") for w in held}
         assert any("chiaroscuro" in w for w in free)
         assert any("shadows" in w for w in free)
-        assert held_norm & {"denim", "shirt", "vase", "bowl", "fruit", "figures"}
+        assert held_norm & {
+            "denim", "shirt", "tee", "windsor", "bowl", "bananas",
+            "jar", "scholars",
+        }
         # concept ids are lighting-only; shared subject tokens are held.
         assert concept
         for i, tid in enumerate(plus_ids):
@@ -415,8 +434,8 @@ def test_chiaroscuro_config_and_docs_card():
     assert cfg["network"]["rank"] == 16
     assert cfg["train"]["iterations"] == 2000
     assert cfg["train"]["hold_mode"] == "non_concept"
-    assert cfg["train"]["hold_weight"] == 2.0
-    assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni-v3"
+    assert cfg["train"]["hold_weight"] == 5.0
+    assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni-v4"
     docs = Path("docs/minimax-h3-slider.md").read_text()
     assert "--name chiaroscuro-minimax-h3-uni" in docs
     assert "prompts-minimax-h3-chiaroscuro.yaml" in docs
@@ -425,10 +444,13 @@ def test_chiaroscuro_config_and_docs_card():
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 1200" in docs
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 1500" in docs
     assert "--name chiaroscuro-minimax-h3-uni-v3" in docs
+    assert "--name chiaroscuro-minimax-h3-uni-v4" in docs
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 2000" in docs
     assert "--hold_mode non_concept" in docs
     assert "--hold_weight 2.0" in docs
+    assert "--hold_weight 5.0" in docs
     assert "slider-h3-chiaro-v3" in docs
+    assert "slider-h3-chiaro-v4" in docs
     assert "identity leak" in docs
     assert "v1/v2" in docs
     assert "800" in docs and "1500" in docs
@@ -456,8 +478,12 @@ def test_chiaroscuro_config_and_docs_card():
     assert "Music 3" in docs
     assert "plus-oracle" in docs or "plus caption at scale 0" in docs
     assert "blue denim shirt" in docs
+    assert "white tee" in docs
     assert "fruit bowl" in docs
+    assert "windsor chairs" in docs
     assert "painted figures" in docs
+    assert "bearded scholars" in docs
+    assert "FAIL 1/3" in docs
     assert "≥2/3" in docs or ">=2/3" in docs
 
 
@@ -649,12 +675,12 @@ def test_sample_prompts_are_unique_yaml_targets():
     )
     prompts = sample_prompts_from_rows(rows)
     assert prompts == [
-        "person sitting in a chair wearing a blue denim shirt",
-        "interior room with a wooden chair and table with a fruit bowl",
-        "blue and white ceramic vase with painted figures on a wooden table",
+        "person sitting in a chair wearing a blue denim shirt over a white tee",
+        "interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges",
+        "blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table",
     ]
     assert sample_prompts_from_rows(rows, max_rows=1) == [
-        "person sitting in a chair wearing a blue denim shirt"
+        "person sitting in a chair wearing a blue denim shirt over a white tee"
     ]
 
 
