@@ -35,6 +35,9 @@ from conceptmod.textsliders.minimax_h3_backend import (
     same_device,
 )
 from conceptmod.textsliders.minimax_h3_uni import (
+    DEFAULT_HOLD_MODE,
+    HOLD_MODE_ATTRIBUTES,
+    HOLD_MODE_NON_CONCEPT,
     apply_unused_hold,
     concept_token_ids,
     minimax_h3_minus_canary,
@@ -42,6 +45,7 @@ from conceptmod.textsliders.minimax_h3_uni import (
     minimax_h3_uni_velocity_loss,
     minimax_h3_unused_hold_loss,
     pin_unused_attributes,
+    resolve_hold_mode,
     unused_hold_mask,
     unused_token_ids,
     velocity_pair,
@@ -75,6 +79,8 @@ def test_resolved_model_id_is_minimax_h3():
     assert args.sample_duration == DEFAULT_SAMPLE_DURATION == 5.0
     assert args.sample_fps == H3_FPS == 24.0
     assert args.sample_short_side is None
+    assert args.hold_mode == DEFAULT_HOLD_MODE == HOLD_MODE_NON_CONCEPT
+    assert args.hold_weight == 1.0
     assert parse_sample_scales(args.sample_scales) == list(DEFAULT_SAMPLE_SCALES)
 
 
@@ -156,19 +162,64 @@ def test_hold_unused_tokens_not_concept_words():
     concept = concept_token_ids(tok, pos, neu)
     unused = unused_token_ids(tok, ["male", "female"])
     ids = tok.encode(neu)
-    mask = unused_hold_mask(ids, unused, concept)
+    mask = unused_hold_mask(ids, unused, concept, hold_mode=HOLD_MODE_ATTRIBUTES)
     words = neu.split()
     held = {words[i] for i, flag in enumerate(mask.tolist()) if flag and i < len(words)}
     assert "male" in held
     assert "old" not in held
+    assert "person" not in held
     pos_ids = tok.encode(pos)
     pos_held = {
         pos.split()[i]
-        for i, flag in enumerate(unused_hold_mask(pos_ids, unused, concept).tolist())
+        for i, flag in enumerate(
+            unused_hold_mask(
+                pos_ids, unused, concept, hold_mode=HOLD_MODE_ATTRIBUTES
+            ).tolist()
+        )
         if flag
     }
     assert "old" not in pos_held
     assert "male" in pos_held
+    assert "person" not in pos_held
+
+
+def test_non_concept_hold_pins_shared_subject_not_lighting():
+    """Default hold: every non-concept token → encode(neu). Lighting stays free."""
+    tok = DummyTokenizer()
+    pos = "male person sitting shirt, chiaroscuro dramatic"
+    neu = "male person sitting shirt, flat lighting"
+    concept = concept_token_ids(tok, pos, neu)
+    unused = unused_token_ids(tok, ["male", "female"])
+    plus_ids = tok.encode(pos)
+    mask = unused_hold_mask(plus_ids, unused, concept)
+    assert resolve_hold_mode(None) == HOLD_MODE_NON_CONCEPT
+    words = pos.split()
+    held = {words[i] for i, flag in enumerate(mask.tolist()) if flag}
+    free = {words[i] for i, flag in enumerate(mask.tolist()) if not flag}
+    assert "male" in held
+    assert "person" in held
+    assert "sitting" in held
+    assert "shirt," in held
+    assert "chiaroscuro" in free
+    assert "dramatic" in free
+    assert "old" not in held
+
+
+def test_attributes_hold_leaves_shared_subject_free():
+    """v1/v2 leak: attribute-only hold does not pin shared subject tokens."""
+    tok = DummyTokenizer()
+    pos, neu = "male old person", "male person"
+    concept = concept_token_ids(tok, pos, neu)
+    unused = unused_token_ids(tok, ["male"])
+    plus_ids = tok.encode(pos)
+    mask = unused_hold_mask(
+        plus_ids, unused, concept, hold_mode=HOLD_MODE_ATTRIBUTES
+    )
+    words = pos.split()
+    held = {words[i] for i, flag in enumerate(mask.tolist()) if flag}
+    assert held == {"male"}
+    with pytest.raises(ValueError, match="hold_mode"):
+        unused_hold_mask(plus_ids, unused, concept, hold_mode="lyric")
 
 
 def test_apply_unused_hold_copies_neu_not_concept():
@@ -178,13 +229,39 @@ def test_apply_unused_hold_copies_neu_not_concept():
     neu_ids = tok.encode(neu)
     concept = concept_token_ids(tok, pos, neu)
     unused = unused_token_ids(tok, ["male"])
-    mask = unused_hold_mask(plus_ids, unused, concept)
+    mask = unused_hold_mask(
+        plus_ids, unused, concept, hold_mode=HOLD_MODE_ATTRIBUTES
+    )
     plus_h = torch.arange(len(plus_ids) * 3, dtype=torch.float32).reshape(len(plus_ids), 3)
     neu_h = torch.ones(len(neu_ids), 3)
     held = apply_unused_hold(plus_h, neu_h, plus_ids, neu_ids, mask)
     # "male" is unused → encode(neu). "old" is concept → stays plus.
+    # attributes mode leaves shared "person" as plus (v1/v2 leak).
     assert torch.allclose(held[0], neu_h[0])
     assert torch.allclose(held[1], plus_h[1])
+    assert torch.allclose(held[2], plus_h[2])
+
+
+def test_apply_non_concept_hold_copies_shared_subject():
+    tok = DummyTokenizer()
+    pos, neu = "male old person", "male person"
+    plus_ids = tok.encode(pos)
+    neu_ids = tok.encode(neu)
+    concept = concept_token_ids(tok, pos, neu)
+    unused = unused_token_ids(tok, ["male"])
+    mask = unused_hold_mask(plus_ids, unused, concept, hold_mode=HOLD_MODE_NON_CONCEPT)
+    plus_h = torch.arange(len(plus_ids) * 3, dtype=torch.float32).reshape(len(plus_ids), 3)
+    neu_h = torch.stack([
+        torch.tensor([10.0, 11.0, 12.0]),
+        torch.tensor([20.0, 21.0, 22.0]),
+    ])
+    held = apply_unused_hold(plus_h, neu_h, plus_ids, neu_ids, mask)
+    # shared subject "person" and attribute "male" → encode(neu).
+    # concept "old" stays plus.
+    assert torch.allclose(held[0], neu_h[0])
+    assert torch.allclose(held[1], plus_h[1])
+    assert torch.allclose(held[2], neu_h[1])
+    assert not torch.allclose(held[2], plus_h[2])
 
 
 def test_uni_velocity_has_no_minus_teacher():
@@ -206,7 +283,7 @@ def test_unused_hold_mse_skips_concept_tokens():
     ids = tok.encode(neu)
     concept = concept_token_ids(tok, pos, neu)
     unused = unused_token_ids(tok, ["male"])
-    mask = unused_hold_mask(ids, unused, concept)
+    mask = unused_hold_mask(ids, unused, concept, hold_mode=HOLD_MODE_ATTRIBUTES)
     student = torch.zeros(len(ids), 3)
     neu_e = torch.zeros(len(ids), 3)
     student[0] = torch.tensor([1.0, 0.0, 0.0])
@@ -261,6 +338,10 @@ def test_chiaroscuro_yaml_loads_same_subject_lighting():
         assert "flat even lighting" in item["neutral"]
         assert "soft fill" in item["neutral"]
         assert "low contrast" in item["neutral"]
+        # Lighting delta only: identity locks appear on both poles.
+        subject = _h3_subject_clause(item["target"])
+        assert subject in item["positive"]
+        assert subject in item["neutral"]
         assert "cartoon" not in item["neutral"]
         assert "simple flat" not in item["neutral"]
         assert "chiaroscuro" not in item["neutral"]
@@ -269,15 +350,15 @@ def test_chiaroscuro_yaml_loads_same_subject_lighting():
         assert item["unconditional"] == item["negative"]
     subjects = {_h3_subject_clause(item["target"]) for item in raw}
     assert subjects == {
-        "person sitting in a chair",
-        "interior room with a wooden chair and a table",
-        "ceramic vase on a wooden table",
+        "person sitting in a chair wearing a blue denim shirt",
+        "interior room with a wooden chair and table with a fruit bowl",
+        "blue and white ceramic vase with painted figures on a wooden table",
     }
     rows = load_slider_rows(str(path), "")
     assert len(rows) == 6
     assert {r["positive"].split(",")[0] for r in rows} >= {
-        "male person sitting in a chair",
-        "female person sitting in a chair",
+        "male person sitting in a chair wearing a blue denim shirt",
+        "female person sitting in a chair wearing a blue denim shirt",
     }
     for row in rows:
         assert row["positive"].startswith(("male ", "female "))
@@ -285,6 +366,35 @@ def test_chiaroscuro_yaml_loads_same_subject_lighting():
         assert "chiaroscuro" in row["positive"]
         assert "chiaroscuro" not in row["neutral"]
         assert "washed-out" in row["unconditional"]
+    joined = " ".join(item["target"] for item in raw)
+    assert "blue denim shirt" in joined
+    assert "fruit bowl" in joined
+    assert "painted figures" in joined
+
+
+def test_chiaroscuro_non_concept_hold_keeps_lighting_free():
+    tok = DummyTokenizer()
+    rows = load_slider_rows(
+        "conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml", ""
+    )
+    for row in rows:
+        concept = concept_token_ids(tok, row["positive"], row["neutral"])
+        unused = unused_token_ids(tok, row["attributes"])
+        plus_ids = tok.encode(row["positive"])
+        mask = unused_hold_mask(plus_ids, unused, concept)
+        words = row["positive"].split()
+        held = {words[i] for i, flag in enumerate(mask.tolist()) if flag}
+        free = {words[i] for i, flag in enumerate(mask.tolist()) if not flag}
+        assert any("chiaroscuro" in w for w in free)
+        assert any("shadows" in w or "shadows," in w for w in free)
+        assert "denim" in held or "shirt," in held or "vase" in held or "bowl" in held
+        # concept ids are lighting-only; shared subject tokens are held.
+        assert concept
+        for i, tid in enumerate(plus_ids):
+            if int(tid) in concept:
+                assert not bool(mask[i])
+            else:
+                assert bool(mask[i])
 
 
 def test_chiaroscuro_config_and_docs_card():
@@ -302,8 +412,10 @@ def test_chiaroscuro_config_and_docs_card():
     assert cfg["network"]["train_adaln"] is False
     assert cfg["network"]["lora_up_init_std"] == 0.02
     assert cfg["network"]["rank"] == 16
-    assert cfg["train"]["iterations"] == 1500
-    assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni"
+    assert cfg["train"]["iterations"] == 2000
+    assert cfg["train"]["hold_mode"] == "non_concept"
+    assert cfg["train"]["hold_weight"] == 2.0
+    assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni-v3"
     docs = Path("docs/minimax-h3-slider.md").read_text()
     assert "--name chiaroscuro-minimax-h3-uni" in docs
     assert "prompts-minimax-h3-chiaroscuro.yaml" in docs
@@ -311,6 +423,13 @@ def test_chiaroscuro_config_and_docs_card():
     assert "--name chiaroscuro-minimax-h3-uni-r16" in docs
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 1200" in docs
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 1500" in docs
+    assert "--name chiaroscuro-minimax-h3-uni-v3" in docs
+    assert "--rank 16 --alpha 16 --lr 1e-4 --steps 2000" in docs
+    assert "--hold_mode non_concept" in docs
+    assert "--hold_weight 2.0" in docs
+    assert "slider-h3-chiaro-v3" in docs
+    assert "identity leak" in docs
+    assert "v1/v2" in docs
     assert "800" in docs and "1500" in docs
     assert "escalate" in docs
     assert "--short_side 768 --guidance 0" in docs
@@ -335,6 +454,64 @@ def test_chiaroscuro_config_and_docs_card():
     assert "--lora_up_init_std 0.02" in docs
     assert "Music 3" in docs
     assert "plus-oracle" in docs or "plus caption at scale 0" in docs
+    assert "blue denim shirt" in docs
+    assert "fruit bowl" in docs
+    assert "painted figures" in docs
+    assert "≥2/3" in docs or ">=2/3" in docs
+
+
+def test_train_step_non_concept_hold_copies_shared_subject():
+    """Train-step pack: shared subject rows become encode(neu); lighting stays plus."""
+    backend = MiniMaxH3Backend(device="cpu", dummy=True)
+    tokenizer = backend.tokenizer
+    pos = "male person sitting blue denim shirt, chiaroscuro dramatic"
+    neu = "male person sitting blue denim shirt, flat lighting"
+    plus_enc = backend.encode_text(pos, frozen=True)
+    neu_enc = backend.encode_text(neu, frozen=True)
+    # DummyEncoder mixes caption context, so the same word differs until hold.
+    person_plus = plus_enc.token_ids.index(tokenizer.encode("person")[0])
+    person_neu = neu_enc.token_ids.index(tokenizer.encode("person")[0])
+    assert not torch.allclose(
+        plus_enc.embeds[0, person_plus], neu_enc.embeds[0, person_neu]
+    )
+    concept = concept_token_ids(tokenizer, pos, neu)
+    unused = unused_token_ids(tokenizer, ["male", "female"])
+    hold_mask = unused_hold_mask(
+        plus_enc.token_ids, unused, concept, hold_mode=HOLD_MODE_NON_CONCEPT
+    )
+    packed = backend.pack_t2va(plus_enc, hold_neu=neu_enc, hold_mask=hold_mask)
+    held = packed.encoder_hidden_states[0]
+    neu_index = {int(tid): i for i, tid in enumerate(neu_enc.token_ids)}
+    plus_words = pos.split()
+    for i, tid in enumerate(plus_enc.token_ids):
+        word = plus_words[i] if i < len(plus_words) else ""
+        if int(tid) in concept:
+            assert torch.allclose(held[i], plus_enc.embeds[0, i]), word
+            assert not torch.allclose(held[i], neu_enc.embeds[0, 0]), word
+        else:
+            j = neu_index[int(tid)]
+            assert torch.allclose(held[i], neu_enc.embeds[0, j]), word
+
+
+def test_dummy_train_attributes_hold_mode_sidecar(tmp_path):
+    prompts = tmp_path / "one.yaml"
+    prompts.write_text(
+        "- target: person\n  positive: old person\n  neutral: person\n"
+        "  unconditional: ''\n  attributes: []\n"
+    )
+    args = parse_args([
+        "--dummy",
+        "--steps", "2",
+        "--name", "minimax-h3-attr-hold",
+        "--save_dir", str(tmp_path),
+        "--prompts_file", str(prompts),
+        "--hold_mode", "attributes",
+        "--no_sample",
+        "--seed", "0",
+    ])
+    sidecar = train(args)
+    assert sidecar["hold_mode"] == HOLD_MODE_ATTRIBUTES
+    assert sidecar["hold"] == "unused_attribute_tokens_to_encode_neu"
 
 
 def test_dummy_train_drops_uni_loss_and_writes_sidecar(tmp_path):
@@ -371,6 +548,9 @@ def test_dummy_train_drops_uni_loss_and_writes_sidecar(tmp_path):
     assert sidecar["guidance"] == 0.0
     assert sidecar["short_side"] == 768
     assert sidecar["hold_concept_words"] is False
+    assert sidecar["hold_mode"] == HOLD_MODE_NON_CONCEPT
+    assert sidecar["hold"] == "non_concept_tokens_to_encode_neu"
+    assert sidecar["hold_weight"] == 1.0
     assert sidecar["hosted_not_in_weights"] == ["H3-Context-IR", "H3-Regenerate-2K"]
     assert sidecar["lora_up_init_std"] == 0.02
     assert sidecar["first_loss"] > sidecar["last_loss"]
@@ -468,11 +648,13 @@ def test_sample_prompts_are_unique_yaml_targets():
     )
     prompts = sample_prompts_from_rows(rows)
     assert prompts == [
-        "person sitting in a chair",
-        "interior room with a wooden chair and a table",
-        "ceramic vase on a wooden table",
+        "person sitting in a chair wearing a blue denim shirt",
+        "interior room with a wooden chair and table with a fruit bowl",
+        "blue and white ceramic vase with painted figures on a wooden table",
     ]
-    assert sample_prompts_from_rows(rows, max_rows=1) == ["person sitting in a chair"]
+    assert sample_prompts_from_rows(rows, max_rows=1) == [
+        "person sitting in a chair wearing a blue denim shirt"
+    ]
 
 
 class _FakeMod:

@@ -43,6 +43,8 @@ from conceptmod.textsliders.minimax_h3_backend import (
     h3_pack_feature_dim,
 )
 from conceptmod.textsliders.minimax_h3_uni import (
+    DEFAULT_HOLD_MODE,
+    HOLD_MODES,
     concept_token_ids,
     minimax_h3_minus_canary,
     minimax_h3_uni_total_loss,
@@ -104,6 +106,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--short_side", type=int, default=768)
     p.add_argument("--guidance", type=float, default=0.0, help="CFG-distilled: stay 0")
     p.add_argument("--hold_weight", type=float, default=1.0)
+    p.add_argument(
+        "--hold_mode",
+        type=str,
+        default=DEFAULT_HOLD_MODE,
+        choices=list(HOLD_MODES),
+        help=(
+            "Token hold. non_concept (default): pin every plus token that "
+            "is not a concept word (ids in plus but not in neu) to the "
+            "matching encode(neu) row — Music 3 lyric-hold analog. "
+            "attributes: old v1/v2 leak — only yaml unused attributes "
+            "(male/female); shared subject tokens stay free and Omni LoRA "
+            "rewrites identity (clothes/props/vase)."
+        ),
+    )
     p.add_argument("--save_dir", type=str, default=None)
     p.add_argument(
         "--load_h3_lora",
@@ -426,7 +442,12 @@ def train(args: argparse.Namespace, backend: MiniMaxH3Backend | None = None) -> 
         uncond_enc = backend.encode_text(row.get("unconditional") or row["neutral"], frozen=True)
         concept = concept_token_ids(tokenizer, row["positive"], row["neutral"])
         unused = unused_token_ids(tokenizer, row["attributes"])
-        hold_mask = unused_hold_mask(plus_enc.token_ids, unused, concept)
+        hold_mask = unused_hold_mask(
+            plus_enc.token_ids,
+            unused,
+            concept,
+            hold_mode=getattr(args, "hold_mode", DEFAULT_HOLD_MODE),
+        )
 
         packed_plus = backend.pack_t2va(
             plus_enc,
@@ -493,7 +514,13 @@ def train(args: argparse.Namespace, backend: MiniMaxH3Backend | None = None) -> 
         "plus_neu": True,
         "minus_teacher": False,
         "minus_canary": True,
-        "hold": "unused_tokens_to_encode_neu",
+        "hold": (
+            "non_concept_tokens_to_encode_neu"
+            if str(getattr(args, "hold_mode", DEFAULT_HOLD_MODE)) == DEFAULT_HOLD_MODE
+            else "unused_attribute_tokens_to_encode_neu"
+        ),
+        "hold_mode": str(getattr(args, "hold_mode", DEFAULT_HOLD_MODE)),
+        "hold_weight": float(args.hold_weight),
         "hold_concept_words": False,
         "lora_only": True,
         "lora_host": LORA_ATTN_CLASS,

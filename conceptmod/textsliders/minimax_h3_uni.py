@@ -9,8 +9,14 @@ the stack as a conceptmod ``predict_v`` / Euler DiT.
 * student +1 (LoRA on, plus-concept packed sequence) → teacher plus velocity
 * student scale 0 (adapter off, neu packed sequence) → teacher neu velocity
 * no minus teacher (yaml negative is a logged canary only)
-* hold unused prompt tokens / pinned yaml attributes to ``encode(neu)``
-* do **not** hold concept words (tokens in + that are absent from neu)
+* hold every **non-concept** token (default) to the matching ``encode(neu)``
+  row — Music 3 lyric-hold analog. Shared subject tokens in both plus and
+  neu are pinned so Omni LoRA cannot rewrite identity (clothes / props /
+  vase). Yaml attributes (male/female) are a subset of that hold.
+* ``hold_mode=attributes`` is the old v1/v2 path: only unused yaml
+  attribute tokens. Shared subject tokens stayed free and leaked identity.
+* do **not** hold concept words (token ids in + that are absent from neu);
+  lighting words stay free.
 """
 
 from __future__ import annotations
@@ -19,6 +25,11 @@ from typing import Iterable, Sequence
 
 import torch
 import torch.nn.functional as F
+
+HOLD_MODE_NON_CONCEPT = "non_concept"
+HOLD_MODE_ATTRIBUTES = "attributes"
+HOLD_MODES = (HOLD_MODE_NON_CONCEPT, HOLD_MODE_ATTRIBUTES)
+DEFAULT_HOLD_MODE = HOLD_MODE_NON_CONCEPT
 
 
 def pin_unused_attributes(
@@ -62,14 +73,47 @@ def unused_token_ids(tokenizer, attributes: Sequence[str]) -> set[int]:
     return ids
 
 
+def resolve_hold_mode(hold_mode: str | None) -> str:
+    mode = DEFAULT_HOLD_MODE if hold_mode is None else str(hold_mode).strip().lower()
+    if mode not in HOLD_MODES:
+        raise ValueError(
+            f"hold_mode must be one of {HOLD_MODES}, got {hold_mode!r}. "
+            f"{HOLD_MODE_NON_CONCEPT} holds every plus token that is not a "
+            f"concept word; {HOLD_MODE_ATTRIBUTES} is the old v1/v2 "
+            f"attribute-only hold that leaked shared subject identity."
+        )
+    return mode
+
+
 def unused_hold_mask(
     token_ids: Sequence[int],
     unused_ids: Iterable[int],
     concept_ids: Iterable[int],
+    *,
+    hold_mode: str | None = None,
 ) -> torch.Tensor:
+    """Boolean hold flags for plus-token rows.
+
+    Concept tokens (ids in plus but not in neu) are never held.
+
+    * ``non_concept`` (default): hold every other plus token, including
+      shared subject words. Matching ``encode(neu)`` rows pin identity.
+    * ``attributes``: old v1/v2 mask — only yaml unused-attribute ids
+      (male/female). Shared subject tokens stay free and leak.
+    """
+    mode = resolve_hold_mode(hold_mode)
     unused = set(int(x) for x in unused_ids)
     concept = set(int(x) for x in concept_ids)
-    flags = [bool(int(tid) in unused and int(tid) not in concept) for tid in token_ids]
+    flags = []
+    for tid in token_ids:
+        tid_i = int(tid)
+        if tid_i in concept:
+            flags.append(False)
+            continue
+        if mode == HOLD_MODE_NON_CONCEPT:
+            flags.append(True)
+        else:
+            flags.append(tid_i in unused)
     if not flags:
         return torch.zeros(0, dtype=torch.bool)
     return torch.tensor(flags, dtype=torch.bool)
@@ -82,10 +126,11 @@ def apply_unused_hold(
     neu_ids: Sequence[int],
     hold_mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Copy ``encode(neu)`` onto unused (non-concept) plus-token rows.
+    """Copy ``encode(neu)`` onto held (non-concept) plus-token rows.
 
     Alignment is by token id: each held plus position takes the first matching
-    neu-row hidden. Concept words are left as ``encode(plus)``.
+    neu-row hidden. Concept words are left as ``encode(plus)``. Default hold
+    is every non-concept token; attributes-only is the old leaky subset.
     """
     if hold_mask.numel() == 0 or not bool(hold_mask.any()):
         return plus_hidden
@@ -136,7 +181,7 @@ def minimax_h3_unused_hold_loss(
     *,
     hold_weight: float = 1.0,
 ) -> torch.Tensor:
-    """MSE of unused-token hidden to ``encode(neu)``. Concept words free."""
+    """MSE of held-token hidden to ``encode(neu)``. Concept words free."""
     if hold_mask.numel() == 0 or not bool(hold_mask.any()):
         return student_embeds.reshape(-1)[:1].sum() * 0.0
     if student_embeds.dim() == 3:
