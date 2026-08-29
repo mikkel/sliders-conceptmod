@@ -216,6 +216,22 @@ def scaled_train_timestep(
     )
 
 
+def _masked_token_pool(
+    hidden: torch.Tensor,
+    attention_mask: torch.Tensor | None,
+    target_len: int,
+) -> torch.Tensor:
+    """Pool unmasked rows to ``target_len``. Pad zeros must not enter the mean."""
+    if attention_mask is None:
+        return F.adaptive_avg_pool1d(hidden.transpose(1, 2), int(target_len)).transpose(1, 2)
+    weight = attention_mask.to(device=hidden.device, dtype=hidden.dtype).unsqueeze(-1)
+    denom = weight.sum(dim=1, keepdim=True).clamp(min=1.0)
+    pooled = (hidden * weight).sum(dim=1, keepdim=True) / denom
+    if int(target_len) == 1:
+        return pooled
+    return pooled.expand(-1, int(target_len), -1)
+
+
 def _require_scaled_video_timestep(timestep: torch.Tensor, hidden_states: torch.Tensor) -> None:
     """Live ``timestep`` is ``(B, num_video_tokens)`` already * 1000."""
     expected = tuple(hidden_states.shape[:2])
@@ -427,21 +443,26 @@ class DummyLTX2Connectors(nn.Module):
         mix: nn.Linear,
         attention_mask: torch.Tensor | None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Left-pad with registers, mix so row i is not token i, T' != T."""
+        """Replace pad, prepend registers, mix so row i is not token i, T' != T.
+
+        Mean-pool **unmasked** rows only. A mean over left-padded 1024 zeros
+        would wash plus vs neu captions (the live gap dummy must keep).
+        """
         bsz = proj.shape[0]
         regs = registers.to(device=proj.device, dtype=proj.dtype)
-        # Live: replace padding slots, front-align valid tokens, registers in tail.
-        # Dummy has no pad on train encode — prepend registers then mix.
-        laid_out = torch.cat((regs.unsqueeze(0).expand(bsz, -1, -1), proj), dim=1)
-        ctx = laid_out.mean(dim=1, keepdim=True).expand_as(laid_out)
-        mixed = mix(laid_out + 0.35 * ctx)
         if attention_mask is None:
-            mask = torch.ones(mixed.shape[:2], device=proj.device, dtype=torch.long)
+            valid = torch.ones(proj.shape[:2], device=proj.device, dtype=torch.bool)
+            mask_in = valid.to(torch.long)
         else:
-            extra = torch.ones(
-                bsz, self.n_registers, device=proj.device, dtype=attention_mask.dtype,
-            )
-            mask = torch.cat((extra, attention_mask.to(proj.device)), dim=1)
+            mask_in = attention_mask.to(device=proj.device)
+            valid = mask_in.bool()
+        valid_f = valid.to(proj.dtype).unsqueeze(-1)
+        denom = valid_f.sum(dim=1, keepdim=True).clamp(min=1.0)
+        ctx = (proj * valid_f).sum(dim=1, keepdim=True) / denom
+        laid_out = torch.cat((regs.unsqueeze(0).expand(bsz, -1, -1), proj), dim=1)
+        mixed = mix(laid_out + 0.35 * ctx.expand_as(laid_out))
+        extra = torch.ones(bsz, self.n_registers, device=proj.device, dtype=mask_in.dtype)
+        mask = torch.cat((extra, mask_in), dim=1)
         return mixed, mask
 
     def forward(
@@ -521,7 +542,6 @@ class DummyLTX2Transformer(nn.Module):
         return_dict: bool = True,
         **_k,
     ):
-        del encoder_attention_mask, audio_encoder_attention_mask
         del num_frames, height, width, fps, isolate_modalities
         del spatio_temporal_guidance_blocks, _k
         _require_scaled_video_timestep(timestep, hidden_states)
@@ -530,19 +550,17 @@ class DummyLTX2Transformer(nn.Module):
         audio = self.audio_proj_in(audio_hidden_states)
         enc_v = self.caption_projection(encoder_hidden_states)
         enc_a = self.audio_caption_projection(audio_encoder_hidden_states)
-        # Pool the full connector sequence onto video/audio tokens so plus vs
-        # neu captions move velocity (a mean-only mix collapsed the dummy gap).
-        enc_v_pool = F.adaptive_avg_pool1d(
-            enc_v.transpose(1, 2), video.shape[1],
-        ).transpose(1, 2)
-        enc_a_pool = F.adaptive_avg_pool1d(
-            enc_a.transpose(1, 2), audio.shape[1],
-        ).transpose(1, 2)
+        # Pool unmasked connector rows only. Adaptive-avg over a 1024-pad
+        # sequence would wash plus vs neu (live cross-attn uses the mask).
+        enc_v_pool = _masked_token_pool(enc_v, encoder_attention_mask, video.shape[1])
+        enc_a_pool = _masked_token_pool(enc_a, audio_encoder_attention_mask, audio.shape[1])
         video = video + enc_v_pool
         audio = audio + enc_a_pool
         # Consume the full (B, num_video_tokens) scaled timestep. Taking [:1]
-        # would hide an unscaled scalar 0.5.
-        temb = self.time_embedder(timestep.to(video.dtype).mean(dim=1, keepdim=True))
+        # of an unscaled 0.5 would hide the live contract. The tiny Linear
+        # sees sigma = t / 1000 so 725 does not explode dummy activations.
+        sigma = timestep.to(video.dtype).mean(dim=1, keepdim=True) / TIMESTEP_SCALE_MULTIPLIER
+        temb = self.time_embedder(sigma)
         video = video + temb.unsqueeze(1)
         if audio_timestep is not None:
             audio_t = audio_timestep.to(audio.dtype)
@@ -550,9 +568,9 @@ class DummyLTX2Transformer(nn.Module):
                 audio_t = audio_t.mean(dim=1, keepdim=True)
             else:
                 audio_t = audio_t.reshape(-1, 1)[: audio.shape[0]]
-            audio = audio + self.time_embedder(audio_t).unsqueeze(1)
+            audio = audio + self.time_embedder(audio_t / TIMESTEP_SCALE_MULTIPLIER).unsqueeze(1)
         for block in self.transformer_blocks:
-            video, audio = block(video, audio, enc_v, enc_a)
+            video, audio = block(video, audio, enc_v_pool, enc_a_pool)
         output = self.proj_out(self.norm_out(video)) + self.enc_to_video(enc_v_pool)
         audio_output = self.audio_proj_out(self.audio_norm_out(audio)) + self.enc_to_audio(enc_a_pool)
         if return_dict:
