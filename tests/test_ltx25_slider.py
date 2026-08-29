@@ -21,9 +21,15 @@ from conceptmod.textsliders.ltx25_backend import (
     DEFAULT_TRAIN_NUM_FRAMES,
     DEFAULT_TRAIN_WIDTH,
     DEFAULT_TRANSFORMER_SUBFOLDER,
+    DISTILLED_MODALITY_SCALE,
     DISTILLED_SIGMA_VALUES,
+    DEFAULT_DISTILLED_TRAIN_SIGMA,
+    CONNECTOR_PAD_SEQ_LEN,
+    CONNECTOR_REGISTER_MULTIPLE,
     FREEZE_LIST,
     FULL_TRANSFORMER_SUBFOLDER,
+    SFT_NUM_INFERENCE_STEPS,
+    TIMESTEP_SCALE_MULTIPLIER,
     IGNORE_ON_FIRST_DOWNLOAD,
     LORA_ATTN_CLASS,
     LORA_LINEAR_NAMES,
@@ -31,11 +37,17 @@ from conceptmod.textsliders.ltx25_backend import (
     VIDEO_IN_CHANNELS,
     ArchitectureMismatch,
     AttnLoRANetwork,
+    DummyLTX2Connectors,
     DummyLTX2Transformer,
     DummyTokenizer,
     LTX25Backend,
     distilled_sigmas,
+    is_distilled_subfolder,
     is_video_attn_linear,
+    pad_pre_connector_sequence,
+    sample_pipe_kwargs,
+    scaled_train_timestep,
+    sft_scheduler_overrides,
     ltx_canvas_hw,
     ltx_num_frames,
     ltx_pack_feature_dim,
@@ -204,11 +216,12 @@ def test_hold_is_pre_connector_not_post():
         hold_mask, concept_ids=concept, held_hidden=packed.pre_connector_hidden,
     )
     assert pre["held_mean_abs"] == pytest.approx(0.0, abs=1e-5)
-    # Wrong order: connectors first, then token-id hold. Must not match
-    # hold-then-connectors (the pack path). Per-token Linear+copy would
-    # make these equal — dummy mix makes the test fail that bug.
-    plus_post, _, _ = backend._run_connectors(plus_enc.embeds, plus_enc.attention_mask)
-    neu_post, _, _ = backend._run_connectors(neu_enc.embeds, neu_enc.attention_mask)
+    # Wrong order: pad + connectors first, then token-id hold. Must not
+    # match hold-then-pad-then-connectors (the pack path).
+    plus_pad, plus_mask = pad_pre_connector_sequence(plus_enc.embeds, plus_enc.attention_mask)
+    neu_pad, neu_mask = pad_pre_connector_sequence(neu_enc.embeds, neu_enc.attention_mask)
+    plus_post, _, _ = backend._run_connectors(plus_pad, plus_mask)
+    neu_post, _, _ = backend._run_connectors(neu_pad, neu_mask)
     wrong = apply_unused_hold(
         plus_post, neu_post, plus_enc.token_ids, neu_enc.token_ids, hold_mask,
     )
@@ -334,7 +347,7 @@ def test_dummy_train_writes_sidecar_and_student_is_neu(tmp_path):
     assert sidecar["predict_v_faked"] is False
     assert sidecar["guidance"] == 1.0
     assert sidecar["stg_scale"] == 0.0
-    assert sidecar["modality_scale"] == 0.0
+    assert sidecar["modality_scale"] == DISTILLED_MODALITY_SCALE == 1.0
     assert sidecar["prompt_enhancer"] is False
     assert sidecar["decoder"] == "conv_vae"
     assert sidecar["sigmas"] == DISTILLED_SIGMA_VALUES
@@ -390,7 +403,7 @@ def test_config_points_at_ltx25_distilled():
     assert cfg["train"]["recipe"] == "ltx25_uni_velocity"
     assert cfg["train"]["guidance"] == 1.0
     assert cfg["train"]["stg_scale"] == 0
-    assert cfg["train"]["modality_scale"] == 0
+    assert cfg["train"]["modality_scale"] == DISTILLED_MODALITY_SCALE == 1.0
     assert cfg["train"]["sample_num_frames"] == 49
     assert cfg["train"]["sample_height"] == 544
     assert cfg["train"]["sample_width"] == 960
@@ -626,3 +639,108 @@ def test_dummy_diag_expression_gap_not_lighting(tmp_path):
     ])
     assert via["recipe"] == "ltx25_uni_diag"
     assert (tmp_path / "via-train" / "ltx-diag-flag_diag.json").is_file()
+
+
+def test_connector_pad_enforces_register_multiple():
+    """Live connectors require seq_len % 128 == 0. Train encode is raw T.
+
+    Dummy connectors must raise on unpadded prompt length so CI sees the
+    first live pack_t2v crash (ValueError) if we regress.
+    """
+    backend = LTX25Backend(device="cpu", dummy=True)
+    enc = backend.encode_text("a person sitting in a chair, closed mouth")
+    raw_t = enc.embeds.shape[1]
+    assert raw_t < CONNECTOR_REGISTER_MULTIPLE
+    assert raw_t % CONNECTOR_REGISTER_MULTIPLE != 0
+    with pytest.raises(ValueError, match="learnable registers"):
+        backend.connectors(enc.embeds, enc.attention_mask)
+    with pytest.raises(ValueError, match="learnable registers"):
+        DummyLTX2Connectors()(enc.embeds, enc.attention_mask)
+
+    packed = backend.pack_t2v(enc)
+    assert packed.n_prompt_tokens == raw_t
+    assert packed.pre_connector_hidden.shape[1] == raw_t
+    padded, pad_mask = pad_pre_connector_sequence(enc.embeds, enc.attention_mask)
+    assert padded.shape[1] == CONNECTOR_PAD_SEQ_LEN
+    assert padded.shape[1] % CONNECTOR_REGISTER_MULTIPLE == 0
+    assert int(pad_mask.sum().item()) == raw_t
+    # Left pad: real token rows stay on the right; hold mask is not extended.
+    assert torch.equal(padded[:, -raw_t:], enc.embeds)
+    assert torch.equal(pad_mask[:, -raw_t:], enc.attention_mask)
+    assert torch.count_nonzero(pad_mask[:, :-raw_t]).item() == 0
+    video_e, _, _ = backend._run_connectors(padded, pad_mask)
+    assert video_e.shape[1] != raw_t
+    assert packed.encoder_hidden_states.shape[1] == video_e.shape[1]
+
+
+def test_train_timestep_is_scaled_distilled_sigma():
+    """Live timestep is (B, num_video_tokens) already * 1000.
+
+    Unscaled 0.5 is t≈0. Dummy time embed must reject that so CI sees
+    the collapsed plus/neu velocity crash if we regress.
+    """
+    assert DEFAULT_DISTILLED_TRAIN_SIGMA in DISTILLED_SIGMA_VALUES
+    assert DEFAULT_DISTILLED_TRAIN_SIGMA != 0.5
+    backend = LTX25Backend(device="cpu", dummy=True)
+    packed = backend.pack_t2v(backend.encode_text("a person smiling showing teeth"))
+    expected = DEFAULT_DISTILLED_TRAIN_SIGMA * TIMESTEP_SCALE_MULTIPLIER
+    assert packed.timestep.shape == packed.hidden_states.shape[:2]
+    assert packed.audio_timestep.shape == packed.audio_hidden_states.shape[:2]
+    assert float(packed.timestep.amax()) == pytest.approx(expected)
+    assert float(packed.timestep.amin()) == pytest.approx(expected)
+    assert expected > 1.0
+    scaled = scaled_train_timestep(1, packed.hidden_states.shape[1], distilled=True)
+    assert torch.allclose(packed.timestep.cpu(), scaled)
+
+    unscaled = torch.full(packed.hidden_states.shape[:2], 0.5)
+    with pytest.raises(ValueError, match="unscaled"):
+        backend.transformer(
+            packed.hidden_states,
+            packed.audio_hidden_states,
+            packed.encoder_hidden_states,
+            packed.audio_encoder_hidden_states,
+            timestep=unscaled,
+            audio_num_frames=packed.audio_hidden_states.shape[1],
+        )
+    with pytest.raises(ValueError, match="num_video_tokens"):
+        backend.transformer(
+            packed.hidden_states,
+            packed.audio_hidden_states,
+            packed.encoder_hidden_states,
+            packed.audio_encoder_hidden_states,
+            timestep=torch.tensor([expected]),
+            audio_num_frames=packed.audio_hidden_states.shape[1],
+        )
+
+
+def test_forward_velocity_requires_audio_num_frames():
+    """Live RoPE prepare_audio_coords(None) is a TypeError. Dummy must not swallow it."""
+    backend = LTX25Backend(device="cpu", dummy=True)
+    packed = backend.pack_t2v(backend.encode_text("a person, closed mouth"))
+    with pytest.raises(TypeError, match="audio_num_frames|num_frames"):
+        backend.transformer(
+            packed.hidden_states,
+            packed.audio_hidden_states,
+            packed.encoder_hidden_states,
+            packed.audio_encoder_hidden_states,
+            timestep=packed.timestep,
+        )
+    out = backend.forward_velocity(packed, scale=0.0)
+    assert out.sample.shape[0] == 1
+    assert out.audio_sample.shape[0] == 1
+
+
+def test_sft_sample_restores_shifting_and_drops_distilled_sigmas():
+    assert sft_scheduler_overrides() == {
+        "use_dynamic_shifting": True, "shift_terminal": 0.1,
+    }
+    assert is_distilled_subfolder(DEFAULT_TRANSFORMER_SUBFOLDER)
+    assert not is_distilled_subfolder(FULL_TRANSFORMER_SUBFOLDER)
+    distilled = sample_pipe_kwargs(distilled=True)
+    assert distilled["sigmas"] == DISTILLED_SIGMA_VALUES
+    assert distilled["modality_scale"] == DISTILLED_MODALITY_SCALE == 1.0
+    assert "num_inference_steps" not in distilled
+    sft = sample_pipe_kwargs(distilled=False)
+    assert "sigmas" not in sft
+    assert sft["num_inference_steps"] == SFT_NUM_INFERENCE_STEPS
+    assert sft["modality_scale"] == DISTILLED_MODALITY_SCALE

@@ -12,9 +12,9 @@ pack. The split Comfy pack `Lightricks/LTX-2.5` is **not** the train path.
 |---|---|---|
 | subfolder | `transformer/` (in `model_index.json`) | `transformer_full/` (**not** in `model_index`) |
 | first download | **exclude** `transformer_full/` | load explicitly |
-| sample | `sigmas=DISTILLED_SIGMA_VALUES` — do **not** pass `num_inference_steps` | drop `sigmas`; scheduler steps |
+| sample | `sigmas=DISTILLED_SIGMA_VALUES` — do **not** pass `num_inference_steps`. `modality_scale=1.0` (pipeline treats `>1.0` as on) | drop `sigmas`; restore `use_dynamic_shifting=True, shift_terminal=0.1` |
 | guidance | `guidance_scale=1.0`, `audio_guidance_scale=1.0` | CFG 3 / audio 7 + STG / modality |
-| STG / modality | **0** (off) | STG on block 28 |
+| STG / modality | STG **0**; `modality_scale=1.0` (off; pipeline treats `>1.0` as on) | STG on block 28 |
 | prompt enhancer | **OFF** | optional `google/gemma-4-E2B-it` |
 
 `--diag` first live. If frozen plus vs neu velocity **cos ≈ 1.0**, the
@@ -80,10 +80,19 @@ leaky subset.
 **Hold must be PRE-connector.** Order: tokenize
 (`add_special_tokens=False`; Gemma-4 prepends a leading space) → frozen
 TE features (current diffusers stacks every hidden layer and
-`flatten(2, 3)`) → `apply_unused_hold` → **then** `pipe.connectors(...)`
-→ transformer. After connectors, T is not 1:1 with prompt tokens
-(learnable registers replace padding). Dummy tests fail if hold is
-applied after connectors.
+`flatten(2, 3)`) → `apply_unused_hold` → **left-pad to a multiple of
+128** (1024 like the pipeline) → **then** `pipe.connectors(...)` →
+transformer. Live `LTX2TextConnectors` require
+`seq_len % num_learnable_registers == 0` (registers default 128) and
+replace padding in-place. Dummy connectors enforce that same %128
+contract. After connectors, T is not 1:1 with prompt tokens. Dummy
+tests fail if hold is applied after connectors.
+
+Train `pack_t2v` timestep is `(B, num_video_tokens)` already scaled by
+`timestep_scale_multiplier` (1000). Distilled UNI picks a sigma from
+`DISTILLED_SIGMA_VALUES` (not a generic 0.5 — unscaled 0.5 is t≈0).
+`forward_velocity` passes `audio_num_frames` (live RoPE
+`prepare_audio_coords(None)` is a TypeError).
 
 Current `LTX2Pipeline._get_gemma_prompt_embeds` only stacks hidden
 layers and `flatten(2, 3)`. Mean-center/scale is **inside**
@@ -161,6 +170,9 @@ If `--diag` reports `dead_gap` / expression_gap cos ≈ 1.0:
 --transformer_subfolder transformer_full
 ```
 
+SFT sample restores `use_dynamic_shifting=True, shift_terminal=0.1`
+and does **not** pass `DISTILLED_SIGMA_VALUES`.
+
 | field | value |
 |---|---|
 | hub id | `Lightricks/LTX-2.5-Diffusers` |
@@ -172,7 +184,7 @@ If `--diag` reports `dead_gap` / expression_gap cos ≈ 1.0:
 | train pack | 9 frames, 32×32, `proj_in.in_features` 128 |
 | sample | **49** frames, **544×960**, conv VAE |
 | distilled sigmas | `1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875` |
-| CFG / STG / modality | 1.0 / **0** / **0** |
+| CFG / STG / modality | 1.0 / **0** / **1.0** (pipeline treats ``>1.0`` as on) |
 | prompt enhancer | OFF |
 | infer caption | **neu** at every sample scale |
 | GPU | **A100 80GB** community ~$1.19/hr. Not 4090. Not B300. |

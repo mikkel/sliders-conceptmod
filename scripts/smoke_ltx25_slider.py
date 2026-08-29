@@ -13,7 +13,7 @@ LoRA                  LTX2Attention attn1+attn2 to_q/to_k/to_v/to_out.0
 lora_up               N(0, 0.02)
 sample                49 frames, 544x960, conv VAE
 sigmas                DISTILLED_SIGMA_VALUES (do not pass num_inference_steps)
-guidance / STG / mod  1.0 / 0 / 0
+guidance / STG / mod  1.0 / 0 / 1.0 (pipeline treats >1.0 as on)
 prompt enhancer       OFF
 infer                 neu caption at scale 1
 GPU                   A100 80GB community ~$1.19/hr. Not 4090. Not B300.
