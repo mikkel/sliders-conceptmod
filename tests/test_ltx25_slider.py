@@ -121,8 +121,10 @@ def test_video_only_lora_rejects_audio_and_a2v():
     assert not is_video_attn_linear("transformer_blocks.0.audio_to_video_attn.to_v")
     assert not is_video_attn_linear("transformer_blocks.0.video_to_audio_attn.to_q")
     assert not is_video_attn_linear("transformer_blocks.0.ff")
-    # Naive endswith('.attn1') would match audio_attn1 — that is the bug.
-    assert "transformer_blocks.0.audio_attn1".endswith(".attn1")
+    # Naive "attn1" suffix / last-component endswith matches audio_attn1.
+    # Official target_modules=["to_q"] also wraps audio / a2v — too broad.
+    assert "transformer_blocks.0.audio_attn1".endswith("attn1")
+    assert "transformer_blocks.0.audio_attn1.to_q".split(".")[-2].endswith("attn1")
     assert not is_video_attn_linear("transformer_blocks.0.audio_attn1.to_q")
 
 

@@ -304,6 +304,8 @@ class DummyLTX2Transformer(nn.Module):
         self.audio_norm_out = nn.Identity()
         self.proj_out = nn.Linear(hidden_size, video_dim)
         self.audio_proj_out = nn.Linear(hidden_size, audio_dim)
+        self.enc_to_video = nn.Linear(hidden_size, video_dim)
+        self.enc_to_audio = nn.Linear(hidden_size, audio_dim)
 
     def forward(
         self,
@@ -331,16 +333,24 @@ class DummyLTX2Transformer(nn.Module):
         audio = self.audio_proj_in(audio_hidden_states)
         enc_v = self.caption_projection(encoder_hidden_states)
         enc_a = self.audio_caption_projection(audio_encoder_hidden_states)
-        video = video + enc_v.mean(dim=1, keepdim=True)
-        audio = audio + enc_a.mean(dim=1, keepdim=True)
+        # Pool the full connector sequence onto video/audio tokens so plus vs
+        # neu captions move velocity (a mean-only mix collapsed the dummy gap).
+        enc_v_pool = F.adaptive_avg_pool1d(
+            enc_v.transpose(1, 2), video.shape[1],
+        ).transpose(1, 2)
+        enc_a_pool = F.adaptive_avg_pool1d(
+            enc_a.transpose(1, 2), audio.shape[1],
+        ).transpose(1, 2)
+        video = video + enc_v_pool
+        audio = audio + enc_a_pool
         temb = self.time_embedder(timestep.reshape(-1, 1)[:1].to(video.dtype))
         video = video + temb.unsqueeze(1)
         if audio_timestep is not None:
             audio = audio + self.time_embedder(audio_timestep.reshape(-1, 1)[:1].to(audio.dtype)).unsqueeze(1)
         for block in self.transformer_blocks:
             video, audio = block(video, audio, enc_v, enc_a)
-        output = self.proj_out(self.norm_out(video))
-        audio_output = self.audio_proj_out(self.audio_norm_out(audio))
+        output = self.proj_out(self.norm_out(video)) + self.enc_to_video(enc_v_pool)
+        audio_output = self.audio_proj_out(self.audio_norm_out(audio)) + self.enc_to_audio(enc_a_pool)
         if return_dict:
             return DummyVelocity(sample=output, audio_sample=audio_output)
         return output, audio_output
