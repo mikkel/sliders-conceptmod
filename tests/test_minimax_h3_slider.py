@@ -346,9 +346,11 @@ def test_chiaroscuro_yaml_loads_same_subject_lighting():
         assert subject == _h3_subject_clause(item["unconditional"])
         assert subject == _h3_subject_clause(item["negative"])
         assert "chiaroscuro" in item["positive"]
-        assert "dramatic single-source side light" in item["positive"]
-        assert "deep shadows" in item["positive"]
+        assert "Rembrandt key light from the left" in item["positive"]
+        assert "hard single-source side light" in item["positive"]
+        assert "deep black shadows" in item["positive"]
         assert "high contrast" in item["positive"]
+        assert "no fill" in item["positive"]
         assert "flat even lighting" in item["neutral"]
         assert "soft fill" in item["neutral"]
         assert "low contrast" in item["neutral"]
@@ -403,6 +405,8 @@ def test_chiaroscuro_non_concept_hold_keeps_lighting_free():
         free = {words[i] for i, flag in enumerate(mask.tolist()) if not flag}
         held_norm = {w.strip(",.") for w in held}
         assert any("chiaroscuro" in w for w in free)
+        assert any("rembrandt" in w.lower() for w in free)
+        assert any("hard" in w for w in free)
         assert any("shadows" in w for w in free)
         assert held_norm & {
             "denim", "shirt", "tee", "windsor", "bowl", "bananas",
@@ -432,10 +436,10 @@ def test_chiaroscuro_config_and_docs_card():
     assert cfg["network"]["train_adaln"] is False
     assert cfg["network"]["lora_up_init_std"] == 0.02
     assert cfg["network"]["rank"] == 16
-    assert cfg["train"]["iterations"] == 2000
+    assert cfg["train"]["iterations"] == 2500
     assert cfg["train"]["hold_mode"] == "non_concept"
-    assert cfg["train"]["hold_weight"] == 5.0
-    assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni-v4"
+    assert cfg["train"]["hold_weight"] == 3.0
+    assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni-v5"
     docs = Path("docs/minimax-h3-slider.md").read_text()
     assert "--name chiaroscuro-minimax-h3-uni" in docs
     assert "prompts-minimax-h3-chiaroscuro.yaml" in docs
@@ -445,12 +449,20 @@ def test_chiaroscuro_config_and_docs_card():
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 1500" in docs
     assert "--name chiaroscuro-minimax-h3-uni-v3" in docs
     assert "--name chiaroscuro-minimax-h3-uni-v4" in docs
+    assert "--name chiaroscuro-minimax-h3-uni-v5" in docs
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 2000" in docs
+    assert "--rank 16 --alpha 16 --lr 1e-4 --steps 2500" in docs
     assert "--hold_mode non_concept" in docs
     assert "--hold_weight 2.0" in docs
     assert "--hold_weight 5.0" in docs
+    assert "--hold_weight 3.0" in docs
     assert "slider-h3-chiaro-v3" in docs
     assert "slider-h3-chiaro-v4" in docs
+    assert "slider-h3-chiaro-v5" in docs
+    assert "Rembrandt key light from the left" in docs
+    assert "hard single-source side light" in docs
+    assert "deep black shadows" in docs
+    assert "no fill" in docs
     assert "identity leak" in docs
     assert "v1/v2" in docs
     assert "800" in docs and "1500" in docs
