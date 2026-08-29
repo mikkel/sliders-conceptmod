@@ -50,14 +50,24 @@ MM-RoPE `(t, h, w)`, `token_tags` 0/1/2). It does **not** fake a conceptmod
 
 ## UNI analog (not Music 3 lyric-hold)
 
-Yaml slider: **positive / neutral**, unused attributes pinned.
+Yaml slider: **positive / neutral**. Default hold is **non-concept**
+(Music 3 lyric-hold analog): every plus token that is **not** a concept
+word (token ids in plus but not in neu) is pinned to the matching
+`encode(neu)` row. Yaml unused attributes (male / female) are a subset
+of that hold. Concept lighting words stay free.
+
+`--hold_mode attributes` is the old v1/v2 path and **leaks identity**:
+only yaml attribute tokens were held, so shared subject tokens
+(clothes / chair / vase pattern) stayed as `encode(plus)` and Omni LoRA
+rewrote them.
 
 | term | student | teacher | in the loss? |
 |---|---|---|---|
 | +1 | LoRA on, plus-concept packed sequence | frozen Omni-Transformer velocity on that plus pack | yes |
 | scale 0 | adapter off, neu packed sequence | frozen velocity on the neu pack / `encode(neu)` | yes |
 | −1 | LoRA scale −1 (canary) | uncond pack | **no** — logged only |
-| unused attribute tokens | those rows of `encode(neu)` | yes |
+| non-concept tokens (default) | matching rows of `encode(neu)` | yes |
+| unused attribute tokens | subset of non-concept; `--hold_mode attributes` holds only these | yes |
 | concept words (in +, not in neu) | free | **not held** |
 
 Train the **Omni-Transformer only**. Frozen: H3-Encoder (Qwen3-VL-32B), visual
@@ -127,16 +137,26 @@ first→last loss `0.0000` (UNI identity). After tiny LoRA-up `N(0, 0.02)`,
 `--lora_up_init_std 0.02` (the default). Do not start a live run at rank8
 with zeros.
 
+**v1/v2 identity leak:** live chiaro v1/v2 moved lighting on person+room
+but morphed clothes / props and the vase pattern; vase lighting still
+failed. `--hold_mode attributes` (the old default) only pinned yaml
+attribute tokens (male/female). Shared subject tokens in both plus and
+neu were **not** held, so Omni LoRA rewrote identity. The new default
+`--hold_mode non_concept` holds every non-concept token to
+`encode(neu)`. Recommended next live card is **chiaro-v3** below
+(rank 16, 2000 steps, `--hold_weight 2.0`).
+
 B300 needs **`torch 2.13.0+cu130`** (`2.6+cu124` has no `sm_103`). That
 wheel stays on the H3 box; do **not** install it in Music 3.
 
 Same other flags as the age card (alpha=rank, lr 1e-4, short_side 768,
 guidance 0, FL2VA / t2va). Prompts are a **chiaroscuro / dramatic
-lighting** set: same concrete subject on neu and plus (person / interior
-room with chair+table / still-life vase). Neu is flat even lighting / soft
-fill / low contrast (photographic, not cartoon). Plus is chiaroscuro,
-dramatic single-source side light, deep shadows, high contrast. Minus is a
-washed-out flat / featureless lighting canary only.
+lighting** set: same concrete subject on neu and plus (person in a blue
+denim shirt / interior room with wooden chair, table, and fruit bowl /
+blue-and-white ceramic vase with painted figures). Neu is flat even
+lighting / soft fill / low contrast (photographic, not cartoon). Plus is
+chiaroscuro, dramatic single-source side light, deep shadows, high
+contrast. Minus is a washed-out flat / featureless lighting canary only.
 
 After train the script writes short t2va mp4s under `save_dir/samples/` at
 LoRA scales **0** and **+1** (add `0.5` with `--sample_scales 0,0.5,1`) for
@@ -257,6 +277,59 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 | CFG | distilled; guidance **0** |
 | device | B200 / B300 `cuda:0`; 2×H100 add `--encoder_device cuda:1` |
 | gate | watch sampled videos (contrast moves, subject holds) |
+
+## Live train card (chiaroscuro-minimax-h3-uni-v3)
+
+Recommended next live run (`slider-h3-chiaro-v3` on **B300**,
+`torch 2.13.0+cu130`). Same stack as v1/v2 (rank 16, LoRA-up `N(0, 0.02)`,
+FL2VA / t2va, guidance 0) but:
+
+* `--hold_mode non_concept` (now the trainer default) — hold every token
+  that is not a concept word to `encode(neu)`. Shared subject tokens no
+  longer leak. `--hold_mode attributes` is the v1/v2 leak.
+* `--hold_weight 2.0`
+* **2000** steps
+* tighter same-subject yaml locks: blue denim shirt / wooden chair and
+  table with a fruit bowl / blue-and-white ceramic vase with painted
+  figures. Lighting delta only in plus vs neu.
+
+Gate: lighting moves **and** identity holds on **≥2/3** rows, including
+the vase if possible. Watch sampled videos, not last-50 c+.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
+  --name chiaroscuro-minimax-h3-uni-v3 \
+  --model_id MiniMaxAI/MiniMax-H3 \
+  --variant FL2VA \
+  --workflow t2va \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
+  --attributes "male, female" \
+  --rank 16 --alpha 16 --lr 1e-4 --steps 2000 --seed 7 \
+  --hold_mode non_concept --hold_weight 2.0 \
+  --lora_up_init_std 0.02 \
+  --short_side 768 --guidance 0 --device cuda:0 \
+  --sample_scales 0,1 --sample_duration 5 --sample_fps 24 \
+  --save_dir models/chiaroscuro-minimax-h3-uni-v3
+```
+
+| field | value |
+|---|---|
+| name | `chiaroscuro-minimax-h3-uni-v3` |
+| hub id | `MiniMaxAI/MiniMax-H3` |
+| variant / workflow | FL2VA / t2va |
+| rank / alpha | **16 / 16** |
+| steps | **2000** |
+| hold | `--hold_mode non_concept` (default; v1/v2 used attributes and leaked) |
+| hold weight | **2.0** |
+| LoRA-up init | `N(0, 0.02)` — not zeros |
+| torch (B300) | **2.13.0+cu130** (`2.6+cu124` has no sm_103; not Music 3) |
+| short side | 768 (sample canvas 1344×768 16:9) |
+| sample duration / fps | **5 s** / 24 |
+| CFG | distilled; guidance **0** |
+| device | `cuda:0` on **B200 / B300**; 2×H100 add `--encoder_device cuda:1` |
+| gate | lighting moves **and** identity holds on ≥2/3 rows (include vase) |
+| not in weights | H3-Context-IR, H3-Regenerate-2K |
 
 Do **not** run this in CI. Do **not** download MiniMax-H3 in CI.
 

@@ -22,11 +22,13 @@ network:
 train:
   recipe: "minimax_h3_uni_velocity"
   precision: "bfloat16"
-  iterations: 1500
+  iterations: 2000
   lr: 0.0001
   optimizer: "AdamW"
   short_side: 768
   guidance: 0
+  hold_mode: non_concept
+  hold_weight: 2.0
   freeze:
     - text_encoder
     - visual_vae
@@ -34,7 +36,7 @@ train:
     - processor
     - tokenizer
 save:
-  name: "chiaroscuro-minimax-h3-uni"
+  name: "chiaroscuro-minimax-h3-uni-v3"
   path: "./models"
   per_steps: 100
   precision: "float32"
