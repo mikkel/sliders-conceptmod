@@ -1,11 +1,12 @@
 # MiniMax-H3 UNI slider — chiaroscuro / dramatic lighting (FL2VA t2va).
 #
 # Same concrete subject in neu and plus (Krea detail-v3 lesson: lighting
-# delta only, not a style jump). Subject locks stay the v4 tight set:
-# person denim + white tee / windsor chairs + fruit-bowl contents /
-# painted scholar scene on both poles so identity cannot drift when
-# the lighting words change. Neu is flat even lighting / soft fill /
-# low contrast and still photographic — not cartoon "simple flat".
+# delta only, not a style jump). Subject locks:
+# person denim + white tee / windsor chairs + fruit-bowl contents +
+# lace curtains / cream walls / plain white ceramic bowl on a dark
+# wooden table on both poles so identity cannot drift when the lighting
+# words change. Neu is flat even lighting / soft fill / low contrast
+# and still photographic — not cartoon "simple flat".
 # Plus is that same subject with a stronger lighting teacher:
 # chiaroscuro, Rembrandt key from the left, hard single-source side
 # light, deep black shadows, high contrast, no fill.
@@ -18,8 +19,12 @@
 # hold + looser locks passed person identity but room furniture and
 # painted vase figures still drifted. v4 tight locks + hold_weight 5.0
 # held room props but crushed lighting (room dim-only; vase lighting
-# regressed). v5 keeps the v4 locks and eases hold so the stronger
-# plus teacher can move contrast.
+# regressed). v5 kept the v4 locks, eased hold to 3.0, and strengthened
+# the plus teacher: room lighting moved but identity slipped; painted
+# scholar jar stayed NO/NO. v6 keeps Rembrandt plus, adds room scene
+# pins (lace curtains / cream walls), replaces the jar with a plain
+# still life (no painted figures), and sets hold_weight 4.0 (between
+# v5's 3.0 lighting-win and v4's 5.0 identity-win).
 #
 # Yaml negative / unconditional is a washed-out flat / featureless
 # lighting canary only — not a teacher.
@@ -34,20 +39,20 @@
     - male
     - female
   action: enhance
-- target: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges
-  positive: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, chiaroscuro, Rembrandt key light from the left, hard single-source side light, deep black shadows, high contrast, no fill
-  neutral: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, flat even lighting, soft fill, low contrast
-  unconditional: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, washed-out flat featureless lighting
-  negative: interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, washed-out flat featureless lighting
+- target: interior dining room with cream walls, lace curtains, two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges
+  positive: interior dining room with cream walls, lace curtains, two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, chiaroscuro, Rembrandt key light from the left, hard single-source side light, deep black shadows, high contrast, no fill
+  neutral: interior dining room with cream walls, lace curtains, two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, flat even lighting, soft fill, low contrast
+  unconditional: interior dining room with cream walls, lace curtains, two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, washed-out flat featureless lighting
+  negative: interior dining room with cream walls, lace curtains, two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges, washed-out flat featureless lighting
   attributes:
     - male
     - female
   action: enhance
-- target: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table
-  positive: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table, chiaroscuro, Rembrandt key light from the left, hard single-source side light, deep black shadows, high contrast, no fill
-  neutral: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table, flat even lighting, soft fill, low contrast
-  unconditional: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table, washed-out flat featureless lighting
-  negative: blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table, washed-out flat featureless lighting
+- target: plain white ceramic bowl on a dark wooden table
+  positive: plain white ceramic bowl on a dark wooden table, chiaroscuro, Rembrandt key light from the left, hard single-source side light, deep black shadows, high contrast, no fill
+  neutral: plain white ceramic bowl on a dark wooden table, flat even lighting, soft fill, low contrast
+  unconditional: plain white ceramic bowl on a dark wooden table, washed-out flat featureless lighting
+  negative: plain white ceramic bowl on a dark wooden table, washed-out flat featureless lighting
   attributes:
     - male
     - female
