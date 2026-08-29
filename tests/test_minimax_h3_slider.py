@@ -367,8 +367,8 @@ def test_chiaroscuro_yaml_loads_same_subject_lighting():
     subjects = {_h3_subject_clause(item["target"]) for item in raw}
     assert subjects == {
         "person sitting in a chair wearing a blue denim shirt over a white tee",
-        "interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges",
-        "blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table",
+        "interior dining room with cream walls, lace curtains, two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges",
+        "plain white ceramic bowl on a dark wooden table",
     }
     rows = load_slider_rows(str(path), "")
     assert len(rows) == 6
@@ -387,7 +387,13 @@ def test_chiaroscuro_yaml_loads_same_subject_lighting():
     assert "white tee" in joined
     assert "windsor chairs" in joined
     assert "bananas apples and oranges" in joined
-    assert "painted bearded scholars" in joined
+    assert "cream walls" in joined
+    assert "lace curtains" in joined
+    assert "plain white ceramic bowl" in joined
+    assert "dark wooden table" in joined
+    assert "painted" not in joined
+    assert "scholars" not in joined
+    assert "ceramic jar" not in joined
 
 
 def test_chiaroscuro_non_concept_hold_keeps_lighting_free():
@@ -410,7 +416,7 @@ def test_chiaroscuro_non_concept_hold_keeps_lighting_free():
         assert any("shadows" in w for w in free)
         assert held_norm & {
             "denim", "shirt", "tee", "windsor", "bowl", "bananas",
-            "jar", "scholars",
+            "ceramic", "plain", "lace", "cream",
         }
         # concept ids are lighting-only; shared subject tokens are held.
         assert concept
@@ -438,8 +444,8 @@ def test_chiaroscuro_config_and_docs_card():
     assert cfg["network"]["rank"] == 16
     assert cfg["train"]["iterations"] == 2500
     assert cfg["train"]["hold_mode"] == "non_concept"
-    assert cfg["train"]["hold_weight"] == 3.0
-    assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni-v5"
+    assert cfg["train"]["hold_weight"] == 4.0
+    assert cfg["save"]["name"] == "chiaroscuro-minimax-h3-uni-v6"
     docs = Path("docs/minimax-h3-slider.md").read_text()
     assert "--name chiaroscuro-minimax-h3-uni" in docs
     assert "prompts-minimax-h3-chiaroscuro.yaml" in docs
@@ -450,15 +456,18 @@ def test_chiaroscuro_config_and_docs_card():
     assert "--name chiaroscuro-minimax-h3-uni-v3" in docs
     assert "--name chiaroscuro-minimax-h3-uni-v4" in docs
     assert "--name chiaroscuro-minimax-h3-uni-v5" in docs
+    assert "--name chiaroscuro-minimax-h3-uni-v6" in docs
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 2000" in docs
     assert "--rank 16 --alpha 16 --lr 1e-4 --steps 2500" in docs
     assert "--hold_mode non_concept" in docs
     assert "--hold_weight 2.0" in docs
     assert "--hold_weight 5.0" in docs
     assert "--hold_weight 3.0" in docs
+    assert "--hold_weight 4.0" in docs
     assert "slider-h3-chiaro-v3" in docs
     assert "slider-h3-chiaro-v4" in docs
     assert "slider-h3-chiaro-v5" in docs
+    assert "slider-h3-chiaro-v6" in docs
     assert "Rembrandt key light from the left" in docs
     assert "hard single-source side light" in docs
     assert "deep black shadows" in docs
@@ -495,6 +504,10 @@ def test_chiaroscuro_config_and_docs_card():
     assert "windsor chairs" in docs
     assert "painted figures" in docs
     assert "bearded scholars" in docs
+    assert "plain white ceramic bowl" in docs
+    assert "dark wooden table" in docs
+    assert "lace curtains" in docs
+    assert "cream walls" in docs
     assert "FAIL 1/3" in docs
     assert "≥2/3" in docs or ">=2/3" in docs
 
@@ -688,8 +701,8 @@ def test_sample_prompts_are_unique_yaml_targets():
     prompts = sample_prompts_from_rows(rows)
     assert prompts == [
         "person sitting in a chair wearing a blue denim shirt over a white tee",
-        "interior dining room with two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges",
-        "blue and white ceramic jar with painted bearded scholars in robes exchanging a gift on a wooden table",
+        "interior dining room with cream walls, lace curtains, two wooden windsor chairs, a round wooden table, and a clear glass bowl of bananas apples and oranges",
+        "plain white ceramic bowl on a dark wooden table",
     ]
     assert sample_prompts_from_rows(rows, max_rows=1) == [
         "person sitting in a chair wearing a blue denim shirt over a white tee"

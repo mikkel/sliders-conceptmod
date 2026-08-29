@@ -28,7 +28,7 @@ train:
   short_side: 768
   guidance: 0
   hold_mode: non_concept
-  hold_weight: 3.0
+  hold_weight: 4.0
   freeze:
     - text_encoder
     - visual_vae
@@ -36,7 +36,7 @@ train:
     - processor
     - tokenizer
 save:
-  name: "chiaroscuro-minimax-h3-uni-v5"
+  name: "chiaroscuro-minimax-h3-uni-v6"
   path: "./models"
   per_steps: 100
   precision: "float32"
