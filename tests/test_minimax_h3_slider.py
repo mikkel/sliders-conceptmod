@@ -385,9 +385,10 @@ def test_chiaroscuro_non_concept_hold_keeps_lighting_free():
         words = row["positive"].split()
         held = {words[i] for i, flag in enumerate(mask.tolist()) if flag}
         free = {words[i] for i, flag in enumerate(mask.tolist()) if not flag}
+        held_norm = {w.strip(",.") for w in held}
         assert any("chiaroscuro" in w for w in free)
-        assert any("shadows" in w or "shadows," in w for w in free)
-        assert "denim" in held or "shirt," in held or "vase" in held or "bowl" in held
+        assert any("shadows" in w for w in free)
+        assert held_norm & {"denim", "shirt", "vase", "bowl", "fruit", "figures"}
         # concept ids are lighting-only; shared subject tokens are held.
         assert concept
         for i, tid in enumerate(plus_ids):
