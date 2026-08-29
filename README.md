@@ -110,6 +110,25 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_sana.py \
   --steps 500 --lr 2e-5 --seed 7 --device 0
 ```
 
+## LTX-2.5 video sliders (opt-in)
+
+Opt-in UNI analog on
+[Lightricks/LTX-2.5-Diffusers](https://huggingface.co/Lightricks/LTX-2.5-Diffusers)
+(distilled `transformer/`, LTX Gemma 4 12B). Train +1 on the **neu**
+caption; plus is teacher-only. Hold is PRE-connector. Video-only LoRA
+on `attn1`/`attn2`. First card: smile/happy, 49 frames, 544×960, conv
+VAE, `sigmas=DISTILLED_SIGMA_VALUES`. TE on CPU. **A100 80GB**, not
+4090 / B300. `--dummy` for CI. Does **not** change Music 3 defaults.
+Train card: [docs/ltx25-slider.md](docs/ltx25-slider.md).
+
+```
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_ltx25.py \
+  --name smile-ltx25-uni \
+  --prompts_file conceptmod/textsliders/data/prompts-ltx25-smile.yaml \
+  --device cuda:0 --encoder_device cpu \
+  --sample_num_frames 49 --sample_height 544 --sample_width 960
+```
+
 ## Visual Concept Sliders
 ### Training SD-1.x and SD-2.x LoRa
 To train image based sliders, you need to create a ~4-6 pairs of image dataset (before/after edit for desired concept). Save the before images and after images separately. You can also create a dataset with varied intensity effect and save them differently. 
