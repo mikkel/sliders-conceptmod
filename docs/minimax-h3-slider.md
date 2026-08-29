@@ -146,8 +146,12 @@ neu were **not** held, so Omni LoRA rewrote identity. The new default
 `encode(neu)`. Live **chiaro-v3** (hold_weight 2.0, looser locks)
 gated **FAIL 1/3**: person lighting+identity passed; room was only
 dimmer and chairs/props drifted; vase lighting passed but painted
-figures rewrote. Recommended next live card is **chiaro-v4** below
-(rank 16, 2000 steps, `--hold_weight 5.0`, tighter subject locks).
+figures rewrote. Live **chiaro-v4** (hold_weight 5.0, tight locks)
+also **FAIL 1/3**: person still YES/YES; room lighting NO but
+identity YES (props held); vase lighting+identity NO (lighting
+regressed, scholars rewrite). Recommended next live card is
+**chiaro-v5** below (rank 16, 2500 steps, `--hold_weight 3.0`,
+same v4 locks, stronger plus lighting teacher).
 
 B300 needs **`torch 2.13.0+cu130`** (`2.6+cu124` has no `sm_103`). That
 wheel stays on the H3 box; do **not** install it in Music 3.
@@ -159,8 +163,9 @@ denim shirt over a white tee / dining room with two windsor chairs, a
 round table, and a glass bowl of bananas apples and oranges /
 blue-and-white ceramic jar with painted bearded scholars exchanging a
 gift). Neu is flat even lighting / soft fill / low contrast
-(photographic, not cartoon). Plus is chiaroscuro, dramatic
-single-source side light, deep shadows, high contrast. Minus is a
+(photographic, not cartoon). Plus is chiaroscuro, Rembrandt key
+light from the left, hard single-source side light, deep black
+shadows, high contrast, no fill. Minus is a
 washed-out flat / featureless lighting canary only.
 
 After train the script writes short t2va mp4s under `save_dir/samples/` at
@@ -301,7 +306,8 @@ FL2VA / t2va, guidance 0) but:
 Gate was lighting moves **and** identity holds on **≥2/3** rows, including
 the vase if possible. Live v3 gated **FAIL 1/3** (person lighting+identity
 yes; room lighting+identity no; vase lighting yes / identity no). Watch
-sampled videos, not last-50 c+. Next card is **chiaro-v4**.
+sampled videos, not last-50 c+. Next cards are **chiaro-v4** then
+**chiaro-v5**.
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
@@ -342,7 +348,7 @@ Do **not** run this in CI. Do **not** download MiniMax-H3 in CI.
 
 ## Live train card (chiaroscuro-minimax-h3-uni-v4)
 
-Recommended next live run (`slider-h3-chiaro-v4` on **B300**,
+Previous live run (`slider-h3-chiaro-v4` on **B300**,
 `torch 2.13.0+cu130`). Same stack as v3 (rank 16, LoRA-up `N(0, 0.02)`,
 `--hold_mode non_concept`, FL2VA / t2va, guidance 0) but:
 
@@ -362,6 +368,13 @@ Live v3 gate **FAIL 1/3**: person lighting **YES** + identity **YES**
 not chiaroscuro) + identity **NO** (chair spindles morph; props drift).
 Vase lighting **YES** (left light / right shadow) + identity **NO**
 (painted figures rewrite poses/details).
+
+Live v4 gated **FAIL 1/3**, not better: person lighting **YES** +
+identity **YES**. Room lighting **NO** (still not chiaroscuro) +
+identity **YES** (windsor chairs / fruit bowl held). Vase lighting
+**NO** (regressed vs v3) + identity **NO** (scholars rewrite). Tight
+locks fixed room props; hold_weight 5.0 crushed the lighting teacher.
+Next card is **chiaro-v5**.
 
 Gate: lighting moves **and** identity holds on **≥2/3** rows. Person
 already passes; need room and/or vase identity. Watch sampled videos,
@@ -400,6 +413,71 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
 | CFG | distilled; guidance **0** |
 | device | `cuda:0` on **B200 / B300**; 2×H100 add `--encoder_device cuda:1` |
 | gate | lighting+identity on ≥2/3 rows (person already passes; need room and/or vase identity) |
+| not in weights | H3-Context-IR, H3-Regenerate-2K |
+
+Do **not** run this in CI. Do **not** download MiniMax-H3 in CI.
+
+## Live train card (chiaroscuro-minimax-h3-uni-v5)
+
+Recommended next live run (`slider-h3-chiaro-v5` on **B300**,
+`torch 2.13.0+cu130`). Same stack as v4 (rank 16, LoRA-up `N(0, 0.02)`,
+`--hold_mode non_concept`, FL2VA / t2va, guidance 0, same v4 subject
+locks) but:
+
+* `--hold_weight 3.0` (middle ground: v3 used 2.0, v4 used 5.0)
+* **2500** steps (2000 if you need a shorter run)
+* stronger plus lighting teacher (still free concept tokens; neu
+  unchanged):
+  * chiaroscuro, Rembrandt key light from the left, hard
+    single-source side light, deep black shadows, high contrast,
+    no fill
+  * neu stays flat even lighting / soft fill / low contrast
+  * uncond/neg stays washed-out flat featureless lighting
+
+Live v4 gate **FAIL 1/3**, not better than v3: person lighting **YES**
++ identity **YES**. Room lighting **NO** + identity **YES** (windsor
+chairs / fruit bowl held — locks worked). Vase lighting **NO**
+(regressed) + identity **NO** (scholars rewrite). Hold 5.0 kept room
+props but crushed the lighting move. v5 eases hold and strengthens
+the plus teacher.
+
+Gate: lighting moves **and** identity holds on **≥2/3** rows. Person
+already passes; need room lighting without dropping the held props,
+and/or vase lighting+identity. Watch sampled videos, not last-50 c+.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
+  --name chiaroscuro-minimax-h3-uni-v5 \
+  --model_id MiniMaxAI/MiniMax-H3 \
+  --variant FL2VA \
+  --workflow t2va \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
+  --attributes "male, female" \
+  --rank 16 --alpha 16 --lr 1e-4 --steps 2500 --seed 7 \
+  --hold_mode non_concept --hold_weight 3.0 \
+  --lora_up_init_std 0.02 \
+  --short_side 768 --guidance 0 --device cuda:0 \
+  --sample_scales 0,1 --sample_duration 5 --sample_fps 24 \
+  --save_dir models/chiaroscuro-minimax-h3-uni-v5
+```
+
+| field | value |
+|---|---|
+| name | `chiaroscuro-minimax-h3-uni-v5` |
+| hub id | `MiniMaxAI/MiniMax-H3` |
+| variant / workflow | FL2VA / t2va |
+| rank / alpha | **16 / 16** |
+| steps | **2500** (2000 if you need a shorter run) |
+| hold | `--hold_mode non_concept` (default; v1/v2 used attributes and leaked) |
+| hold weight | **3.0** (v3 2.0 leaked room/vase; v4 5.0 crushed lighting) |
+| LoRA-up init | `N(0, 0.02)` — not zeros |
+| torch (B300) | **2.13.0+cu130** (`2.6+cu124` has no sm_103; not Music 3) |
+| short side | 768 (sample canvas 1344×768 16:9) |
+| sample duration / fps | **5 s** / 24 |
+| CFG | distilled; guidance **0** |
+| device | `cuda:0` on **B200 / B300**; 2×H100 add `--encoder_device cuda:1` |
+| gate | lighting+identity on ≥2/3 rows (keep v4 room-prop hold; restore lighting) |
 | not in weights | H3-Context-IR, H3-Regenerate-2K |
 
 Do **not** run this in CI. Do **not** download MiniMax-H3 in CI.
