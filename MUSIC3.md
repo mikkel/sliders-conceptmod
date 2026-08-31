@@ -7,6 +7,9 @@ of git because they run to ~680 MB.
 
 Use the `minimax-music3` conda env. **Never** `pip install -r requirements.txt` (it pins ancient torch/diffusers).
 
+Image / video backends (Anima, Krea, Sana, ZiT, LTX-2.5, MiniMax-H3) do
+**not** change these Music 3 defaults. Index: [docs/README.md](docs/README.md).
+
 GPU 0 only:
 
 ```bash
