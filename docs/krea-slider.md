@@ -2,8 +2,8 @@
 
 Opt-in image trainer. **Does not change the Music 3 default**
 (`train_lora_music3.py` / `train_lm_slider_music3.py --lm_target v9` /
-`--pole_mode hidden`). Anima / ZiT / H3 are a separate PR and are not
-in this trainer. Do **not** port Anima `embed_struct` / `same_crop`
+`--pole_mode hidden`). Anima / ZiT / MiniMax-H3 have their own trainers
+and stay out of this card. Do **not** port Anima `embed_struct` / `same_crop`
 here — smile-first on Raw accepts entanglement.
 
 CPU tests use `--dummy` mocks. No Hub weights, no GPU train in CI.

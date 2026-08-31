@@ -4,6 +4,7 @@
 shipped sliders, GPU pitfalls) and [slider_pipeline/README.md](slider_pipeline/README.md)
 (paired recipe-comparison runbook). Listen sets live in `eval/listen/`. Use the
 `minimax-music3` conda env and **do not** `pip install -r requirements.txt`.
+Backend map and prompt catalog: [docs/README.md](docs/README.md).
 
 **Krea image sliders (opt-in):** see [docs/krea-slider.md](docs/krea-slider.md).
 UNI analog on `krea/Krea-2-Raw` (train LoRAs on Raw, run on Turbo). Smile
@@ -19,7 +20,7 @@ Gate on teeth vs oracle, not `embed_cos`. v3 used Raw CFG 4.5
 (Δ cancelled). v2 velocity card is `--lora_targets dit+te`.
 512 px, Raw 28 steps (A100).
 `--allow_hub` to download; `--dummy` for CI. Does not change the
-Music 3 default. Anima / ZiT / H3 are not in this trainer.
+Music 3 default. Anima / ZiT / MiniMax-H3 have their own trainers.
 
 **Sana 0.6B image sliders (opt-in cheap test backend):** see
 [docs/sana-slider.md](docs/sana-slider.md). UNI analog on
@@ -127,6 +128,36 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_ltx25.py \
   --prompts_file conceptmod/textsliders/data/prompts-ltx25-smile.yaml \
   --device cuda:0 --encoder_device cpu \
   --sample_num_frames 49 --sample_height 544 --sample_width 960
+```
+
+## MiniMax-H3 video sliders (opt-in)
+
+Opt-in UNI analog on
+[MiniMaxAI/MiniMax-H3](https://huggingface.co/MiniMaxAI/MiniMax-H3)
+(33B Omni-Transformer + Qwen3-VL-32B encoder, FL2VA / t2va). Train
+the Omni-Transformer only. Checkpoints are **CFG-distilled** —
+guidance stays **0**. Default hold is **non-concept** (pin every
+plus token that is not a concept word to `encode(neu)`); attribute-only
+hold leaked identity on live chiaroscuro. LoRA-up init is
+`N(0, 0.02)` — zero-init is UNI identity (loss stays `0.0000`).
+**B200 / B300** (~135 GB bf16); 2×H100 needs
+`--encoder_device cuda:1`. B300 torch is **`2.13.0+cu130`**
+(`2.6+cu124` has no `sm_103`). Do **not** install that wheel in
+the Music 3 env. `--dummy` for CI. Does **not** change Music 3
+defaults. Train card: [docs/minimax-h3-slider.md](docs/minimax-h3-slider.md).
+
+```
+CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_minimax_h3.py \
+  --name chiaroscuro-minimax-h3-uni-v5 \
+  --prompts_file conceptmod/textsliders/data/prompts-minimax-h3-chiaroscuro.yaml \
+  --config_file conceptmod/textsliders/data/config-minimax-h3-chiaroscuro.yaml \
+  --attributes "male, female" \
+  --rank 16 --alpha 16 --lr 1e-4 --steps 2500 --seed 7 \
+  --hold_mode non_concept --hold_weight 3.0 \
+  --lora_up_init_std 0.02 \
+  --short_side 768 --guidance 0 --device cuda:0 \
+  --sample_scales 0,1 --sample_duration 5 --sample_fps 24 \
+  --save_dir models/chiaroscuro-minimax-h3-uni-v5
 ```
 
 ## Visual Concept Sliders

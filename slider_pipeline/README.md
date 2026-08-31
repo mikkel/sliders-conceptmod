@@ -56,7 +56,9 @@ the invocation that owns the baseline, so two `--only` shards cannot race.
 
 ## Writing a spec
 
-Copy `slider_pipeline/specs/phase1-loss-triphop.yaml`. `load_spec` refuses
+Copy `slider_pipeline/specs/phase1-loss-triphop.yaml`. Prompt-file
+catalog (which yaml is which axis, including `prompts-cand-*`):
+[docs/prompts.md](../docs/prompts.md). `load_spec` refuses
 anything that would make the comparison unpaired or unscoreable:
 
 - `cache_dir` must already exist. The pipeline never runs the AR stage
