@@ -1,0 +1,34 @@
+# LTX-2.5 UNI chiaroscuro / Rembrandt slider — embed-match card.
+#
+# Bare captions. Do NOT prefix attributes onto target / positive / neutral.
+# attributes pin unused gender for hold bookkeeping only.
+#
+# Same-subject teachers: soft even fill vs Rembrandt / chiaroscuro.
+# Long-ish AV paragraphs. Subject, clothes, props, framing, motion,
+# and sound are IDENTICAL on both poles — only the lighting words change.
+# Locked non-concept structure so composition does not free-run
+# (live v1: lighting soft→Rembrandt YES, composition drift WEAK).
+#
+# concept_words stay free under --hold_mode non_concept.
+# Minus / unconditional is a washed-out flat canary only — not a teacher.
+plus_label: Chiaroscuro
+minus_label: Flat
+recommended_range: [-1.0, 1.0]
+concept_words: "chiaroscuro, Rembrandt, hard, single-source, shadows, contrast, fill"
+control_prompt: "a bowl of fruit on a table"
+bare_captions: true
+rows:
+  - target: "A medium close-up of a person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Neutral expression, closed mouth, eyes looking at the lens. Soft even window light from the left, soft fill, low contrast, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    positive: "A medium close-up of a person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Neutral expression, closed mouth, eyes looking at the lens. Chiaroscuro, Rembrandt key light from the left, hard single-source side light, deep black shadows, high contrast, no fill, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    neutral: "A medium close-up of a person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Neutral expression, closed mouth, eyes looking at the lens. Soft even window light from the left, soft fill, low contrast, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    negative: "A medium close-up of a person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Neutral expression, closed mouth. Washed-out flat featureless lighting, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    unconditional: "A medium close-up of a person facing the camera, wearing a blue denim shirt over a white tee, sitting still in a wooden chair. Neutral expression, closed mouth. Washed-out flat featureless lighting, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    attributes: ["male", "female"]
+    action: enhance
+  - target: "A still life on a wooden table: a clear glass bowl of bananas apples and oranges beside a blue and white ceramic jar. Soft even window light from the left, soft fill, low contrast, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    positive: "A still life on a wooden table: a clear glass bowl of bananas apples and oranges beside a blue and white ceramic jar. Chiaroscuro, Rembrandt key light from the left, hard single-source side light, deep black shadows, high contrast, no fill, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    neutral: "A still life on a wooden table: a clear glass bowl of bananas apples and oranges beside a blue and white ceramic jar. Soft even window light from the left, soft fill, low contrast, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    negative: "A still life on a wooden table: a clear glass bowl of bananas apples and oranges beside a blue and white ceramic jar. Washed-out flat featureless lighting, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    unconditional: "A still life on a wooden table: a clear glass bowl of bananas apples and oranges beside a blue and white ceramic jar. Washed-out flat featureless lighting, quiet room tone, a faint clock tick, no speech. The camera remains static."
+    attributes: ["male", "female"]
+    action: enhance

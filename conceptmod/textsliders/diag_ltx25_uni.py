@@ -46,6 +46,7 @@ from conceptmod.textsliders.ltx25_uni import (
     embed_gap_energy_frac,
     expression_gap_is_dead,
     hold_effectiveness_metrics,
+    post_connector_mean_cos,
     resolve_concept_token_ids,
     unused_hold_mask,
     unused_token_ids,
@@ -57,11 +58,17 @@ from conceptmod.textsliders.train_lora_ltx25 import (
 )
 
 HOW_TO_READ = {
+    "post_connector_video": (
+        "Frozen encode(plus) vs encode(neu) after video connectors, "
+        "valid-row mean_cos. Live smile sat ~0.68 — this is the working "
+        "teacher gap. Transplanting plus concept-token (or full plus) "
+        "embeds onto neu conditioning produces teeth/smile."
+    ),
     "expression_gap": (
         "Frozen teacher velocity v_plus vs v_neu (scale 0, same noise). "
-        "High L2 / lower cos = a smile/expression axis exists. "
-        "cos ≈ 1.0 is a dead gap — do not silently train distilled "
-        "transformer/; fallback is transformer_full/."
+        "Live distilled plus/neu velocity cos ~0.9999 is a **dead** "
+        "teacher — do not train DiT velocity UNI on smile/chiaro. "
+        "Kept as a negative control."
     ),
     "embed_gap_energy": (
         "After PRE-connector apply_unused_hold, fraction of "
@@ -98,6 +105,7 @@ DIAG_ROW_KEYS = (
     "n_free",
     "n_concept",
     "expression_gap",
+    "post_connector_video",
     "embed_gap_energy",
     "hold",
     "student",
@@ -215,6 +223,12 @@ def diagnose_row(
     v_plus = _vel(teacher_plus)
     v_neu = _vel(teacher_neu)
     expression_gap = cosine_l2(v_plus, v_neu)
+    post_video = post_connector_mean_cos(
+        packed_plus.encoder_hidden_states,
+        packed_neu.encoder_hidden_states,
+        packed_plus.encoder_attention_mask,
+        packed_neu.encoder_attention_mask,
+    )
     student_0_neu = _vel(backend.forward_velocity(packed_neu, scale=0.0))
     student_1_neu = _vel(backend.forward_velocity(packed_neu, scale=1.0))
     student = {
@@ -233,6 +247,7 @@ def diagnose_row(
         "n_free": int(hold["n_free"]),
         "n_concept": int(hold["n_concept"]),
         "expression_gap": expression_gap,
+        "post_connector_video": post_video,
         "embed_gap_energy": energy,
         "hold": {
             "held_max_abs": float(hold["held_max_abs"]),
@@ -267,6 +282,8 @@ def _aggregates(rows: list[dict[str, Any]]) -> dict[str, float | None | bool]:
     return {
         "expression_gap_cos_mean": cos_mean,
         "expression_gap_l2_mean": _mean(_pick(("expression_gap", "l2"))),
+        "post_connector_video_cos_mean": _mean(_pick(("post_connector_video", "cos"))),
+        "post_connector_video_l2_mean": _mean(_pick(("post_connector_video", "l2"))),
         "dead_gap": bool(cos_mean is not None and cos_mean >= 0.999),
         "hold_max_abs_max": max(_pick(("hold", "held_max_abs"))) if rows else None,
         "hold_mean_abs_mean": _mean(_pick(("hold", "held_mean_abs"))),
@@ -287,17 +304,19 @@ def format_diag_table(summary: dict[str, Any]) -> str:
         f"hold={summary.get('hold_mode')}, lora={loaded}) ==="
     )
     cols = (
-        f"{'#':>2}  {'expr_cos':>9}  {'expr_l2':>8}  "
+        f"{'#':>2}  {'post_cos':>8}  {'expr_cos':>9}  {'expr_l2':>8}  "
         f"{'hold_max':>8}  {'cpt_abs':>7}  {'s0_neu':>6}  {'s1_plus':>7}  "
         f"{'s1_s0':>6}  {'dead':>5}"
     )
     lines = [header, cols]
     for row in summary.get("rows") or []:
         eg = row["expression_gap"]
+        pc = row.get("post_connector_video") or {"cos": 0.0}
         hold = row["hold"]
         st = row["student"]
         lines.append(
             f"{row['index']:>2}  "
+            f"{pc['cos']:>8.4f}  "
             f"{eg['cos']:>9.4f}  {eg['l2']:>8.4f}  "
             f"{hold['held_max_abs']:>8.4f}  {hold['concept_mean_abs']:>7.4f}  "
             f"{st['scale0_vs_teacher_neu']['cos']:>6.3f}  "
@@ -317,8 +336,8 @@ def format_diag_table(summary: dict[str, Any]) -> str:
             )
         )
     lines.append(
-        "read: expr_l2 high = plus/neu teachers differ. cos≈1 = dead gap "
-        f"— use --transformer_subfolder {FULL_TRANSFORMER_SUBFOLDER}. "
+        "read: post_cos ~0.68 = working embed gap (train embed-match). "
+        "expr_cos≈1 = dead DiT velocity teacher — do not train velocity UNI. "
         "hold_max~0 = identity tokens pinned PRE-connector."
     )
     return "\n".join(lines)

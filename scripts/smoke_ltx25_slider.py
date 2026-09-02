@@ -7,16 +7,17 @@ Music 3 defaults are untouched.
 Live train card
 ---------------
 model_id              Lightricks/LTX-2.5-Diffusers
-transformer           transformer/ (distilled; exclude transformer_full/)
-text encoder          LTX Gemma 4 12B on CPU
-LoRA                  LTX2Attention attn1+attn2 to_q/to_k/to_v/to_out.0
+recipe                ltx25_uni_embed (default; velocity is opt-in only)
+transformer           transformer/ FROZEN (exclude transformer_full/)
+LoRA                  video connectors + TE last-N q/k/v/o (not DiT attn1/attn2)
 lora_up               N(0, 0.02)
-sample                49 frames, 544x960, conv VAE
+rank / lr / steps     16 / 2e-4 / 700 / te_last_n=4 / seed 7
+sample                49 frames, 544x960, conv VAE, scales -1,0,0.5,1 on neu
 sigmas                DISTILLED_SIGMA_VALUES (do not pass num_inference_steps)
 guidance / STG / mod  1.0 / 0 / 1.0 (pipeline treats >1.0 as on)
 prompt enhancer       OFF
-infer                 neu caption at scale 1
-GPU                   A100 80GB community ~$1.19/hr. Not 4090. Not B300.
+infer                 neu caption at every scale
+GPU                   dual RTX A6000: TE+connectors cuda:1, DiT cuda:0
 
 Dummy / CI:
 
@@ -51,8 +52,7 @@ def main(argv: list[str] | None = None) -> dict:
             str(_REPO_ROOT / "conceptmod/textsliders/data/prompts-ltx25-smile.yaml"),
             "--save_dir",
             str(_REPO_ROOT / "models/ltx25-smoke"),
-            "--sample_scales",
-            "0,0.5,1",
+            "--sample_scales=-1,0,0.5,1",
             "--seed",
             "0",
         ]

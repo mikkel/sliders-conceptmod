@@ -8,6 +8,7 @@ eval/energy/
 models/energy-encoder/
 models/energy-encoder-dummy/
 models/energy-slider/
+models/ltx25-smoke/
 models/gender-slider/
 Anima-Turbo-v1.1-Diffusers/
 .cache/anima-convert/

@@ -112,20 +112,23 @@ CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_sana.py \
 
 ## LTX-2.5 video sliders (opt-in)
 
-Opt-in UNI analog on
+Opt-in **embed-match** UNI on
 [Lightricks/LTX-2.5-Diffusers](https://huggingface.co/Lightricks/LTX-2.5-Diffusers)
-(distilled `transformer/`, LTX Gemma 4 12B). Train +1 on the **neu**
-caption; plus is teacher-only. Hold is PRE-connector. Video-only LoRA
-on `attn1`/`attn2`. First card: smile/happy, 49 frames, 544×960, conv
-VAE, `sigmas=DISTILLED_SIGMA_VALUES`. TE on CPU. **A100 80GB**, not
-4090 / B300. `--dummy` for CI. Does **not** change Music 3 defaults.
+(distilled `transformer/` frozen, LTX Gemma 4 12B last-N + video
+connectors). Student `encode(neu)+LoRA` matches frozen `encode(plus)`
+on valid post-connector video. Hold is PRE-connector
+`--hold_mode non_concept`. Sample scales **−1, 0, 0.5, 1** on neu.
+DiT velocity UNI is **not** the smile/chiaro default (dead teacher,
+cos ~0.9999). Dual RTX A6000: `--device cuda:0 --encoder_device cuda:1`.
+`--dummy` for CI. Does **not** change Music 3 defaults.
 Train card: [docs/ltx25-slider.md](docs/ltx25-slider.md).
 
 ```
-CUDA_VISIBLE_DEVICES=0 python conceptmod/textsliders/train_lora_ltx25.py \
+python conceptmod/textsliders/train_lora_ltx25.py \
   --name smile-ltx25-uni \
   --prompts_file conceptmod/textsliders/data/prompts-ltx25-smile.yaml \
-  --device cuda:0 --encoder_device cpu \
+  --device cuda:0 --encoder_device cuda:1 \
+  --sample_scales=-1,0,0.5,1 \
   --sample_num_frames 49 --sample_height 544 --sample_width 960
 ```
 
