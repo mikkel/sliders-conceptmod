@@ -1,8 +1,15 @@
-"""LTX-2.5 backend: dummy video-attn LoRA + live LTX2Pipeline.
+"""LTX-2.5 backend: embed-match UNI (default) + optional velocity UNI.
 
 Live hub id is ``Lightricks/LTX-2.5-Diffusers``. Default DiT is the
 distilled checkpoint in ``transformer/`` (``model_index.json``).
 ``transformer_full/`` is SFT and is **excluded** from the first download.
+
+**Default recipe** (validated 2026-09-02, dual RTX A6000): LoRA on
+video connectors + TE last-N attn ``q/k/v/o``. DiT stays frozen
+(park on CPU during embed-only train). Loss is post-connector video
+embed-match, not DiT velocity. Velocity UNI (``attn1``/``attn2`` on
+the DiT) is opt-in only — live plus/neu velocity cos ~0.9999 was a
+dead teacher.
 
 Dummy never imports that loader and never hits the Hub.
 
@@ -20,42 +27,43 @@ Verified against current diffusers ``LTX2*`` (main, not a release):
 
 * Attention class ``LTX2Attention``: ``to_q`` / ``to_k`` / ``to_v`` /
   ``to_out.0`` (``to_out.1`` is Dropout).
-* Video-only v1 LoRA: ``attn1`` (self) and ``attn2`` (text cross). Do
-  **not** wrap ``audio_attn*``, ``audio_to_video_attn``,
-  ``video_to_audio_attn``, AdaLN, or FFN — a smile slider must not
-  rewrite foley. A naive ``"to_q"`` / ``.endswith(".attn1")`` matches
+* Embed-match LoRA: video-connector attn / mix + TE last-N
+  ``q_proj/k_proj/v_proj/o_proj`` (also ``to_q``… names). Do **not**
+  wrap audio connectors. DiT is not a host.
+* Velocity opt-in: video ``attn1`` / ``attn2`` only. Do **not** wrap
+  ``audio_attn*``, ``audio_to_video_attn``, ``video_to_audio_attn``,
+  AdaLN, or FFN. A naive ``"to_q"`` / ``.endswith(".attn1")`` matches
   ``audio_attn1`` and is too broad.
 * Transformer already has ``PeftAdapterMixin``. Live prefers PEFT, but
   ``set_adapter_scale`` no-ops (Krea #74): write
   ``LoraLayer.scaling = (alpha/r) * scale`` via
   ``apply_continuous_lora_scale``. LoRA-up is ``N(0, 0.02)``, not zeros.
-* Forward returns ``AudioVisualModelOutput(sample, audio_sample)`` =
-  flow velocity. Pipeline: ``x0 = x_t − sigma * v``.
 * Distilled sample: ``sigmas=DISTILLED_SIGMA_VALUES``, guidance 1.0,
   STG 0, ``modality_scale=1.0`` (pipeline treats ``>1.0`` as on). Do
-  **not** pass ``num_inference_steps``. SFT sample restores
-  ``use_dynamic_shifting=True, shift_terminal=0.1`` and drops distilled
-  sigmas. Prompt enhancer OFF. Conv VAE ``pipe.vae`` (skip
-  ``diffusion_decoder``).
+  **not** pass ``num_inference_steps``. Sample scales include
+  ``-1, 0, 0.5, 1`` on the neu caption.
 * Train pack: hold PRE-connector, then left-pad to a multiple of 128
   (1024 like the pipeline). Live connectors require
   ``seq_len % num_learnable_registers == 0``.
-* Train timestep: pick a distilled sigma and scale by
-  ``timestep_scale_multiplier`` (1000) to ``(B, num_video_tokens)``.
-* ``forward_velocity`` passes ``audio_num_frames`` (live RoPE
-  ``prepare_audio_coords(None)`` is a TypeError).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Sequence
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from conceptmod.textsliders.ltx25_uni import apply_unused_hold
+from conceptmod.textsliders.ltx25_uni import (
+    DEFAULT_RECIPE,
+    DEFAULT_TE_LAST_N,
+    RECIPE_EMBED,
+    apply_unused_hold,
+    is_embed_recipe,
+    resolve_ltx25_recipe,
+)
 from conceptmod.textsliders.slider_targets import apply_continuous_lora_scale
 
 DEFAULT_MODEL = "Lightricks/LTX-2.5-Diffusers"
@@ -85,7 +93,9 @@ LTX_CANVAS_MULTIPLE = 32
 DEFAULT_NUM_FRAMES = 49
 DEFAULT_SAMPLE_HEIGHT = 544
 DEFAULT_SAMPLE_WIDTH = 960
-DEFAULT_SAMPLE_SCALES = (0.0, 0.5, 1.0)
+# Validated card samples −1 / 0 / 0.5 / 1 on the neu caption.
+DEFAULT_SAMPLE_SCALES = (-1.0, 0.0, 0.5, 1.0)
+DEFAULT_SAMPLE_SCALES_TEXT = "-1,0,0.5,1"
 DEFAULT_TRAIN_NUM_FRAMES = 9
 DEFAULT_TRAIN_HEIGHT = 32
 DEFAULT_TRAIN_WIDTH = 32
@@ -93,6 +103,14 @@ VIDEO_IN_CHANNELS = 128
 LORA_ATTN_CLASS = "LTX2Attention"
 LORA_VIDEO_HOSTS = ("attn1", "attn2")
 LORA_LINEAR_NAMES = ("to_q", "to_k", "to_v", "to_out.0")
+LORA_TE_ATTN_NAMES = ("q_proj", "k_proj", "v_proj", "o_proj")
+LORA_TE_LAYER_KEYS = ("layers", "h", "blocks", "layer")
+LORA_EMBED_HOSTS = ("video_connectors", "te_last_n")
+DUMMY_TE_LAYERS = 6
+DEFAULT_RANK = 16
+DEFAULT_ALPHA = 16.0
+DEFAULT_LR = 2e-4
+DEFAULT_STEPS = 700
 DEFAULT_LORA_UP_INIT_STD = 0.02
 DEFAULT_ENCODER_DEVICE = "cpu"
 FREEZE_LIST = (
@@ -420,6 +438,7 @@ class DummyLTX2Connectors(nn.Module):
         self.text_proj_in = nn.Linear(dim, dim, bias=False)
         self.video_mix = nn.Linear(dim, dim, bias=False)
         self.audio_mix = nn.Linear(dim, dim, bias=False)
+        self.video_attn = LTX2Attention(dim)
         self.video_registers = nn.Parameter(torch.randn(n_registers, dim) * 0.02)
         self.audio_registers = nn.Parameter(torch.randn(n_registers, dim) * 0.02)
         self.n_registers = int(n_registers)
@@ -442,6 +461,7 @@ class DummyLTX2Connectors(nn.Module):
         registers: torch.Tensor,
         mix: nn.Linear,
         attention_mask: torch.Tensor | None,
+        attn: nn.Module | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Replace pad, prepend registers, mix so row i is not token i, T' != T.
 
@@ -461,6 +481,8 @@ class DummyLTX2Connectors(nn.Module):
         ctx = (proj * valid_f).sum(dim=1, keepdim=True) / denom
         laid_out = torch.cat((regs.unsqueeze(0).expand(bsz, -1, -1), proj), dim=1)
         mixed = mix(laid_out + 0.35 * ctx.expand_as(laid_out))
+        if attn is not None:
+            mixed = mixed + attn(mixed)
         extra = torch.ones(bsz, self.n_registers, device=proj.device, dtype=mask_in.dtype)
         mask = torch.cat((extra, mask_in), dim=1)
         return mixed, mask
@@ -476,6 +498,7 @@ class DummyLTX2Connectors(nn.Module):
         proj = self.text_proj_in(text_encoder_hidden_states)
         video, mask = self._layout_and_mix(
             proj, self.video_registers, self.video_mix, attention_mask,
+            attn=self.video_attn,
         )
         audio, _ = self._layout_and_mix(
             proj, self.audio_registers, self.audio_mix, attention_mask,
@@ -641,6 +664,123 @@ def video_attn_lora_targets(transformer: nn.Module) -> list[str]:
     return names
 
 
+def te_layer_index(module_name: str) -> int | None:
+    """``layers.{i}`` / ``h.{i}`` / ``blocks.{i}`` index, or None."""
+    parts = [p for p in str(module_name).split(".") if p]
+    keys = set(LORA_TE_LAYER_KEYS)
+    for i, part in enumerate(parts[:-1]):
+        if part in keys and parts[i + 1].isdigit():
+            return int(parts[i + 1])
+    return None
+
+
+def te_layer_indices(module: nn.Module) -> list[int]:
+    found: set[int] = set()
+    for name, _child in module.named_modules():
+        idx = te_layer_index(name)
+        if idx is not None:
+            found.add(idx)
+    return sorted(found)
+
+
+def is_te_attn_linear(
+    module_name: str,
+    *,
+    last_n: int = DEFAULT_TE_LAST_N,
+    layer_indices: Sequence[int] | None = None,
+) -> bool:
+    """True for last-N TE attn ``q/k/v/o`` (Gemma ``q_proj`` or ``to_q``)."""
+    idx = te_layer_index(module_name)
+    if idx is None:
+        return False
+    if layer_indices:
+        keep = set(layer_indices[-max(int(last_n), 0) :]) if last_n else set()
+        if idx not in keep:
+            return False
+    elif last_n:
+        # No catalog: accept any layer index in the last-N window if the
+        # caller already filtered. Without indices, require last_n > 0
+        # and rely on the host walk + cutoff below.
+        pass
+    parts = [p for p in str(module_name).split(".") if p]
+    if parts[-1] in LORA_TE_ATTN_NAMES or parts[-1] in ("to_q", "to_k", "to_v"):
+        return True
+    if len(parts) >= 2 and parts[-2] == "to_out" and parts[-1] == "0":
+        return True
+    return False
+
+
+def te_last_n_attn_targets(
+    encoder: nn.Module,
+    *,
+    last_n: int = DEFAULT_TE_LAST_N,
+) -> list[str]:
+    """Linear names on TE last-N layers (attn q/k/v/o only)."""
+    indices = te_layer_indices(encoder)
+    if not indices or int(last_n) <= 0:
+        return []
+    keep = set(indices[-int(last_n) :])
+    names = []
+    for name, module in encoder.named_modules():
+        if not isinstance(module, nn.Linear):
+            continue
+        idx = te_layer_index(name)
+        if idx is None or idx not in keep:
+            continue
+        if is_te_attn_linear(name, last_n=last_n, layer_indices=indices):
+            names.append(name)
+    return names
+
+
+def is_video_connector_linear(module_name: str) -> bool:
+    """True for video-connector attn / mix. Rejects audio connectors."""
+    parts = [p for p in str(module_name).split(".") if p]
+    low = str(module_name).lower()
+    if "audio" in low:
+        return False
+    video_host = (
+        "video" in low
+        or "connector" in low
+        or any(p.startswith("video") for p in parts)
+    )
+    if not video_host:
+        return False
+    if parts[-1] in ("to_q", "to_k", "to_v", "q_proj", "k_proj", "v_proj", "o_proj"):
+        return True
+    if len(parts) >= 2 and parts[-2] == "to_out" and parts[-1] == "0":
+        return True
+    if parts[-1] in ("video_mix", "mix"):
+        return True
+    return False
+
+
+def video_connector_lora_targets(connectors: nn.Module) -> list[str]:
+    names = []
+    for name, module in connectors.named_modules():
+        if isinstance(module, nn.Linear) and is_video_connector_linear(name):
+            names.append(name)
+    return names
+
+
+def embed_lora_hosts(
+    encoder: nn.Module,
+    connectors: nn.Module,
+    *,
+    last_n: int = DEFAULT_TE_LAST_N,
+) -> list[tuple[str, nn.Linear]]:
+    """``(prefixed_name, Linear)`` for TE last-N + video connectors."""
+    hosts: list[tuple[str, nn.Linear]] = []
+    for name in te_last_n_attn_targets(encoder, last_n=last_n):
+        mod = encoder.get_submodule(name)
+        if isinstance(mod, nn.Linear):
+            hosts.append((f"te.{name}", mod))
+    for name in video_connector_lora_targets(connectors):
+        mod = connectors.get_submodule(name)
+        if isinstance(mod, nn.Linear):
+            hosts.append((f"conn.{name}", mod))
+    return hosts
+
+
 class _AttnLoRA(nn.Module):
     """LoRA on one Linear. Dummy / PEFT-fallback share this."""
 
@@ -744,6 +884,73 @@ class AttnLoRANetwork(nn.Module):
         _ = unexpected
 
 
+class ModuleLoRANetwork(nn.Module):
+    """LoRA on an explicit list of Linear hosts (TE last-N + video connectors)."""
+
+    def __init__(
+        self,
+        hosts: Sequence[tuple[str, nn.Linear]],
+        rank: int,
+        alpha: float,
+        up_init_std: float = DEFAULT_LORA_UP_INIT_STD,
+    ) -> None:
+        super().__init__()
+        self.lora_scale = 1.0
+        self.alpha = float(alpha)
+        self.rank = int(rank)
+        self.up_init_std = float(up_init_std)
+        self.loras: list[_AttnLoRA] = []
+        for name, module in hosts:
+            lora_name = f"lora_ltx-{name}".replace(".", "-")
+            lora = _AttnLoRA(lora_name, module, rank, alpha, up_init_std=self.up_init_std)
+            self.loras.append(lora)
+            self.add_module(lora_name, lora)
+        if not self.loras:
+            raise ValueError(
+                "embed-match LoRA found no hosts. Need TE last-N attn "
+                "q/k/v/o and/or video-connector linears."
+            )
+
+    def set_lora_slider(self, scale: float) -> None:
+        self.lora_scale = float(scale)
+        for lora in self.loras:
+            lora.multiplier = float(scale)
+
+    def __enter__(self):
+        for lora in self.loras:
+            lora.multiplier = 1.0 * self.lora_scale
+        return self
+
+    def __exit__(self, *exc):
+        for lora in self.loras:
+            lora.multiplier = 0.0
+        return False
+
+    def save_weights(self, file: str, dtype=None) -> None:
+        from safetensors.torch import save_file
+
+        state = {k: v.detach().cpu() for k, v in self.state_dict().items()}
+        if dtype is not None:
+            state = {k: v.to(dtype) for k, v in state.items()}
+        save_file(state, file)
+
+    def load_weights(self, file: str) -> None:
+        from safetensors.torch import load_file
+
+        state = load_file(file)
+        keys = [k for k in state if str(k).startswith("lora_ltx-")]
+        if not keys:
+            raise ValueError(
+                f"{file} has no lora_ltx-* keys. LTX-2.5 embed-match sliders "
+                "save ModuleLoRANetwork weights (te.* / conn.* hosts)."
+            )
+        missing, unexpected = self.load_state_dict(state, strict=False)
+        missing_lora = [k for k in missing if str(k).startswith("lora_ltx-")]
+        if missing_lora:
+            raise ValueError(f"{file} is missing LoRA keys: {missing_lora[:8]}")
+        _ = unexpected
+
+
 class PeftLoRANetwork:
     """Live PEFT wrapper. Writes ``LoraLayer.scaling`` (set_adapter_scale no-ops)."""
 
@@ -795,20 +1002,135 @@ class PeftLoRANetwork:
         _ = missing, unexpected
 
 
-class DummyEncoder(nn.Module):
-    """Frozen stand-in for LTX Gemma 4 token features (PRE-connector)."""
+class _EmbedPeftLoRANetwork:
+    """Scale PEFT LoRA on TE and/or connectors together (DiT untouched)."""
 
-    def __init__(self, vocab: int = 128, dim: int = 8) -> None:
+    def __init__(
+        self,
+        encoder: nn.Module | None,
+        connectors: nn.Module | None,
+        rank: int,
+        alpha: float,
+    ) -> None:
+        self.encoder = encoder
+        self.connectors = connectors
+        self.rank = int(rank)
+        self.alpha = float(alpha)
+        self.lora_scale = 1.0
+        self.loras: list[Any] = []
+        self._apply_scale(1.0)
+
+    def _apply_scale(self, scale: float) -> None:
+        for mod in (self.encoder, self.connectors):
+            if mod is not None:
+                apply_continuous_lora_scale(mod, float(scale))
+
+    def set_lora_slider(self, scale: float) -> None:
+        self.lora_scale = float(scale)
+        self._apply_scale(self.lora_scale)
+
+    def __enter__(self):
+        self._apply_scale(self.lora_scale)
+        return self
+
+    def __exit__(self, *exc):
+        self._apply_scale(0.0)
+        return False
+
+    def parameters(self):
+        for mod in (self.encoder, self.connectors):
+            if mod is None:
+                continue
+            for param in mod.parameters():
+                if param.requires_grad:
+                    yield param
+
+    def state_dict(self):
+        out = {}
+        for prefix, mod in (("te", self.encoder), ("conn", self.connectors)):
+            if mod is None:
+                continue
+            for key, value in mod.state_dict().items():
+                if "lora_" in key:
+                    out[f"{prefix}.{key}"] = value
+        return out
+
+    def save_weights(self, file: str, dtype=None) -> None:
+        from safetensors.torch import save_file
+
+        state = {k: v.detach().cpu() for k, v in self.state_dict().items()}
+        if dtype is not None:
+            state = {k: v.to(dtype) for k, v in state.items()}
+        save_file(state, file)
+
+    def load_weights(self, file: str) -> None:
+        from safetensors.torch import load_file
+
+        state = load_file(file)
+        te_state = {k[3:]: v for k, v in state.items() if k.startswith("te.")}
+        conn_state = {k[5:]: v for k, v in state.items() if k.startswith("conn.")}
+        if self.encoder is not None and te_state:
+            self.encoder.load_state_dict(te_state, strict=False)
+        if self.connectors is not None and conn_state:
+            self.connectors.load_state_dict(conn_state, strict=False)
+
+
+class DummyTEAttention(nn.Module):
+    """Tiny TE attn whose names match Gemma ``q_proj/k_proj/v_proj/o_proj``."""
+
+    def __init__(self, hidden_size: int) -> None:
+        super().__init__()
+        self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.o_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # No softmax — dummy train with high CI lr must stay finite.
+        q = self.q_proj(hidden_states)
+        k = self.k_proj(hidden_states)
+        v = self.v_proj(hidden_states)
+        return self.o_proj(v + 0.05 * (q - k))
+
+
+class DummyTEBlock(nn.Module):
+    """``layers.{i}.self_attn.q_proj`` — last-N selection uses this index."""
+
+    def __init__(self, hidden_size: int) -> None:
+        super().__init__()
+        self.self_attn = DummyTEAttention(hidden_size)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return hidden_states + self.self_attn(hidden_states)
+
+
+class DummyEncoder(nn.Module):
+    """Frozen stand-in for LTX Gemma 4 token features (PRE-connector).
+
+    Last-N layers host embed-match TE LoRA. Base weights stay frozen.
+    """
+
+    def __init__(
+        self,
+        vocab: int = 128,
+        dim: int = 8,
+        n_layers: int = DUMMY_TE_LAYERS,
+    ) -> None:
         super().__init__()
         self.embed = nn.Embedding(vocab, dim)
         self.mix = nn.Linear(dim, dim, bias=False)
+        self.layers = nn.ModuleList([DummyTEBlock(dim) for _ in range(int(n_layers))])
+        self.n_layers = int(n_layers)
         self.requires_grad_(False)
         self.eval()
 
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
         raw = self.embed(token_ids)
         ctx = raw.mean(dim=1, keepdim=True).expand_as(raw)
-        return self.mix(raw + 0.15 * ctx)
+        hidden = self.mix(raw + 0.15 * ctx)
+        for block in self.layers:
+            hidden = block(hidden)
+        return hidden
 
 
 class LTX25Backend:
@@ -821,9 +1143,11 @@ class LTX25Backend:
         encoder_device: str | None = DEFAULT_ENCODER_DEVICE,
         model_id: str = DEFAULT_MODEL,
         transformer_subfolder: str = DEFAULT_TRANSFORMER_SUBFOLDER,
-        lora_rank: int = 8,
-        lora_alpha: float = 8.0,
+        lora_rank: int = DEFAULT_RANK,
+        lora_alpha: float = DEFAULT_ALPHA,
         lora_up_init_std: float = DEFAULT_LORA_UP_INIT_STD,
+        recipe: str = DEFAULT_RECIPE,
+        te_last_n: int = DEFAULT_TE_LAST_N,
         dummy: bool = False,
     ) -> None:
         self.dummy = bool(dummy)
@@ -837,6 +1161,9 @@ class LTX25Backend:
         self.lora_rank = int(lora_rank)
         self.lora_alpha = float(lora_alpha)
         self.lora_up_init_std = float(lora_up_init_std)
+        self.recipe = resolve_ltx25_recipe(recipe)
+        self.te_last_n = int(te_last_n)
+        self.embed_recipe = is_embed_recipe(self.recipe)
         self.guidance = 1.0
         self.stg_scale = 0.0
         self.modality_scale = DISTILLED_MODALITY_SCALE
@@ -861,15 +1188,25 @@ class LTX25Backend:
         self.encoder = DummyEncoder()
         self.connectors = DummyLTX2Connectors()
         self.transformer = DummyLTX2Transformer()
+        self.transformer.requires_grad_(False)
+        self.transformer.eval()
         self.vae = _FrozenStub("vae")
         self.audio_vae = _FrozenStub("audio_vae")
         self.vocoder = _FrozenStub("vocoder")
-        self.network = AttnLoRANetwork(
-            self.transformer,
-            rank=self.lora_rank,
-            alpha=self.lora_alpha,
-            up_init_std=self.lora_up_init_std,
-        )
+        if self.embed_recipe:
+            self.network = ModuleLoRANetwork(
+                embed_lora_hosts(self.encoder, self.connectors, last_n=self.te_last_n),
+                rank=self.lora_rank,
+                alpha=self.lora_alpha,
+                up_init_std=self.lora_up_init_std,
+            )
+        else:
+            self.network = AttnLoRANetwork(
+                self.transformer,
+                rank=self.lora_rank,
+                alpha=self.lora_alpha,
+                up_init_std=self.lora_up_init_std,
+            )
         self.pipe = _DummyPipe(
             tokenizer=self.tokenizer,
             text_encoder=self.encoder,
@@ -904,7 +1241,10 @@ class LTX25Backend:
                 mod.eval()
         self.transformer.requires_grad_(False)
         self.transformer.eval()
-        self.network = self._attach_lora(self.transformer)
+        if self.embed_recipe:
+            self.network = self._attach_embed_lora()
+        else:
+            self.network = self._attach_lora(self.transformer)
 
     def _attach_lora(self, transformer: nn.Module):
         targets = video_attn_lora_targets(transformer)
@@ -951,6 +1291,67 @@ class LTX25Backend:
                 network.to(dtype=host_dtype)
             return network
 
+    def _attach_embed_lora(self):
+        """LoRA on TE last-N attn + video connectors. DiT stays frozen."""
+        hosts = embed_lora_hosts(
+            self.encoder, self.connectors, last_n=self.te_last_n,
+        )
+        te_targets = te_last_n_attn_targets(self.encoder, last_n=self.te_last_n)
+        conn_targets = video_connector_lora_targets(self.connectors)
+        try:
+            from peft import LoraConfig, get_peft_model
+
+            if te_targets:
+                te_cfg = LoraConfig(
+                    r=self.lora_rank,
+                    lora_alpha=int(self.lora_alpha),
+                    target_modules=te_targets,
+                    bias="none",
+                )
+                wrapped_te = get_peft_model(self.encoder, te_cfg)
+                _init_peft_lora_up(wrapped_te, std=self.lora_up_init_std)
+                wrapped_te.to(self.encoder_device)
+                self.encoder = wrapped_te
+                if self.pipe is not None:
+                    self.pipe.text_encoder = wrapped_te
+            if conn_targets:
+                conn_cfg = LoraConfig(
+                    r=self.lora_rank,
+                    lora_alpha=int(self.lora_alpha),
+                    target_modules=conn_targets,
+                    bias="none",
+                )
+                wrapped_conn = get_peft_model(self.connectors, conn_cfg)
+                _init_peft_lora_up(wrapped_conn, std=self.lora_up_init_std)
+                wrapped_conn.to(self.encoder_device)
+                self.connectors = wrapped_conn
+                if self.pipe is not None:
+                    self.pipe.connectors = wrapped_conn
+            if te_targets or conn_targets:
+                self._peft = True
+                # PeftLoRANetwork.set_adapter_scale writes LoraLayer.scaling
+                # on whichever module it is given. Scale both via a thin
+                # wrapper that applies the same slider to TE + connectors.
+                return _EmbedPeftLoRANetwork(
+                    self.encoder if te_targets else None,
+                    self.connectors if conn_targets else None,
+                    self.lora_rank,
+                    self.lora_alpha,
+                )
+        except Exception:
+            pass
+        network = ModuleLoRANetwork(
+            hosts,
+            rank=self.lora_rank,
+            alpha=self.lora_alpha,
+            up_init_std=self.lora_up_init_std,
+        )
+        network.to(self.encoder_device)
+        host_dtype = _module_param_dtype(self.encoder) or _module_param_dtype(self.connectors)
+        if host_dtype is not None:
+            network.to(dtype=host_dtype)
+        return network
+
     def lora_module_names(self) -> list[str]:
         if self.network is None:
             return []
@@ -983,9 +1384,9 @@ class LTX25Backend:
                 embeds=embeds, token_ids=[int(x) for x in ids],
                 attention_mask=mask, hold_stage="pre_connector",
             )
-        return self._live_encode_text(prompt)
+        return self._live_encode_text(prompt, frozen=frozen)
 
-    def _live_encode_text(self, prompt: str) -> EncodedText:
+    def _live_encode_text(self, prompt: str, *, frozen: bool = True) -> EncodedText:
         """Gemma 4 12B token features, then stop — connectors run at pack().
 
         Tokenize ``add_special_tokens=False`` (survey / hold alignment).
@@ -1014,7 +1415,8 @@ class LTX25Backend:
         raw_ids = ids.tolist()[0] if hasattr(ids, "tolist") else list(ids)
         enc_dev = self.encoder_device
         encoder = self.encoder
-        with torch.no_grad():
+        ctx = torch.no_grad() if frozen else torch.enable_grad()
+        with ctx:
             out = encoder(
                 input_ids=ids.to(enc_dev),
                 attention_mask=None if mask is None else mask.to(enc_dev),
@@ -1064,6 +1466,42 @@ class LTX25Backend:
         else:
             video_e, audio_e, mask = out, out, attention_mask
         return video_e, audio_e, mask
+
+    def encode_post_connector_video(
+        self,
+        text: EncodedText,
+        *,
+        hold_neu: EncodedText | None = None,
+        hold_mask: torch.Tensor | None = None,
+        scale: float | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """PRE-connector hold, pad to %128, video connectors. No DiT.
+
+        Returns ``(video_hidden, valid_mask)`` on the connector device.
+        ``scale`` sets LoRA on TE last-N + video connectors when this
+        is an embed-match backend. Velocity backends ignore scale here
+        (DiT LoRA is not on this path).
+        """
+        if scale is not None and self.network is not None and self.embed_recipe:
+            self.network.set_lora_slider(float(scale))
+        enc = text.embeds
+        if hold_neu is not None and hold_mask is not None:
+            enc = apply_unused_hold(
+                enc, hold_neu.embeds, text.token_ids, hold_neu.token_ids, hold_mask,
+            )
+        padding_side = getattr(self.tokenizer, "padding_side", "left") or "left"
+        padded, pad_mask = pad_pre_connector_sequence(
+            enc, text.attention_mask, padding_side=padding_side,
+        )
+        ctx = self.network if (self.network is not None and self.embed_recipe) else None
+        if ctx is not None:
+            with ctx:
+                video_e, _audio_e, conn_mask = self._run_connectors(padded, pad_mask)
+        else:
+            video_e, _audio_e, conn_mask = self._run_connectors(padded, pad_mask)
+        if conn_mask is None:
+            conn_mask = pad_mask
+        return video_e, conn_mask
 
     def pack_t2v(
         self,

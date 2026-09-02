@@ -1,4 +1,4 @@
-prompts_file: "conceptmod/textsliders/data/prompts-ltx25-smile.yaml"
+prompts_file: "conceptmod/textsliders/data/prompts-ltx25-chiaroscuro.yaml"
 pretrained_model:
   name_or_path: "Lightricks/LTX-2.5-Diffusers"
   transformer_subfolder: "transformer"
@@ -67,7 +67,7 @@ train:
     - duration_head
     - diffusion_decoder
 save:
-  name: "smile-ltx25-uni"
+  name: "chiaro-ltx25-uni"
   path: "./models"
   per_steps: 100
   precision: "float32"

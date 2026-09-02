@@ -1,35 +1,39 @@
-"""UNI analog for LTX-2.5 — transformer forward as-is, not Music 3 lyric-hold.
+"""UNI analog for LTX-2.5 — embed-match default, velocity kept opt-in.
 
-LTX-2.5's ``LTX2VideoTransformer3DModel.forward`` returns
-``AudioVisualModelOutput(sample, audio_sample)``. The live
-``LTX2Pipeline`` treats that as **flow velocity** and converts with
+**Default (validated 2026-09-02, dual RTX A6000):** post-connector
+video embed-match. Student is ``encode(neu)+LoRA(scale)``. Teacher is
+frozen ``encode(plus)``. Loss is MSE + rel-L2 on **valid**
+post-connector **video** hidden states. LoRA hosts are video
+connectors + TE last-N attn ``q/k/v/o``. **DiT stays frozen.**
 
-    x0 = x_t − sigma * v
+DiT velocity UNI (attn1/attn2 LoRA, connector-only LoRA, TE-attn LoRA
+with velocity loss) is the **failed** path: live loss sat ~3.17 and
+plus/neu velocity cos ~0.9999. Decode concepts live in the text path.
+Keep ``--recipe ltx25_uni_velocity`` as opt-in only — do **not** make
+it the smile/chiaro default.
 
-(``convert_velocity_to_x0``). This module uses that actual forward.
-It does **not** wrap the stack as a conceptmod ``predict_v`` / Euler DiT.
+Working diagnostic: encode plus vs neu; post-connector video
+``mean_cos`` ~0.68. Transplanting plus concept-token (or full plus)
+embeds onto neu conditioning produces teeth/smile while holding
+identity. That is why the teacher is frozen plus embeds, not DiT
+velocity.
 
 Sana / H3 caption-coupling lesson (do not re-learn):
 
-* student +1 (LoRA on, **neu** pack — the infer path) → frozen teacher
-  velocity on the plus pack
-* student scale 0 (adapter off, neu pack) → frozen teacher on neu
+* student +1 (LoRA on, **neu** caption — the infer path) → frozen
+  teacher on plus
 * plus is **teacher-only**. If student(+1) trains on the plus caption,
-  scale 1 on neu will not hit the concept (Sana age dud / H3 coupling).
+  scale 1 on neu will not hit the concept.
 * no minus teacher (yaml negative is a logged canary only)
 * hold every **non-concept** token (default) to the matching
-  ``encode(neu)`` row — Music 3 lyric-hold analog. Yaml attributes
-  (male/female) are a subset of that hold.
+  ``encode(neu)`` row **PRE-connector**. Yaml attributes (male/female)
+  are a subset of that hold.
 * ``hold_mode=attributes`` is the leaky subset (shared subject stays free).
 * do **not** hold concept words (token ids in + that are absent from neu).
 * fail closed if the + prompt has no concept-word tokens.
 
-**Hypothesis (not a prescription):** H3 packed-t2va UNI matched
-teacher-plus at high cosine (~0.96–0.98) with embed hold already
-pinned (``held_mean_abs`` 0) but decoded clips still flipped identity
-vs lighting. Velocity-space UNI + token hold may not pin decoded
-structure. Distilled 8-sigma / CFG=1 geometry may also differ from
-SFT; this module still implements a working distilled card first.
+The velocity helpers below stay so ``--recipe ltx25_uni_velocity``
+still runs. They are not the smile/chiaro card.
 """
 
 from __future__ import annotations
@@ -43,6 +47,44 @@ HOLD_MODE_NON_CONCEPT = "non_concept"
 HOLD_MODE_ATTRIBUTES = "attributes"
 HOLD_MODES = (HOLD_MODE_NON_CONCEPT, HOLD_MODE_ATTRIBUTES)
 DEFAULT_HOLD_MODE = HOLD_MODE_NON_CONCEPT
+
+RECIPE_EMBED = "ltx25_uni_embed"
+RECIPE_VELOCITY = "ltx25_uni_velocity"
+RECIPE_ALIASES = {
+    "embed": RECIPE_EMBED,
+    "embed_match": RECIPE_EMBED,
+    "embed-match": RECIPE_EMBED,
+    "ltx25_uni_embed": RECIPE_EMBED,
+    "ltx25_embed_match": RECIPE_EMBED,
+    "velocity": RECIPE_VELOCITY,
+    "dit": RECIPE_VELOCITY,
+    "ltx25_uni_velocity": RECIPE_VELOCITY,
+}
+RECIPE_CHOICES = tuple(dict.fromkeys((RECIPE_EMBED, RECIPE_VELOCITY, *RECIPE_ALIASES)))
+DEFAULT_RECIPE = RECIPE_EMBED
+DEFAULT_TE_LAST_N = 4
+DEFAULT_EMBED_REL_L2_WEIGHT = 1.0
+DEFAULT_EMBED_REL_L2_EPS = 1e-6
+# Live post-connector plus vs neu mean_cos sat ~0.68 (working gap).
+# Velocity plus vs neu cos ~0.9999 is the dead teacher.
+EMBED_GAP_COS_LIVE = 0.68
+
+
+def resolve_ltx25_recipe(recipe: str | None) -> str:
+    """Canonical recipe. Embed-match is the smile/chiaro default."""
+    raw = DEFAULT_RECIPE if recipe is None else str(recipe).strip().lower()
+    resolved = RECIPE_ALIASES.get(raw, raw)
+    if resolved not in (RECIPE_EMBED, RECIPE_VELOCITY):
+        raise ValueError(
+            f"recipe must be one of {RECIPE_CHOICES}, got {recipe!r}. "
+            f"{RECIPE_EMBED} is the validated smile/chiaro card; "
+            f"{RECIPE_VELOCITY} is the failed DiT velocity path (opt-in only)."
+        )
+    return resolved
+
+
+def is_embed_recipe(recipe: str | None) -> bool:
+    return resolve_ltx25_recipe(recipe) == RECIPE_EMBED
 
 
 class LTX25HoldError(ValueError):
@@ -265,6 +307,140 @@ def ltx25_unused_hold_loss(
     if not bool(mask.any()):
         return student_embeds.reshape(-1)[:1].sum() * 0.0
     return float(hold_weight) * F.mse_loss(student_embeds[:n][mask], neu_embeds[:n][mask])
+
+
+def _as_bt_d(hidden: torch.Tensor) -> torch.Tensor:
+    """Coerce video hidden to ``(B, T, D)``."""
+    if hidden.ndim == 2:
+        return hidden.unsqueeze(0)
+    if hidden.ndim != 3:
+        raise ValueError(f"post-connector hidden must be (B, T, D), got {tuple(hidden.shape)}")
+    return hidden
+
+
+def valid_hidden_rows(
+    hidden: torch.Tensor,
+    attention_mask: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Keep valid post-connector rows. Returns ``(B, T, D)`` + weight ``(B, T, 1)``.
+
+    Pad / register-replaced positions with mask 0 do not enter embed-match.
+    A missing mask treats every row as valid. ``T`` is unchanged so plus/neu
+    connector outputs (same pad target) stay index-aligned.
+    """
+    hidden = _as_bt_d(hidden)
+    if attention_mask is None:
+        weight = hidden.new_ones(hidden.shape[0], hidden.shape[1], 1)
+        return hidden, weight
+    mask = attention_mask.to(device=hidden.device)
+    if mask.ndim == 3:
+        mask = mask.reshape(mask.shape[0], mask.shape[1])
+    if mask.shape[0] != hidden.shape[0] or mask.shape[1] != hidden.shape[1]:
+        raise ValueError(
+            f"valid mask shape {tuple(mask.shape)} != hidden ({hidden.shape[0]}, {hidden.shape[1]})"
+        )
+    weight = (mask > 0).to(dtype=hidden.dtype).unsqueeze(-1)
+    return hidden, weight
+
+
+def align_valid_pair(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    pred_mask: torch.Tensor | None = None,
+    tgt_mask: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Align student/teacher post-connector video for MSE + rel-L2.
+
+    Same ``T``: AND the valid masks (index-aligned after left-pad).
+    Different ``T``: mean-pool each valid set to ``(B, 1, D)`` — the
+    live transplant diagnostic used mean_cos, not a token zip.
+    """
+    pred_h, pred_w = valid_hidden_rows(pred, pred_mask)
+    tgt_h, tgt_w = valid_hidden_rows(tgt, tgt_mask)
+    if pred_h.shape[0] != tgt_h.shape[0]:
+        raise ValueError(
+            f"batch mismatch: student {tuple(pred_h.shape)} vs teacher {tuple(tgt_h.shape)}"
+        )
+    if pred_h.shape[1] == tgt_h.shape[1] and pred_h.shape[-1] == tgt_h.shape[-1]:
+        weight = pred_w * tgt_w
+        if float(weight.sum()) <= 0:
+            weight = pred_h.new_ones(pred_h.shape[0], pred_h.shape[1], 1)
+        return pred_h, tgt_h, weight
+    # T or D differs: pool valid rows. Dummy/live pad target is normally equal.
+    pred_pool = _masked_mean_tokens(pred_h, pred_w)
+    tgt_pool = _masked_mean_tokens(tgt_h, tgt_w)
+    ones = pred_pool.new_ones(pred_pool.shape[0], 1, 1)
+    return pred_pool, tgt_pool, ones
+
+
+def _masked_mean_tokens(hidden: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    denom = weight.sum(dim=1, keepdim=True).clamp(min=1.0)
+    return (hidden * weight).sum(dim=1, keepdim=True) / denom
+
+
+def ltx25_embed_mse(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    pred_mask: torch.Tensor | None = None,
+    tgt_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Masked MSE on valid post-connector video rows."""
+    pred_h, tgt_h, weight = align_valid_pair(pred, tgt, pred_mask, tgt_mask)
+    denom = weight.sum().clamp(min=1.0) * pred_h.shape[-1]
+    return ((pred_h - tgt_h).pow(2) * weight).sum() / denom
+
+
+def ltx25_embed_rel_l2(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    pred_mask: torch.Tensor | None = None,
+    tgt_mask: torch.Tensor | None = None,
+    *,
+    eps: float = DEFAULT_EMBED_REL_L2_EPS,
+) -> torch.Tensor:
+    """``||s−t||² / (||t||²+eps)`` on valid post-connector video rows.
+
+    Scale-invariant sibling of Krea embed rel-L2. ``tgt`` must already
+    be stopgrad. High-cos / wrong-magnitude students still score high.
+    """
+    pred_h, tgt_h, weight = align_valid_pair(pred, tgt, pred_mask, tgt_mask)
+    diff_sq = ((pred_h - tgt_h).pow(2) * weight).sum()
+    tgt_sq = ((tgt_h.pow(2) * weight).sum()).clamp_min(float(eps))
+    return diff_sq / tgt_sq
+
+
+def ltx25_embed_match_loss(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    pred_mask: torch.Tensor | None = None,
+    tgt_mask: torch.Tensor | None = None,
+    *,
+    rel_l2_weight: float = DEFAULT_EMBED_REL_L2_WEIGHT,
+    eps: float = DEFAULT_EMBED_REL_L2_EPS,
+) -> torch.Tensor:
+    """Student ``encode(neu)+LoRA`` → stopgrad frozen ``encode(plus)``.
+
+    MSE + rel-L2 on **valid post-connector video** hidden states.
+    No DiT velocity term. ``tgt`` must already be stopgrad.
+    """
+    loss = ltx25_embed_mse(pred, tgt, pred_mask, tgt_mask)
+    rel_w = float(rel_l2_weight)
+    if rel_w > 0.0:
+        loss = loss + rel_w * ltx25_embed_rel_l2(
+            pred, tgt, pred_mask, tgt_mask, eps=eps,
+        )
+    return loss
+
+
+def post_connector_mean_cos(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_mask: torch.Tensor | None = None,
+    b_mask: torch.Tensor | None = None,
+) -> dict[str, float]:
+    """Valid-row mean-pool cosine + L2. Live plus/neu sat ~0.68."""
+    a_h, b_h, _w = align_valid_pair(a, b, a_mask, b_mask)
+    return cosine_l2(a_h, b_h)
 
 
 def ltx25_uni_total_loss(
