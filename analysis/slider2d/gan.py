@@ -235,6 +235,14 @@ def fit_adv(
             g_extra = g_extra + float(cfg.vicreg_weight) * vicreg_loss(parts)
         if float(cfg.particle_l2) > 0.0:
             g_extra = g_extra + float(cfg.particle_l2) * parts.pow(2).mean()
+        if float(cfg.cover_weight) > 0.0:
+            # Mode pin: land the shared residual on the teacher centers.
+            # Off by default; used only if RpGAN undershoots pole coverage.
+            cover = residual.w_odd.new_zeros(())
+            for i in range(neus.shape[0]):
+                cover = cover + (neus[i] + residual.delta(1.0) - poles_p[i]).pow(2).mean()
+                cover = cover + (neus[i] + residual.delta(-1.0) - poles_m[i]).pow(2).mean()
+            g_extra = g_extra + float(cfg.cover_weight) * cover / float(neus.shape[0])
         g_loss = g_adv + g_extra
         opt_g.zero_grad()
         g_loss.backward()
@@ -242,9 +250,10 @@ def fit_adv(
         ema.update(residual.parameters())
 
         if step == 0 or (step + 1) % 50 == 0 or step + 1 == cfg.steps:
-            with torch.no_grad():
-                gn_r = input_grad(critic, real.detach().requires_grad_(True)).flatten(1).norm(dim=1).mean()
-                gn_f = input_grad(critic, fake.detach().requires_grad_(True)).flatten(1).norm(dim=1).mean()
+            probe_r = real.detach().requires_grad_(True)
+            probe_f = fake.detach().requires_grad_(True)
+            gn_r = input_grad(critic, probe_r).flatten(1).norm(dim=1).mean()
+            gn_f = input_grad(critic, probe_f).flatten(1).norm(dim=1).mean()
             logs["d"].append(float(d_loss.detach()))
             logs["g"].append(float(g_loss.detach()))
             logs["cap"].append(float(cap.detach()))
@@ -475,20 +484,27 @@ def train_lm_adv(
     field: Field2D,
     pairs=None,
     *,
-    teacher: str = "faithful_guard_e",
+    teacher: str = "faithful",
     cfg: AdvConfig | None = None,
+    with_attrs: bool = True,
 ) -> Residual:
-    """Field2D residual via the same game. Used for leak_frac / polarity."""
+    """Field2D residual via the same game. Used for leak_frac / polarity.
+
+    Default real cloud is attribute-pinned poles (the ``faithful_attrs``
+    data fix). Ungated poles copy even leftover ê the same way
+    ``faithful_raw`` does — leak_ratio ~1.3 — so the 2-D polarity cell
+    would Goodhart a leaky teacher.
+    """
     cfg = cfg or AdvConfig()
     torch.manual_seed(int(cfg.seed))
-    pairs = pairs if pairs is not None else music3_pairs(False)
+    pairs = pairs if pairs is not None else music3_pairs(with_attrs)
     t = 0.5
     plus, minus, neus = [], [], []
     for pair in pairs:
         pos = field.embed(pair.positive, t)
         neg = field.embed(pair.negative, t)
         neu = field.embed(pair.neutral, t)
-        if teacher == "faithful":
+        if teacher == "faithful" or with_attrs:
             t_plus, t_minus = pos, neg
         elif teacher == "faithful_sub_e_if_unused":
             t_plus, t_minus = lm_faithful_sub_e_if_unused(
@@ -566,6 +582,12 @@ def train_lm_adv(
             g_loss = g_loss + float(cfg.vicreg_weight) * vicreg_loss(parts)
         if cfg.particle_l2:
             g_loss = g_loss + float(cfg.particle_l2) * parts.pow(2).mean()
+        if cfg.cover_weight:
+            cover = residual.w_odd.new_zeros(())
+            for i in range(neus_t.shape[0]):
+                cover = cover + (neus_t[i] + residual.delta(1.0) - poles_p[i]).pow(2).mean()
+                cover = cover + (neus_t[i] + residual.delta(-1.0) - poles_m[i]).pow(2).mean()
+            g_loss = g_loss + float(cfg.cover_weight) * cover / float(neus_t.shape[0])
         opt_g.zero_grad()
         g_loss.backward()
         opt_g.step()
@@ -575,11 +597,16 @@ def train_lm_adv(
     return as_train_residual(residual.snapshot())
 
 
-def score_field2d(cfg: AdvConfig | None = None, *, teacher: str = DEFAULT_TEACHER) -> dict:
+def score_field2d(
+    cfg: AdvConfig | None = None,
+    *,
+    teacher: str = "faithful",
+    with_attrs: bool = True,
+) -> dict:
     """Geometry + leftover bipolar on the original 2-D field."""
     cfg = cfg or AdvConfig()
     field = Field2D()
-    residual = train_lm_adv(field, teacher=teacher, cfg=cfg)
+    residual = train_lm_adv(field, teacher=teacher, cfg=cfg, with_attrs=with_attrs)
     metrics = score_residual(residual)
     leftover = leftover_bipolar(residual.delta(1.0), residual.delta(-1.0))
     metrics.update(leftover)

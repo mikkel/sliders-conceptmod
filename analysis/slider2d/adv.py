@@ -206,8 +206,8 @@ class EMA:
 class AdvConfig:
     """Hyperparameters for the 2-D / sheet / exam adversarial fit."""
 
-    steps: int = 1600
-    lr: float = 2.0e-3
+    steps: int = 1200
+    lr: float = 5.0e-3
     beta1: float = 0.0
     beta2: float = 0.99
     b_cap: float = 1.0
@@ -219,11 +219,12 @@ class AdvConfig:
     end_margin: float = 0.60
     fm_weight: float = 0.0
     fm_normalize: bool = True
-    vicreg_weight: float = 0.15
-    particle_l2: float = 0.08
+    vicreg_weight: float = 0.05
+    particle_l2: float = 0.02
+    cover_weight: float = 1.5
     d_steps: int = 1
     ema: float = 0.995
-    delay: int = 200
+    delay: int = 80
     min_lr_ratio: float = 0.05
     critic_hidden: int = 64
     critic_n_rand: int = 16

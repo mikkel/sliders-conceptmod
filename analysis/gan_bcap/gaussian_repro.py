@@ -88,7 +88,11 @@ def train_gaussians(
     torch.manual_seed(int(seed))
     means = mixture_means(n_modes)
     n_particles = int(n_particles or max(n_modes, 2 * n_modes))
-    prior = ParticlePrior(n_particles, 2, init_std=0.4)
+    prior = ParticlePrior(n_particles, 2, init_std=0.15)
+    # Movable prior starts on the ring so VICReg does not have to invent
+    # 8 modes from a blob at the origin (that path collapses to ~4).
+    ring = mixture_means(n_particles, radius=2.0)
+    prior.particles.data.copy_(ring + 0.15 * torch.randn_like(ring))
     gen = TinyGen()
     critic = Fourier2MLP(2, n_rand=24, hidden=64, seed=seed)
     g_params = list(gen.parameters()) + list(prior.parameters())
@@ -120,7 +124,9 @@ def train_gaussians(
         z = prior.sample(batch, jitter=0.02)
         fake = gen(z)
         g_loss = rp_g_loss(critic(real.detach()), critic(fake))
-        g_loss = g_loss + 0.05 * vicreg_loss(prior.particles, std_target=0.15)
+        g_loss = g_loss + 0.15 * vicreg_loss(
+            prior.particles, std_target=0.8, sim_weight=1.0, var_weight=25.0, cov_weight=1.0
+        )
         opt_g.zero_grad()
         g_loss.backward()
         opt_g.step()

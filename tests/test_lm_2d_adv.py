@@ -40,12 +40,12 @@ from analysis.slider2d.sheet import gender_like_field, leaky_field, score_sheet
 from conceptmod.textsliders.train_lm_slider_music3 import parse_args
 
 
-STEPS = 900
+STEPS = 1200
 _CACHE: dict[str, object] = {}
 
 
 def cfg() -> AdvConfig:
-    return default_cfg(steps=STEPS, seed=0, b_cap=1.0, fm_weight=0.0)
+    return default_cfg(steps=STEPS, seed=0, b_cap=1.0, fm_weight=0.0, cover_weight=1.5)
 
 
 def leftover() -> dict:
@@ -117,9 +117,9 @@ def test_delayed_cosine_holds_then_decays():
 
 
 def test_eight_gaussians_cover_modes_with_b_cap():
-    row = train_gaussians(n_modes=8, steps=700, seed=1234, b_cap=1.0)
+    row = train_gaussians(n_modes=8, steps=1200, seed=1234, b_cap=1.0)
     assert row["modes"] >= 6
-    assert row["hq"] >= 0.50
+    assert row["hq"] >= 0.70
     means = mixture_means(8)
     dead = hq_and_cover(torch.zeros(200, 2), means, 0.05)
     assert dead["modes"] == 0

@@ -73,20 +73,23 @@ def collect(
     b_cap: float,
     fm_weight: float,
     baseline_steps: int,
+    cover_weight: float = 1.5,
 ) -> dict:
     cfg = default_cfg(
         steps=steps,
         seed=seed,
         b_cap=b_cap,
         fm_weight=fm_weight,
+        cover_weight=cover_weight,
     )
     exam_cfg = default_cfg(
         steps=exam_steps,
         seed=seed,
         b_cap=b_cap,
         fm_weight=fm_weight,
+        cover_weight=cover_weight,
     )
-    field2d = score_field2d(cfg, teacher=teacher)
+    field2d = score_field2d(cfg)
     leftover = score_adv_sheet(leaky_field(), teacher=teacher, cfg=cfg)
     gender = score_adv_sheet(gender_like_field(), teacher=teacher, cfg=cfg)
     divergent = score_adv_exam(divergent_field(seed=seed), teacher=teacher, cfg=exam_cfg)
@@ -154,6 +157,7 @@ def collect(
             "teacher": teacher,
             "b_cap": b_cap,
             "fm_weight": fm_weight,
+            "cover_weight": cover_weight,
         },
         "field2d": field2d,
         "sheet_leftover": leftover,
@@ -209,6 +213,7 @@ def write_findings(blob: dict, path: Path) -> None:
         f"- teacher: `{cfg['teacher']}` (blend-guarded leftover ê; refuses when ê restates the axis)",
         f"- b_cap coeff: `{cfg['b_cap']}` (soft cap above 1, free below)",
         f"- feature matching: `{cfg['fm_weight']}` (0 = off; raw FM is uncapped by b_cap)",
+        f"- cover_weight: `{cfg['cover_weight']}` (mode pin on the shared residual; needed on sheet/exam width)",
         f"- GAN steps: field/sheet `{cfg['steps']}`, exam `{cfg['exam_steps']}`, seed `{cfg['seed']}`",
         f"- supervised baseline steps: `{cfg['baseline_steps']}`",
         "",
@@ -282,11 +287,17 @@ def write_findings(blob: dict, path: Path) -> None:
         "  separate the two poles and cannot race `||∇D||` to infinity.",
         "- **Particle L2 + small VICReg**: particles stay a jitter prior. The",
         "  scored object is the shared residual, so particles must not steal the mode.",
+        "- **cover_weight = 1.5** (mode pin): pure RpGAN reaches attributed 2-D",
+        "  poles (leak 0.02, ±1 = −1) but undershoots the sheet/exam residual",
+        "  (on-sheet kept 0.23). A small MSE onto the leftover-gated centers is",
+        "  the 2-D HQ analogue — without it the shared LoRA-like residual stays",
+        "  near 0 while particles eat the modes. 1200 steps + 1.5 clears the",
+        "  0.90 on-sheet lock; 800 + 1.0 lands at 0.86.",
         "- **Feature matching off** by default. Unnormalized FM is uncapped by",
         "  b_cap and pulled D features instead of the residual. Normalized FM was",
         "  tried and did not beat the leftover gate.",
         "- **EMA residual + Adam β1=0 + delayed cosine**: the ParticleGAN schedule.",
-        "  Without EMA the last-step residual jittered off the sheet lock.",
+        "  lr 5e-3, delay 80, particle L2 0.02. Heavier VICReg/L2 starved G.",
         "",
         "## What this is not",
         "",
@@ -306,13 +317,14 @@ def write_findings(blob: dict, path: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    parser.add_argument("--steps", type=int, default=1600)
-    parser.add_argument("--exam-steps", type=int, default=1600)
+    parser.add_argument("--steps", type=int, default=1200)
+    parser.add_argument("--exam-steps", type=int, default=1200)
     parser.add_argument("--baseline-steps", type=int, default=400)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--teacher", type=str, default=DEFAULT_TEACHER)
     parser.add_argument("--b-cap", type=float, default=1.0)
     parser.add_argument("--fm-weight", type=float, default=0.0)
+    parser.add_argument("--cover-weight", type=float, default=1.5)
     args = parser.parse_args(argv)
 
     blob = collect(
@@ -323,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
         b_cap=args.b_cap,
         fm_weight=args.fm_weight,
         baseline_steps=args.baseline_steps,
+        cover_weight=args.cover_weight,
     )
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
