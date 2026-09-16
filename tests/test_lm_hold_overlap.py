@@ -128,6 +128,31 @@ def test_slider_ortho_locks_live_like_overlap():
         assert abs(row["hold_dot_u"]) < 1e-5
 
 
+def test_perp_hold_is_not_v12_looking():
+    """Slider lock ≠ copied pair-odd. Hold working makes c+ / perc worse."""
+    held = score_overlap_policy(
+        "perp_0.5",
+        overlap=0.5,
+        hold_weight=LEAK_HOLD_WEIGHT,
+        ortho="slider",
+        steps=200,
+        seed=0,
+    )
+    copied = score_overlap_policy("no_hold", overlap=0.5, hold_weight=0.0, steps=200, seed=0)
+    assert held["pass"] is True
+    assert held["cos_intended"] > 0.90
+    assert abs(held["leak_ratio"]) <= 0.20
+    assert held["cos_teacher"] == pytest.approx(0.70, abs=0.08)
+    assert held["perc"] == pytest.approx(0.72, abs=0.08)
+    assert held["loss"] > 0.50
+    assert held.get("looks_like_v12") is False
+    assert copied["cos_teacher"] > 0.95
+    assert copied["loss"] < 0.05
+    assert copied.get("looks_like_v12") is True
+    # v12 / Hub copies leaky a. Do not call that leak-free.
+    assert abs(copied["leak_ratio"]) > 1.0
+
+
 def test_slider_ortho_cannot_invent_unused_when_e_is_u():
     row = score_overlap_policy(
         "perp_1", overlap=1.0, hold_weight=LEAK_HOLD_WEIGHT, ortho="slider", steps=200, seed=0
