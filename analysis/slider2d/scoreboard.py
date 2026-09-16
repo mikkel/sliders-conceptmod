@@ -130,6 +130,7 @@ SHEET_LEFTOVER = {
     "pair_odd_sub_e": "v15_pair_odd_sub_e",
     "faithful_sub_e": "faithful_sub_e",
     "faithful_sub_e_if_unused": "faithful_sub_e",
+    "faithful_even_blend": "faithful_sub_e",
     "faithful_guard_e": "faithful_guard_e",
     "dual_band_poles": "dual_band_poles",
     "dual_band_guard_e": "dual_band_guard_e",
@@ -145,6 +146,7 @@ SHEET_GENDER = {
     "faithful_raw": "v6_faithful",
     "faithful_attrs": "v6_faithful",
     "faithful_sub_e_if_unused": "v6_faithful",
+    "faithful_even_blend": "v6_faithful",
     "faithful_guard_e": "faithful_guard_e",
     "dual_band_poles": "dual_band_poles",
     "dual_band_guard_e": "dual_band_guard_e",
@@ -338,7 +340,8 @@ def exam_score(
     count. ``unused_e`` / the #22 sheet cells are other questions. A pair
     the recipe has no reading on is skipped, not a free 1.0. No live-pair
     reading at all is ``None`` (sort last). Pair-odd cos, ±1 collapse,
-    pole loss and ``p%`` / ``n%`` are not inputs.
+    pole loss, ``p%`` / ``n%``, and off-caption / same_words / coherence
+    are not inputs.
     """
     scores: list[float] = []
     for cell in EXAM_SCORE_PAIRS:
@@ -349,6 +352,27 @@ def exam_score(
     if not scores:
         return None
     return min(scores)
+
+
+def recipe_off_caption(off: dict | None = None) -> tuple[float | None, str | None]:
+    """Worst live-pair smear: ``max(off_caption)`` on ``exam_divergent`` / ``exam_close``.
+
+    Logged, never scored. A pair with no reading is skipped, not a free
+    0.0 — a midpoint that was never read must not look clean. No live-pair
+    reading at all is ``(None, None)``. ``unused_e`` stays out, same as
+    ``exam_score``.
+    """
+    worst: float | None = None
+    pair: str | None = None
+    for cell in EXAM_SCORE_PAIRS:
+        value = (off or {}).get(cell)
+        if value is None:
+            continue
+        value = float(value)
+        if worst is None or value > worst:
+            worst = value
+            pair = cell
+    return worst, pair
 
 
 def sort_rows(rows: list[dict]) -> list[dict]:
@@ -521,7 +545,11 @@ def _row(
     exam_rows = found["rows"]
     exam_overlap = {key: row["roll_overlap"] for key, row in exam_rows.items()}
     exam_swing = {key: row["roll_swing_kept"] for key, row in exam_rows.items()}
+    exam_off_caption = {key: row["roll_off_corpus"] for key, row in exam_rows.items()}
+    exam_same_words = {key: row["roll_match_kept"] for key, row in exam_rows.items()}
+    exam_coherence = {key: row["roll_coherence"] for key, row in exam_rows.items()}
     score = exam_score(exam_overlap, exam_swing)
+    off_caption, off_caption_pair = recipe_off_caption(exam_off_caption)
     verdict = compiled_verdict(
         cells=cells,
         pair_odd_cos=pair_odd_cos,
@@ -559,6 +587,11 @@ def _row(
         },
         "exam_overlap": exam_overlap,
         "exam_swing": exam_swing,
+        "exam_off_caption": exam_off_caption,
+        "exam_same_words": exam_same_words,
+        "exam_coherence": exam_coherence,
+        "off_caption": off_caption,
+        "off_caption_pair": off_caption_pair,
         "exam_flags": {
             key: "KL-small / hidden-far"
             for key, row in exam_rows.items()
@@ -946,6 +979,23 @@ def collect_scoreboard(
             ),
         ),
         _row(
+            "faithful_even_blend",
+            "faithful_even_blend (leftover-gate odd + half leak-pair even)",
+            exam=exam,
+            leftover=sheet_left("faithful_sub_e"),
+            gender=sheet_gen("v6_faithful"),
+            leftover_leak=sheet_left("faithful_sub_e").get("leak_tok"),
+            fixture="pair-exam even-blend + leftover-gate sheet (leftover-sheet even is near-zero)",
+            notes=(
+                "live v21: leftover-gate the odd part and subtract "
+                "--even_blend_scale (default 0.5) of leak-pair even leftover. "
+                "Board id is the live --lm_target; the even-leftover search "
+                "named the same point gate_odd_even_blend_s50. Sheet inherited "
+                "from leftover-gate — leftover-sheet ê is odd, so even blend "
+                "does not move that cell."
+            ),
+        ),
+        _row(
             "faithful_guard_e",
             "blend-guarded ê on real poles",
             exam=exam,
@@ -1195,6 +1245,9 @@ def gates_blob() -> dict:
         "collapse_scored": False,
         "pole_loss_scored": False,
         "perc_scored": False,
+        "off_caption_scored": False,
+        "same_words_scored": False,
+        "coherence_scored": False,
         "prose": (
             "A recipe WORKS only if **every pair it has a reading on** passes. "
             "On a pair-exam cell that means the student's own continuation stays "
@@ -1210,18 +1263,24 @@ def gates_blob() -> dict:
             f"off-sheet mass ≤ {COMPILED_GARBLE_MAX}, argmax-on-sheet = "
             f"{COMPILED_ARGMAX_LOCK:g} and concept swing kept ≥ "
             f"{COMPILED_SWING_FLOOR}. Pair-odd cos, ±1 collapse, the pole loss "
-            "and p%/n% are logged and never scored. The sortable number is "
-            "exam_score = min(overlap, swing) over the live exam pairs that "
-            "row is read on (divergent / close). unused_e and the sheet cells "
-            "are other questions and are not folded in. A pair with no reading "
-            "is skipped; a recipe with no live-pair reading is null and sorts "
-            "last. works-on-some-pairs means the recipe passes on at least one "
-            "pair and fails on another — the verdict the 2026-08-25 live exam "
-            "forces, because the same recipe is the energy win and the gender "
-            "garble."
+            "and p%/n% are logged and never scored. Pair-exam off-caption "
+            "(and same_words / coherence) are also logged on this board and "
+            "are not folded into exam_score or the compiled works/fails "
+            "verdict. The sortable number is exam_score = min(overlap, swing) "
+            "over the live exam pairs that row is read on (divergent / close). "
+            "unused_e and the sheet cells are other questions and are not "
+            "folded in. A pair with no reading is skipped; a recipe with no "
+            "live-pair reading is null and sorts last. works-on-some-pairs "
+            "means the recipe passes on at least one pair and fails on "
+            "another — the verdict the 2026-08-25 live exam forces, because "
+            "the same recipe is the energy win and the gender garble."
         ),
         "exam_score_rule": "min(overlap, swing) over exam_divergent and exam_close",
         "exam_score_pairs": list(EXAM_SCORE_PAIRS),
+        "off_caption_rule": (
+            "max(roll_off_corpus) over exam_divergent and exam_close; "
+            "logged, never scored"
+        ),
     }
 
 
@@ -1264,7 +1323,14 @@ def floatable_row(row: dict) -> dict:
         if key in ("cells_failed", "cells_passed"):
             out[key] = list(value)
             continue
-        if key in ("exam_near_gate", "exam_overlap", "exam_swing"):
+        if key in (
+            "exam_near_gate",
+            "exam_overlap",
+            "exam_swing",
+            "exam_off_caption",
+            "exam_same_words",
+            "exam_coherence",
+        ):
             out[key] = {k: (list(v) if isinstance(v, list) else v) for k, v in value.items()}
             continue
         if isinstance(value, (int, float, str, bool)) or value is None:
